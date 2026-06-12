@@ -1,0 +1,117 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum TenantPlan {
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  TENANT_ADMIN
+  MANAGER
+  STAFF
+  VIEWER
+}
+
+// ============================================
+// CORE TABLES
+// ============================================
+
+/// Multi-tenant root entity
+model Tenant {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  planId    TenantPlan @default(STARTER) @map("plan_id")
+  companyName String @map("company_name")
+  taxNumber String @unique @map("tax_number")
+  status    TenantStatus @default(ACTIVE)
+  settings  Json? // flexible config storage
+  
+  // Relations
+  users     User[]
+  branches  Branch[]
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at") // soft delete
+
+  @@map("tenants")
+  @@index([status])
+  @@index([deletedAt])
+}
+
+/// User accounts - multi-tenant
+model User {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @db.Uuid @map("tenant_id")
+  branchId        String?  @db.Uuid @map("branch_id")
+  email           String   @map("email")
+  passwordHash    String   @map("password_hash")
+  role            UserRole @default(STAFF)
+  isActive        Boolean  @default(true) @map("is_active")
+  lastLoginAt     DateTime? @map("last_login_at")
+  
+  // Relations
+  tenant          Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch          Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at") // soft delete
+
+  @@unique([tenantId, email]) // one email per tenant
+  @@map("users")
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+/// Business branches/locations
+model Branch {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid @map("tenant_id")
+  name      String
+  slug      String   @map("slug")
+  address   String?
+  phone     String?
+  timezone  String   @default("UTC")
+  isActive  Boolean  @default(true) @map("is_active")
+  
+  // Relations
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users     User[]
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at") // soft delete
+
+  @@unique([tenantId, slug]) // unique slug per tenant
+  @@map("branches")
+  @@index([tenantId])
+  @@index([isActive])
+  @@index([deletedAt])
+}

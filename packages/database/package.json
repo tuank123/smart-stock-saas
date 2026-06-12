@@ -1,0 +1,22 @@
+{
+  "name": "database",
+  "version": "0.1.0",
+  "description": "StokPilot Database Layer",
+  "private": true,
+  "scripts": {
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "db:seed": "node prisma/seed.js",
+    "build": "echo 'Database package does not require building'",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.7.1"
+  },
+  "devDependencies": {
+    "prisma": "^5.7.1",
+    "typescript": "^5.3.3"
+  }
+}

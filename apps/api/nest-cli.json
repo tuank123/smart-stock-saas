@@ -1,0 +1,16 @@
+{
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "monorepoMode": true,
+  "projects": {
+    "api": {
+      "type": "application",
+      "root": ".",
+      "entryFile": "main",
+      "sourceRoot": "src",
+      "compilerOptions": {
+        "tsConfigPath": "tsconfig.json"
+      }
+    }
+  }
+}
