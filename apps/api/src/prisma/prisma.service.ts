@@ -35,16 +35,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
    * @param isSuperAdmin - Whether the current user is SUPER_ADMIN (bypasses RLS)
    */
   async setTenantContext(tenantId: string, isSuperAdmin = false): Promise<void> {
-    try {
-      await this.$executeRawUnsafe(
-        `SET LOCAL app.tenant_id = '${tenantId}'`,
-      );
-      await this.$executeRawUnsafe(
-        `SET LOCAL app.is_super_admin = '${isSuperAdmin}'`,
-      );
-    } catch (error) {
-      console.warn('Failed to set tenant context for RLS:', error);
-      // Non-blocking: continue even if RLS context setting fails
-    }
+    await this.$executeRawUnsafe(
+      `SET app.tenant_id = '${tenantId}'`,
+    );
+    await this.$executeRawUnsafe(
+      `SET app.is_super_admin = '${isSuperAdmin}'`,
+    );
   }
 }

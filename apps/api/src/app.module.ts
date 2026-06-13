@@ -8,6 +8,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { BranchesModule } from './modules/branches/branches.module';
+import { StaffRegistrationModule } from './modules/staff-registration/staff-registration.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -38,6 +39,7 @@ import { validateEnv } from './config/env.validation';
     UsersModule,
     TenantsModule,
     BranchesModule,
+    StaffRegistrationModule,
   ],
 
   // ============================================
