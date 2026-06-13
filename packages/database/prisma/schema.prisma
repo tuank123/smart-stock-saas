@@ -58,6 +58,7 @@ model Tenant {
   users                    User[]
   branches                 Branch[]
   staffRegistrationTokens  StaffRegistrationToken[]
+  branchIntegrations       BranchIntegration[]
   
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -112,6 +113,7 @@ model Branch {
   tenant                   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   users                    User[]
   staffRegistrationTokens  StaffRegistrationToken[]
+  integration              BranchIntegration?
   
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -123,6 +125,51 @@ model Branch {
   @@index([tenantId])
   @@index([isActive])
   @@index([deletedAt])
+}
+
+/// ERP/POS integration config per branch
+model BranchIntegration {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String    @db.Uuid @map("tenant_id")
+  branchId            String    @db.Uuid @map("branch_id")
+  adapterType         String    @map("adapter_type")
+  agentId             String?   @map("agent_id")
+  agentVersion        String?   @map("agent_version")
+  webserviceUrl       String?   @map("webservice_url")
+  apiKeyEncrypted     String?   @map("api_key_encrypted")
+  apiSecretEncrypted  String?   @map("api_secret_encrypted")
+  pollingIntervalSec  Int       @default(10) @map("polling_interval_sec")
+  connectionStatus    String    @default("PENDING_INSTALL") @map("connection_status")
+  lastReadSyncAt      DateTime? @map("last_read_sync_at")
+  lastWriteSyncAt     DateTime? @map("last_write_sync_at")
+  errorMessage        String?   @map("error_message")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  branch  Branch  @relation(fields: [branchId], references: [id])
+
+  @@unique([branchId])
+  @@map("branch_integrations")
+  @@index([tenantId])
+  @@index([connectionStatus])
+}
+
+/// Catalogue of supported ERP/POS adapter definitions
+model IntegrationAdapter {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adapterType       String   @unique @map("adapter_type")
+  displayName       String   @map("display_name")
+  webserviceType    String   @map("webservice_type")
+  readEndpoint      String   @map("read_endpoint")
+  writeEndpoint     String   @map("write_endpoint")
+  authType          String   @map("auth_type")
+  fieldMappings     Json     @map("field_mappings")
+  supportedVersions String?  @map("supported_versions")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@map("integration_adapters")
 }
 
 /// Staff registration tokens for inviting team members
