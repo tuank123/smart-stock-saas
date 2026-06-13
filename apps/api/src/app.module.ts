@@ -9,6 +9,8 @@ import { UsersModule } from './modules/users/users.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { TenantGuard } from './common/guards/tenant.guard';
+import { RolesGuard } from './common/guards/roles.guard';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { validateEnv } from './config/env.validation';
@@ -47,6 +49,14 @@ import { validateEnv } from './config/env.validation';
       useFactory: (reflector: Reflector, jwtService: JwtService, configService: ConfigService) => 
         new JwtAuthGuard(reflector, jwtService, configService),
       inject: [Reflector, JwtService, ConfigService],
+    },
+    {
+      provide: APP_GUARD,
+      useClass: TenantGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
     {
       provide: APP_FILTER,

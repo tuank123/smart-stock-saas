@@ -4,13 +4,13 @@ export class AuthResponse {
   user: {
     id: string;
     email: string;
-    role: string;
+    role: string | null;
     tenantId: string;
     branchId?: string | null;
   } = {
     id: '',
     email: '',
-    role: '',
+    role: null,
     tenantId: '',
     branchId: null,
   };

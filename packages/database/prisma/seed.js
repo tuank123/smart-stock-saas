@@ -57,7 +57,7 @@ async function main() {
       branchId: branch.id,
       email: 'admin@acme.com',
       passwordHash: hashedPassword,
-      role: 'TENANT_ADMIN',
+      role: 'PATRON',
       isActive: true,
     },
   });
@@ -68,7 +68,7 @@ async function main() {
       branchId: branch.id,
       email: 'manager@acme.com',
       passwordHash: hashedPassword,
-      role: 'MANAGER',
+      role: 'SUBE_MUDURU',
       isActive: true,
     },
   });

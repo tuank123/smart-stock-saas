@@ -28,10 +28,17 @@ enum TenantStatus {
 
 enum UserRole {
   SUPER_ADMIN
-  TENANT_ADMIN
-  MANAGER
-  STAFF
-  VIEWER
+  PATRON
+  SUBE_MUDURU
+  KASIYER
+  DEPO
+}
+
+enum StaffTokenStatus {
+  PENDING
+  APPROVED
+  USED
+  CANCELLED
 }
 
 // ============================================
@@ -48,8 +55,9 @@ model Tenant {
   settings  Json? // flexible config storage
   
   // Relations
-  users     User[]
-  branches  Branch[]
+  users                    User[]
+  branches                 Branch[]
+  staffRegistrationTokens  StaffRegistrationToken[]
   
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -68,7 +76,7 @@ model User {
   branchId        String?  @db.Uuid @map("branch_id")
   email           String   @map("email")
   passwordHash    String   @map("password_hash")
-  role            UserRole @default(STAFF)
+  role            UserRole?
   isActive        Boolean  @default(true) @map("is_active")
   lastLoginAt     DateTime? @map("last_login_at")
   
@@ -81,7 +89,7 @@ model User {
   updatedAt       DateTime @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at") // soft delete
 
-  @@unique([tenantId, email]) // one email per tenant
+  @@unique([tenantId, email])
   @@map("users")
   @@index([tenantId])
   @@index([branchId])
@@ -101,17 +109,43 @@ model Branch {
   isActive  Boolean  @default(true) @map("is_active")
   
   // Relations
-  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  users     User[]
+  tenant                   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users                    User[]
+  staffRegistrationTokens  StaffRegistrationToken[]
   
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at") // soft delete
 
-  @@unique([tenantId, slug]) // unique slug per tenant
+  @@unique([tenantId, slug])
   @@map("branches")
   @@index([tenantId])
   @@index([isActive])
   @@index([deletedAt])
+}
+
+/// Staff registration tokens for inviting team members
+model StaffRegistrationToken {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @db.Uuid @map("tenant_id")
+  branchId      String   @db.Uuid @map("branch_id")
+  token         String   @unique
+  applicantName String   @map("applicant_name")
+  applicantEmail String  @map("applicant_email")
+  status        StaffTokenStatus @default(PENDING)
+  createdUserId String?  @db.Uuid @map("created_user_id")
+  approvedBy    String?  @db.Uuid @map("approved_by")
+  approvedAt    DateTime? @map("approved_at")
+  usedAt        DateTime? @map("used_at")
+  cancelledBy   String?  @db.Uuid @map("cancelled_by")
+  cancelledAt   DateTime? @map("cancelled_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@map("staff_registration_tokens")
+  @@index([branchId, status])
+  @@index([tenantId])
 }

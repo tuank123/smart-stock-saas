@@ -27,4 +27,24 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$disconnect();
     console.log('✅ Prisma disconnected from database');
   }
+
+  /**
+   * Set tenant context for Row-Level Security (RLS)
+   * Must be called before executing queries to enable tenant isolation
+   * @param tenantId - UUID of the tenant
+   * @param isSuperAdmin - Whether the current user is SUPER_ADMIN (bypasses RLS)
+   */
+  async setTenantContext(tenantId: string, isSuperAdmin = false): Promise<void> {
+    try {
+      await this.$executeRawUnsafe(
+        `SET LOCAL app.tenant_id = '${tenantId}'`,
+      );
+      await this.$executeRawUnsafe(
+        `SET LOCAL app.is_super_admin = '${isSuperAdmin}'`,
+      );
+    } catch (error) {
+      console.warn('Failed to set tenant context for RLS:', error);
+      // Non-blocking: continue even if RLS context setting fails
+    }
+  }
 }
