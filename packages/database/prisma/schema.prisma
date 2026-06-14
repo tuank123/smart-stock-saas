@@ -59,6 +59,10 @@ model Tenant {
   branches                 Branch[]
   staffRegistrationTokens  StaffRegistrationToken[]
   branchIntegrations       BranchIntegration[]
+  categories               Category[]
+  products                 Product[]
+  stockLevels              StockLevel[]
+  stockMovements           StockMovement[]
   
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -84,6 +88,7 @@ model User {
   // Relations
   tenant          Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch          Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  stockMovements  StockMovement[]
   
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
@@ -114,6 +119,8 @@ model Branch {
   users                    User[]
   staffRegistrationTokens  StaffRegistrationToken[]
   integration              BranchIntegration?
+  stockLevels              StockLevel[]
+  stockMovements           StockMovement[]
   
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -195,4 +202,109 @@ model StaffRegistrationToken {
   @@map("staff_registration_tokens")
   @@index([branchId, status])
   @@index([tenantId])
+}
+
+// ============================================
+// PRODUCT CATALOGUE
+// ============================================
+
+/// Product categories — supports one level of nesting via self-relation
+model Category {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid @map("tenant_id")
+  parentId  String?  @db.Uuid @map("parent_id")
+  name      String
+  slug      String
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant     @relation(fields: [tenantId], references: [id])
+  parent   Category?  @relation("CategoryChildren", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryChildren")
+  products Product[]
+
+  @@unique([tenantId, slug])
+  @@map("categories")
+  @@index([tenantId])
+}
+
+/// Tenant-level product catalogue
+model Product {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @db.Uuid @map("tenant_id")
+  categoryId String    @db.Uuid @map("category_id")
+  sku        String
+  barcode    String?
+  name       String
+  unit       String
+  variants   Json      @default("[]")
+  imageUrl   String?   @map("image_url")
+  isActive   Boolean   @default(true) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  category       Category        @relation(fields: [categoryId], references: [id])
+  stockLevels    StockLevel[]
+  stockMovements StockMovement[]
+
+  @@unique([tenantId, sku])
+  @@map("products")
+  @@index([tenantId])
+  @@index([tenantId, barcode])
+}
+
+// ============================================
+// STOCK
+// ============================================
+
+/// Current stock quantity per product per branch
+model StockLevel {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String    @db.Uuid @map("tenant_id")
+  productId         String    @db.Uuid @map("product_id")
+  branchId          String    @db.Uuid @map("branch_id")
+  quantity          Decimal   @default(0) @db.Decimal(12, 3)
+  reservedQty       Decimal   @default(0) @map("reserved_qty") @db.Decimal(12, 3)
+  minThreshold      Decimal   @map("min_threshold") @db.Decimal(12, 3)
+  maxThreshold      Decimal?  @map("max_threshold") @db.Decimal(12, 3)
+  maxThresholdSet   Boolean   @default(false) @map("max_threshold_set")
+  maxThresholdSetAt DateTime? @map("max_threshold_set_at")
+  thresholdSource   String    @default("AUTO") @map("threshold_source")
+  version           Int       @default(0)
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+  branch  Branch  @relation(fields: [branchId], references: [id])
+
+  @@unique([productId, branchId])
+  @@map("stock_levels")
+  @@index([tenantId])
+  @@index([branchId, quantity])
+}
+
+/// Immutable log of every stock change
+model StockMovement {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @db.Uuid @map("tenant_id")
+  productId     String    @db.Uuid @map("product_id")
+  branchId      String    @db.Uuid @map("branch_id")
+  movementType  String    @map("movement_type")
+  quantity      Decimal   @db.Decimal(12, 3)
+  referenceId   String?   @db.Uuid @map("reference_id")
+  referenceType String?   @map("reference_type")
+  notes         String?
+  createdBy     String    @db.Uuid @map("created_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+  branch  Branch  @relation(fields: [branchId], references: [id])
+  user    User    @relation(fields: [createdBy], references: [id])
+
+  @@map("stock_movements")
+  @@index([branchId, createdAt(sort: Desc)])
+  @@index([productId, branchId, createdAt(sort: Desc)])
 }
