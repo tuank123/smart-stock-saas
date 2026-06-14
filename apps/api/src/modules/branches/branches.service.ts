@@ -36,15 +36,22 @@ export class BranchesService {
     });
   }
 
-  async listBranches(user: { tenantId: string }) {
+  async listBranches(user: { tenantId: string; branchId?: string | null; role?: string | null }) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
 
-      return tx.branch.findMany({
-        where: { tenantId: user.tenantId, isActive: true, deletedAt: null },
-        orderBy: { createdAt: 'asc' },
-      });
+      const where: { tenantId: string; isActive: boolean; deletedAt: null; id?: string } = {
+        tenantId: user.tenantId,
+        isActive: true,
+        deletedAt: null,
+      };
+
+      if (user.role === 'SUBE_MUDURU' && user.branchId) {
+        where.id = user.branchId;
+      }
+
+      return tx.branch.findMany({ where, orderBy: { createdAt: 'asc' } });
     });
   }
 

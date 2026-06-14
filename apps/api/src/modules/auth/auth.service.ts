@@ -224,6 +224,7 @@ export class AuthService implements OnModuleInit {
         userId: user.id,
         email: user.email,
         tenantId: user.tenantId,
+        branchId: user.branchId ?? null,
         role: user.role,
         type: 'access',
       },

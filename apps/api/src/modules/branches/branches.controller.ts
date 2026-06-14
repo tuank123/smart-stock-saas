@@ -29,7 +29,7 @@ export class BranchesController {
 
   @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
   @Get()
-  list(@CurrentUser() user: { tenantId: string }) {
+  list(@CurrentUser() user: { tenantId: string; branchId?: string | null; role?: string | null }) {
     return this.service.listBranches(user);
   }
 
