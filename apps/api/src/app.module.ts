@@ -11,6 +11,8 @@ import { BranchesModule } from './modules/branches/branches.module';
 import { StaffRegistrationModule } from './modules/staff-registration/staff-registration.module';
 import { ProductsModule } from './modules/products/products.module';
 import { StockModule } from './modules/stock/stock.module';
+import { SuppliersModule } from './modules/suppliers/suppliers.module';
+import { OrdersModule } from './modules/orders/orders.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -44,6 +46,8 @@ import { validateEnv } from './config/env.validation';
     StaffRegistrationModule,
     ProductsModule,
     StockModule,
+    SuppliersModule,
+    OrdersModule,
   ],
 
   // ============================================

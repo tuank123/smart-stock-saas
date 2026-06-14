@@ -63,6 +63,8 @@ model Tenant {
   products                 Product[]
   stockLevels              StockLevel[]
   stockMovements           StockMovement[]
+  suppliers                Supplier[]
+  purchaseOrders           PurchaseOrder[]
   
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -89,6 +91,7 @@ model User {
   tenant          Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch          Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
   stockMovements  StockMovement[]
+  approvedOrders  PurchaseOrder[] @relation("POApprover")
   
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
@@ -121,6 +124,8 @@ model Branch {
   integration              BranchIntegration?
   stockLevels              StockLevel[]
   stockMovements           StockMovement[]
+  branchSuppliers          BranchSupplier[]
+  purchaseOrders           PurchaseOrder[]
   
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -244,10 +249,11 @@ model Product {
   updatedAt  DateTime  @updatedAt @map("updated_at")
   deletedAt  DateTime? @map("deleted_at")
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id])
-  category       Category        @relation(fields: [categoryId], references: [id])
-  stockLevels    StockLevel[]
-  stockMovements StockMovement[]
+  tenant              Tenant              @relation(fields: [tenantId], references: [id])
+  category            Category            @relation(fields: [categoryId], references: [id])
+  stockLevels         StockLevel[]
+  stockMovements      StockMovement[]
+  purchaseOrderItems  PurchaseOrderItem[]
 
   @@unique([tenantId, sku])
   @@map("products")
@@ -307,4 +313,89 @@ model StockMovement {
   @@map("stock_movements")
   @@index([branchId, createdAt(sort: Desc)])
   @@index([productId, branchId, createdAt(sort: Desc)])
+}
+
+// ============================================
+// SUPPLIERS & PURCHASE ORDERS
+// ============================================
+
+/// Supplier/vendor master data
+model Supplier {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String    @db.Uuid @map("tenant_id")
+  name              String
+  contactName       String?   @map("contact_name")
+  whatsappNumber    String    @map("whatsapp_number")
+  otpVerified       Boolean   @default(false) @map("otp_verified")
+  otpVerifiedAt     DateTime? @map("otp_verified_at")
+  productCategories Json      @default("[]") @map("product_categories")
+  notes             String?
+  isActive          Boolean   @default(true) @map("is_active")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id])
+  branchSuppliers BranchSupplier[]
+  purchaseOrders  PurchaseOrder[]
+
+  @@map("suppliers")
+  @@index([tenantId])
+}
+
+/// Junction: which branches work with which suppliers
+model BranchSupplier {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  branchId   String   @db.Uuid @map("branch_id")
+  supplierId String   @db.Uuid @map("supplier_id")
+  isPrimary  Boolean  @default(false) @map("is_primary")
+  notes      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  branch   Branch   @relation(fields: [branchId], references: [id])
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+
+  @@unique([branchId, supplierId])
+  @@map("branch_suppliers")
+  @@index([branchId, isPrimary])
+}
+
+/// Purchase order header
+model PurchaseOrder {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @db.Uuid @map("tenant_id")
+  branchId   String    @db.Uuid @map("branch_id")
+  supplierId String    @db.Uuid @map("supplier_id")
+  status     String    @default("DRAFT")
+  approvedBy String?   @db.Uuid @map("approved_by")
+  approvedAt DateTime? @map("approved_at")
+  notes      String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  tenant   Tenant              @relation(fields: [tenantId], references: [id])
+  branch   Branch              @relation(fields: [branchId], references: [id])
+  supplier Supplier            @relation(fields: [supplierId], references: [id])
+  approver User?               @relation("POApprover", fields: [approvedBy], references: [id])
+  items    PurchaseOrderItem[]
+
+  @@map("purchase_orders")
+  @@index([tenantId])
+  @@index([branchId, status])
+}
+
+/// Purchase order line items
+model PurchaseOrderItem {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  poId             String   @db.Uuid @map("po_id")
+  productId        String   @db.Uuid @map("product_id")
+  quantityOrdered  Decimal  @map("quantity_ordered") @db.Decimal(12, 3)
+  quantityReceived Decimal  @default(0) @map("quantity_received") @db.Decimal(12, 3)
+  unitPrice        Decimal? @map("unit_price") @db.Decimal(12, 2)
+  notes            String?
+
+  purchaseOrder PurchaseOrder @relation(fields: [poId], references: [id])
+  product       Product       @relation(fields: [productId], references: [id])
+
+  @@map("purchase_order_items")
+  @@index([poId])
 }

@@ -1,0 +1,52 @@
+import { Transform, Type } from 'class-transformer';
+import {
+  IsArray,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+
+export class OrderItemDto {
+  @IsUUID()
+  productId: string = '';
+
+  @IsNumber()
+  @Min(0.001)
+  quantityOrdered: number = 0;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  unitPrice?: number;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class CreateOrderDto {
+  @IsUUID()
+  branchId: string = '';
+
+  @IsUUID()
+  supplierId: string = '';
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderItemDto)
+  items: OrderItemDto[] = [];
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class OrderQueryDto {
+  @IsOptional()
+  @IsString()
+  status?: string;
+}
