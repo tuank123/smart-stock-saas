@@ -50,3 +50,15 @@ export class OrderQueryDto {
   @IsString()
   status?: string;
 }
+
+export class CheckThresholdsDto {
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
+}
+
+export class UpdateOrderItemDto {
+  @IsNumber()
+  @Min(0.001)
+  quantityOrdered: number = 0;
+}

@@ -12,7 +12,12 @@ import {
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { CreateOrderDto, OrderQueryDto } from './dto/order.dto';
+import {
+  CheckThresholdsDto,
+  CreateOrderDto,
+  OrderQueryDto,
+  UpdateOrderItemDto,
+} from './dto/order.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('orders')
@@ -27,6 +32,27 @@ export class OrdersController {
     @CurrentUser() user: { tenantId: string; userId: string },
   ) {
     return this.service.createOrder(dto, user);
+  }
+
+  @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
+  @Post('check-thresholds')
+  @HttpCode(200)
+  async checkThresholds(
+    @Body() dto: CheckThresholdsDto,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    const createdOrders = await this.service.checkAndCreateDraftOrders(user.tenantId, dto);
+    return { createdOrders };
+  }
+
+  // Must be defined before `:branchId` route — NestJS matches static segments first
+  @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
+  @Get('draft/:branchId')
+  listDraft(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.listDraftOrders(branchId, user);
   }
 
   @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
@@ -55,5 +81,16 @@ export class OrdersController {
     @CurrentUser() user: { tenantId: string },
   ) {
     return this.service.cancelOrder(orderId, user);
+  }
+
+  @Roles(UserRole.SUBE_MUDURU)
+  @Patch(':orderId/items/:itemId')
+  updateItem(
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: UpdateOrderItemDto,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.updateOrderItem(orderId, itemId, dto, user);
   }
 }

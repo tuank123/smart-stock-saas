@@ -66,6 +66,7 @@ model Tenant {
   suppliers                Supplier[]
   purchaseOrders           PurchaseOrder[]
   stockTransfers           StockTransfer[]
+  whatsappMessageLogs      WhatsappMessageLog[]
 
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -133,6 +134,7 @@ model Branch {
   purchaseOrders           PurchaseOrder[]
   transfersFrom            StockTransfer[]  @relation("TransferFrom")
   transfersTo              StockTransfer[]  @relation("TransferTo")
+  whatsappMessageLogs      WhatsappMessageLog[]
   
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -342,9 +344,10 @@ model Supplier {
   createdAt         DateTime  @default(now()) @map("created_at")
   deletedAt         DateTime? @map("deleted_at")
 
-  tenant          Tenant          @relation(fields: [tenantId], references: [id])
-  branchSuppliers BranchSupplier[]
-  purchaseOrders  PurchaseOrder[]
+  tenant              Tenant               @relation(fields: [tenantId], references: [id])
+  branchSuppliers     BranchSupplier[]
+  purchaseOrders      PurchaseOrder[]
+  whatsappMessageLogs WhatsappMessageLog[]
 
   @@map("suppliers")
   @@index([tenantId])
@@ -380,11 +383,12 @@ model PurchaseOrder {
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  tenant   Tenant              @relation(fields: [tenantId], references: [id])
-  branch   Branch              @relation(fields: [branchId], references: [id])
-  supplier Supplier            @relation(fields: [supplierId], references: [id])
-  approver User?               @relation("POApprover", fields: [approvedBy], references: [id])
-  items    PurchaseOrderItem[]
+  tenant              Tenant               @relation(fields: [tenantId], references: [id])
+  branch              Branch               @relation(fields: [branchId], references: [id])
+  supplier            Supplier             @relation(fields: [supplierId], references: [id])
+  approver            User?                @relation("POApprover", fields: [approvedBy], references: [id])
+  items               PurchaseOrderItem[]
+  whatsappMessageLogs WhatsappMessageLog[]
 
   @@map("purchase_orders")
   @@index([tenantId])
@@ -444,4 +448,31 @@ model StockTransfer {
   @@index([tenantId])
   @@index([fromBranchId, status])
   @@index([toBranchId, status])
+}
+
+// ============================================
+// WHATSAPP NOTIFICATIONS
+// ============================================
+
+model WhatsappMessageLog {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @db.Uuid @map("tenant_id")
+  branchId       String    @db.Uuid @map("branch_id")
+  supplierId     String    @db.Uuid @map("supplier_id")
+  poId           String    @db.Uuid @map("po_id")
+  messageBody    String    @map("message_body")
+  whatsappNumber String    @map("whatsapp_number")
+  status         String    @default("PENDING")
+  sentAt         DateTime? @map("sent_at")
+  errorMessage   String?   @map("error_message")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id])
+  branch   Branch        @relation(fields: [branchId], references: [id])
+  supplier Supplier      @relation(fields: [supplierId], references: [id])
+  order    PurchaseOrder @relation(fields: [poId], references: [id])
+
+  @@map("whatsapp_message_logs")
+  @@index([tenantId])
+  @@index([poId, status])
 }
