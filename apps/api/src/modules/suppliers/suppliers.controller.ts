@@ -9,7 +9,7 @@ import { SuppliersService } from './suppliers.service';
 export class SuppliersController {
   constructor(private service: SuppliersService) {}
 
-  @Roles(UserRole.SUBE_MUDURU)
+  @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
   @Post()
   @HttpCode(201)
   create(
@@ -19,7 +19,7 @@ export class SuppliersController {
     return this.service.createSupplier(dto, user);
   }
 
-  @Roles(UserRole.SUBE_MUDURU)
+  @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
   @Post(':supplierId/branches/:branchId')
   @HttpCode(201)
   linkBranch(

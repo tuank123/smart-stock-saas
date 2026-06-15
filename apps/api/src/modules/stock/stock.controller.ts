@@ -23,7 +23,7 @@ import { StockService } from './stock.service';
 export class StockController {
   constructor(private service: StockService) {}
 
-  @Roles(UserRole.PATRON)
+  @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
   @Post('initialize')
   @HttpCode(201)
   initialize(
