@@ -67,6 +67,7 @@ model Tenant {
   purchaseOrders           PurchaseOrder[]
   stockTransfers           StockTransfer[]
   whatsappMessageLogs      WhatsappMessageLog[]
+  ocrScans                 OcrScan[]
 
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -92,12 +93,14 @@ model User {
   // Relations
   tenant          Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch          Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  stockMovements        StockMovement[]
-  approvedOrders        PurchaseOrder[]    @relation("POApprover")
-  requestedTransfers    StockTransfer[]    @relation("TransferRequester")
-  approvedTransfers     StockTransfer[]    @relation("TransferApprover")
-  dispatchedTransfers   StockTransfer[]    @relation("TransferDispatcher")
-  receivedTransfers     StockTransfer[]    @relation("TransferReceiver")
+  stockMovements          StockMovement[]
+  approvedOrders          PurchaseOrder[]  @relation("POApprover")
+  requestedTransfers      StockTransfer[]  @relation("TransferRequester")
+  approvedTransfers       StockTransfer[]  @relation("TransferApprover")
+  dispatchedTransfers     StockTransfer[]  @relation("TransferDispatcher")
+  receivedTransfers       StockTransfer[]  @relation("TransferReceiver")
+  ocrScansAsScanner       OcrScan[]        @relation("OcrScanner")
+  ocrScansAsConfirmer     OcrScan[]        @relation("OcrConfirmer")
   
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
@@ -135,6 +138,7 @@ model Branch {
   transfersFrom            StockTransfer[]  @relation("TransferFrom")
   transfersTo              StockTransfer[]  @relation("TransferTo")
   whatsappMessageLogs      WhatsappMessageLog[]
+  ocrScans                 OcrScan[]
   
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -475,4 +479,31 @@ model WhatsappMessageLog {
   @@map("whatsapp_message_logs")
   @@index([tenantId])
   @@index([poId, status])
+}
+
+// ============================================
+// OCR SCANS
+// ============================================
+
+model OcrScan {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String    @db.Uuid @map("tenant_id")
+  branchId     String    @db.Uuid @map("branch_id")
+  scannedBy    String    @db.Uuid @map("scanned_by")
+  imageUrl     String    @map("image_url")
+  rawOcrResult Json?     @map("raw_ocr_result")
+  parsedLines  Json?     @map("parsed_lines")
+  status       String    @default("PENDING")
+  confirmedBy  String?   @db.Uuid @map("confirmed_by")
+  confirmedAt  DateTime? @map("confirmed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id])
+  branch    Branch @relation(fields: [branchId], references: [id])
+  scanner   User   @relation("OcrScanner", fields: [scannedBy], references: [id])
+  confirmer User?  @relation("OcrConfirmer", fields: [confirmedBy], references: [id])
+
+  @@map("ocr_scans")
+  @@index([tenantId])
+  @@index([branchId, status])
 }

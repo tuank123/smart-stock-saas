@@ -15,6 +15,7 @@ import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { TransfersModule } from './modules/transfers/transfers.module';
 import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
+import { OcrModule } from './modules/ocr/ocr.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -52,6 +53,7 @@ import { validateEnv } from './config/env.validation';
     OrdersModule,
     TransfersModule,
     WhatsappModule,
+    OcrModule,
   ],
 
   // ============================================
