@@ -1,10 +1,12 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SyncService } from '../sync/sync.service';
 import { CreateTransferDto, TransferQueryDto } from './dto/transfer.dto';
 
 const TRANSFER_INCLUDE = {
@@ -19,7 +21,12 @@ const TRANSFER_INCLUDE = {
 
 @Injectable()
 export class TransfersService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(TransfersService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private sync: SyncService,
+  ) {}
 
   async createTransfer(
     dto: CreateTransferDto,
@@ -156,7 +163,7 @@ export class TransfersService {
   }
 
   async receiveTransfer(transferId: string, user: { tenantId: string; userId: string }) {
-    return this.prisma.$transaction(async (tx) => {
+    const delivered = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
 
@@ -240,6 +247,34 @@ export class TransfersService {
         data: { status: 'DELIVERED', receivedBy: user.userId, receivedAt: now },
         include: TRANSFER_INCLUDE,
       });
+    });
+
+    // Fire-and-forget: enqueue sync for stock change notification
+    this.enqueueSyncAfterReceive(delivered, user).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[Sync] Transfer enqueue hatası: ${msg}`);
+    });
+
+    return delivered;
+  }
+
+  private async enqueueSyncAfterReceive(
+    transfer: { id: string; toBranchId: string; productId: string; quantity: { toString(): string }; tenantId: string },
+    user: { tenantId: string; userId: string },
+  ) {
+    const integration = await this.prisma.branchIntegration.findUnique({
+      where: { branchId: transfer.toBranchId },
+      select: { adapterType: true },
+    });
+    const adapterType = integration?.adapterType ?? 'UNKNOWN';
+
+    await this.sync.addToQueue({
+      tenantId:      user.tenantId,
+      branchId:      transfer.toBranchId,
+      operationType: 'STOCK_READ',
+      payload:       { transferId: transfer.id, productId: transfer.productId, quantity: transfer.quantity.toString() },
+      adapterType,
+      createdBy:     user.userId,
     });
   }
 }
