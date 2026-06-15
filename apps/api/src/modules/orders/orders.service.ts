@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SyncService } from '../sync/sync.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { CheckThresholdsDto, CreateOrderDto, OrderQueryDto, UpdateOrderItemDto } from './dto/order.dto';
 
@@ -28,6 +29,7 @@ export class OrdersService {
   constructor(
     private prisma: PrismaService,
     private whatsapp: WhatsappService,
+    private sync: SyncService,
   ) {}
 
   async createOrder(dto: CreateOrderDto, user: { tenantId: string; userId: string }) {
@@ -103,6 +105,12 @@ export class OrdersService {
     this.dispatchWhatsapp(approved, user.tenantId).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`[WhatsApp] Dispatch hatası: ${msg}`);
+    });
+
+    // Enqueue sync jobs for each PO item (fire-and-forget)
+    this.enqueuePOSync(approved, user).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[Sync] Enqueue hatası: ${msg}`);
     });
 
     return approved;
@@ -287,6 +295,29 @@ export class OrdersService {
   }
 
   // ── Private helpers ────────────────────────────────────────────────
+
+  private async enqueuePOSync(
+    order: { id: string; branchId: string; supplierId: string; items: { productId: string; quantityOrdered: { toString(): string } }[]; branch?: { name?: string } | null; supplier?: { name?: string } | null },
+    user: { tenantId: string; userId: string },
+  ) {
+    // Get branch's adapter type from integration
+    const integration = await this.prisma.branchIntegration.findUnique({
+      where: { branchId: order.branchId },
+      select: { adapterType: true },
+    });
+    const adapterType = integration?.adapterType ?? 'UNKNOWN';
+
+    for (const item of order.items) {
+      await this.sync.addToQueue({
+        tenantId:      user.tenantId,
+        branchId:      order.branchId,
+        operationType: 'STOCK_READ',
+        payload:       { poId: order.id, productId: item.productId, quantity: item.quantityOrdered.toString() },
+        adapterType,
+        createdBy:     user.userId,
+      });
+    }
+  }
 
   private async dispatchWhatsapp(
     order: Awaited<ReturnType<typeof this.prisma.purchaseOrder.update>> & {

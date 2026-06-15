@@ -68,6 +68,8 @@ model Tenant {
   stockTransfers           StockTransfer[]
   whatsappMessageLogs      WhatsappMessageLog[]
   ocrScans                 OcrScan[]
+  syncQueues               SyncQueue[]
+  syncLogs                 SyncLog[]
 
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -101,7 +103,8 @@ model User {
   receivedTransfers       StockTransfer[]  @relation("TransferReceiver")
   ocrScansAsScanner       OcrScan[]        @relation("OcrScanner")
   ocrScansAsConfirmer     OcrScan[]        @relation("OcrConfirmer")
-  
+  syncQueues              SyncQueue[]      @relation("SyncQueueCreator")
+
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
@@ -139,7 +142,8 @@ model Branch {
   transfersTo              StockTransfer[]  @relation("TransferTo")
   whatsappMessageLogs      WhatsappMessageLog[]
   ocrScans                 OcrScan[]
-  
+  syncQueues               SyncQueue[]
+
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -506,4 +510,54 @@ model OcrScan {
   @@map("ocr_scans")
   @@index([tenantId])
   @@index([branchId, status])
+}
+
+// ============================================
+// REVERSE SYNC QUEUE
+// ============================================
+
+model SyncQueue {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @db.Uuid @map("tenant_id")
+  branchId      String    @db.Uuid @map("branch_id")
+  direction     String    @default("OUTBOUND")
+  operationType String    @map("operation_type")
+  payload       Json
+  adapterType   String    @map("adapter_type")
+  status        String    @default("PENDING")
+  attemptCount  Int       @default(0) @map("attempt_count")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  errorMessage  String?   @map("error_message")
+  createdBy     String?   @db.Uuid @map("created_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  processedAt   DateTime? @map("processed_at")
+
+  tenant  Tenant    @relation(fields: [tenantId], references: [id])
+  branch  Branch    @relation(fields: [branchId], references: [id])
+  creator User?     @relation("SyncQueueCreator", fields: [createdBy], references: [id])
+  logs    SyncLog[]
+
+  @@map("sync_queue")
+  @@index([tenantId])
+  @@index([branchId, status])
+}
+
+model SyncLog {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @db.Uuid @map("tenant_id")
+  queueId         String   @db.Uuid @map("queue_id")
+  attemptNumber   Int      @map("attempt_number")
+  direction       String
+  requestPayload  String?  @map("request_payload")
+  responsePayload String?  @map("response_payload")
+  status          String
+  errorDetail     String?  @map("error_detail")
+  executedAt      DateTime @default(now()) @map("executed_at")
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  syncQueue SyncQueue @relation(fields: [queueId], references: [id])
+
+  @@map("sync_logs")
+  @@index([tenantId])
+  @@index([queueId])
 }

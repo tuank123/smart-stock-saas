@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SyncService } from '../sync/sync.service';
 import { ConfirmScanDto, ScanDto } from './dto/ocr.dto';
 
 export interface RawOcrLine {
@@ -41,6 +42,7 @@ export class OcrService {
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
+    private sync: SyncService,
   ) {}
 
   async scan(
@@ -173,10 +175,15 @@ export class OcrService {
         },
       });
 
-      return {
+      const result = {
         confirmedCount: dto.lines.length,
         stockUpdates,
       };
+
+      // Enqueue sync after transaction commits (fire-and-forget)
+      void this.enqueueSyncAfterConfirm(scan.branchId, user, dto.lines, scanId);
+
+      return result;
     });
   }
 
@@ -203,6 +210,35 @@ export class OcrService {
   }
 
   // ── Private helpers ─────────────────────────────────────────────────
+
+  private async enqueueSyncAfterConfirm(
+    branchId: string,
+    user: { tenantId: string; userId: string },
+    lines: { productId: string; qty: number; unit: string }[],
+    scanId: string,
+  ) {
+    try {
+      const integration = await this.prisma.branchIntegration.findUnique({
+        where: { branchId },
+        select: { adapterType: true },
+      });
+      const adapterType = integration?.adapterType ?? 'UNKNOWN';
+
+      for (const line of lines) {
+        await this.sync.addToQueue({
+          tenantId:      user.tenantId,
+          branchId,
+          operationType: 'PRICE_UPDATE',
+          payload:       { scanId, productId: line.productId, qty: line.qty, unit: line.unit },
+          adapterType,
+          createdBy:     user.userId,
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[Sync] OCR enqueue hatası: ${msg}`);
+    }
+  }
 
   private fuzzyMatch(rawLines: RawOcrLine[], products: Product[]): ParsedLine[] {
     return rawLines.map((line) => {
