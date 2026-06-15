@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { CheckThresholdsDto, CreateOrderDto, OrderQueryDto, UpdateOrderItemDto } from './dto/order.dto';
 
 const ORDER_INCLUDE = {
@@ -24,7 +25,10 @@ const CANCELLABLE = ['DRAFT', 'APPROVED'];
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsapp: WhatsappService,
+  ) {}
 
   async createOrder(dto: CreateOrderDto, user: { tenantId: string; userId: string }) {
     return this.prisma.$transaction(async (tx) => {
@@ -72,7 +76,7 @@ export class OrdersService {
   }
 
   async approveOrder(orderId: string, user: { tenantId: string; userId: string }) {
-    return this.prisma.$transaction(async (tx) => {
+    const approved = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
 
@@ -94,6 +98,14 @@ export class OrdersService {
         include: ORDER_INCLUDE,
       });
     });
+
+    // Fire-and-forget: WhatsApp + log — hata PO onayını engellemez
+    this.dispatchWhatsapp(approved, user.tenantId).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[WhatsApp] Dispatch hatası: ${msg}`);
+    });
+
+    return approved;
   }
 
   async cancelOrder(orderId: string, user: { tenantId: string }) {
@@ -121,6 +133,38 @@ export class OrdersService {
     });
   }
 
+  async resendWhatsapp(orderId: string, user: { tenantId: string }): Promise<{ success: boolean }> {
+    const order = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const o = await tx.purchaseOrder.findUnique({
+        where: { id: orderId },
+        include: ORDER_INCLUDE,
+      });
+      if (!o || o.tenantId !== user.tenantId) throw new NotFoundException('Sipariş bulunamadı');
+      if (o.status !== 'APPROVED') {
+        throw new BadRequestException(`Yalnızca APPROVED siparişlerde tekrar gönderilebilir (mevcut: ${o.status})`);
+      }
+      return o;
+    });
+
+    const result = await this.sendAndLog(order, user.tenantId);
+    return { success: result.success };
+  }
+
+  async listWhatsappLogs(orderId: string, user: { tenantId: string }) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      return tx.whatsappMessageLog.findMany({
+        where: { poId: orderId, tenantId: user.tenantId },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+  }
+
   async checkAndCreateDraftOrders(
     tenantId: string,
     dto?: CheckThresholdsDto,
@@ -144,7 +188,6 @@ export class OrdersService {
       let created = 0;
 
       for (const level of belowThreshold) {
-        // Skip if DRAFT PO already exists for this branch+product
         const existingDraft = await tx.purchaseOrder.findFirst({
           where: {
             branchId: level.branchId,
@@ -155,7 +198,6 @@ export class OrdersService {
         });
         if (existingDraft) continue;
 
-        // Find primary supplier for this branch
         const branchSupplier = await tx.branchSupplier.findFirst({
           where: { branchId: level.branchId, isPrimary: true },
           select: { supplierId: true },
@@ -167,7 +209,6 @@ export class OrdersService {
           continue;
         }
 
-        // Calculate quantity to order
         let quantityOrdered: number;
         if (!level.maxThresholdSet || !level.maxThreshold) {
           quantityOrdered = level.minThreshold.times(2).toNumber();
@@ -243,5 +284,73 @@ export class OrdersService {
         include: { product: { select: { id: true, sku: true, name: true, unit: true } } },
       });
     });
+  }
+
+  // ── Private helpers ────────────────────────────────────────────────
+
+  private async dispatchWhatsapp(
+    order: Awaited<ReturnType<typeof this.prisma.purchaseOrder.update>> & {
+      supplier: { name: string; whatsappNumber: string };
+      branch: { name: string };
+      items: { quantityOrdered: { toString(): string }; product: { name: string; unit: string } }[];
+    },
+    tenantId: string,
+  ): Promise<void> {
+    const result = await this.sendAndLog(order, tenantId);
+    if (!result.success) {
+      this.logger.warn(`[WhatsApp] Gönderim başarısız: ${result.error}`);
+    }
+  }
+
+  private async sendAndLog(
+    order: {
+      id: string;
+      branchId: string;
+      supplierId: string;
+      supplier: { name: string; whatsappNumber: string };
+      branch: { name: string };
+      items: { quantityOrdered: { toString(): string }; product: { name: string; unit: string } }[];
+    },
+    tenantId: string,
+  ) {
+    const items = order.items.map((i) => ({
+      name: i.product.name,
+      quantity: i.quantityOrdered.toString(),
+      unit: i.product.unit,
+    }));
+
+    const result = await this.whatsapp.sendOrderMessage({
+      poId: order.id,
+      supplierPhone: order.supplier.whatsappNumber,
+      supplierName: order.supplier.name,
+      branchName: order.branch.name,
+      items,
+    });
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
+        await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+        await tx.whatsappMessageLog.create({
+          data: {
+            tenantId,
+            branchId: order.branchId,
+            supplierId: order.supplierId,
+            poId: order.id,
+            messageBody: result.messageBody,
+            whatsappNumber: order.supplier.whatsappNumber,
+            status: result.success ? 'SENT' : 'FAILED',
+            sentAt: result.success ? new Date() : null,
+            errorMessage: result.error ?? null,
+          },
+        });
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[WhatsApp] Log kaydedilemedi: ${msg}`);
+    }
+
+    return result;
   }
 }

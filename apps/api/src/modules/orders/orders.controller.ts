@@ -93,4 +93,23 @@ export class OrdersController {
   ) {
     return this.service.updateOrderItem(orderId, itemId, dto, user);
   }
+
+  @Roles(UserRole.SUBE_MUDURU)
+  @Post(':orderId/resend-whatsapp')
+  @HttpCode(200)
+  resendWhatsapp(
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.resendWhatsapp(orderId, user);
+  }
+
+  @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
+  @Get(':orderId/whatsapp-logs')
+  whatsappLogs(
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.listWhatsappLogs(orderId, user);
+  }
 }
