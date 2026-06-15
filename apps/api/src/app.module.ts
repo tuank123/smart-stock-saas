@@ -17,6 +17,7 @@ import { TransfersModule } from './modules/transfers/transfers.module';
 import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
 import { OcrModule } from './modules/ocr/ocr.module';
 import { SyncModule } from './modules/sync/sync.module';
+import { PortalModule } from './modules/portal/portal.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -56,6 +57,7 @@ import { validateEnv } from './config/env.validation';
     WhatsappModule,
     OcrModule,
     SyncModule,
+    PortalModule,
   ],
 
   // ============================================
