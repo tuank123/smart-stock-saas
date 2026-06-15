@@ -183,12 +183,24 @@ export class TransfersService {
         },
       });
 
-      // b) toBranch stok artır
-      await tx.stockLevel.updateMany({
-        where: { productId: transfer.productId, branchId: transfer.toBranchId },
-        data: {
+      // b) toBranch stok artır — hedef şubede kayıt yoksa oluştur
+      await tx.stockLevel.upsert({
+        where: {
+          productId_branchId: {
+            productId: transfer.productId,
+            branchId: transfer.toBranchId,
+          },
+        },
+        update: {
           quantity: { increment: transfer.quantity },
           version: { increment: 1 },
+        },
+        create: {
+          tenantId: user.tenantId,
+          productId: transfer.productId,
+          branchId: transfer.toBranchId,
+          quantity: transfer.quantity,
+          minThreshold: new Prisma.Decimal(0),
         },
       });
 
