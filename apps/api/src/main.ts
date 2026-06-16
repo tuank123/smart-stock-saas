@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
@@ -20,13 +21,22 @@ async function bootstrap() {
   // ============================================
   // SECURITY
   // ============================================
-  app.use(helmet());
+  app.use(
+    helmet({
+      // Relax CSP for Swagger UI in non-production
+      contentSecurityPolicy: configService.get('NODE_ENV') === 'production',
+    }),
+  );
 
   // ============================================
   // CORS
   // ============================================
   app.enableCors({
-    origin: configService.get<string[]>('CORS_ORIGINS', ['http://localhost:3000', 'http://localhost:3001']),
+    origin: configService.get<string[]>('CORS_ORIGINS', [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:3002',
+    ]),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -56,6 +66,37 @@ async function bootstrap() {
   );
 
   // ============================================
+  // SWAGGER / OPENAPI
+  // ============================================
+  if (configService.get('NODE_ENV') !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('StokPilot API')
+      .setDescription('Multi-tenant SaaS Inventory Management API')
+      .setVersion('1.0')
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'access-token',
+      )
+      .addTag('auth', 'Authentication & JWT')
+      .addTag('branches', 'Branch management')
+      .addTag('products', 'Product catalogue')
+      .addTag('stock', 'Stock levels & movements')
+      .addTag('orders', 'Purchase orders')
+      .addTag('suppliers', 'Supplier management')
+      .addTag('transfers', 'Inter-branch transfers')
+      .addTag('sync', 'ERP/POS sync queue')
+      .addTag('ocr', 'OCR invoice scanning')
+      .addTag('portal', 'Supplier portal')
+      .addTag('reports', 'Scheduled reports & anomalies')
+      .build();
+
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document, {
+      swaggerOptions: { persistAuthorization: true },
+    });
+  }
+
+  // ============================================
   // GRACEFUL SHUTDOWN
   // ============================================
   process.on('SIGTERM', async () => {
@@ -79,7 +120,10 @@ async function bootstrap() {
   await app.listen(port, () => {
     console.log(`\n🚀 StokPilot API started on http://localhost:${port}/api/v1`);
     console.log(`📝 Environment: ${nodeEnv}`);
-    console.log(`💾 Database: ${configService.get('DATABASE_URL')?.split('@')[1]}\n`);
+    console.log(`💾 Database: ${configService.get('DATABASE_URL')?.split('@')[1]}`);
+    if (nodeEnv !== 'production') {
+      console.log(`📚 Swagger UI: http://localhost:${port}/api/docs\n`);
+    }
   });
 }
 

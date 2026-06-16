@@ -34,7 +34,7 @@ class EnvironmentVariables {
 
   @IsArray()
   @IsOptional()
-  CORS_ORIGINS: any = ['http://localhost:3000', 'http://localhost:3001'];
+  CORS_ORIGINS: any = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002'];
 
   @IsString()
   @IsOptional()

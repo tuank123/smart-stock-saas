@@ -10,6 +10,7 @@ import {
   Post,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -77,6 +78,7 @@ export class PortalController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 3, ttl: 300_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('portal/:subdomain/otp/send')
   async sendOtp(

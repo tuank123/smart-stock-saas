@@ -1,5 +1,6 @@
 import { Controller, Post, Body, Req, Res, HttpCode } from '@nestjs/common';
 import { Response, Request } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { Public } from '../../common/decorators/public.decorator';
@@ -14,6 +15,7 @@ export class AuthController {
    * Returns access token + sets refresh token in HttpOnly cookie
    */
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 900_000 } })
   @Post('login')
   @HttpCode(200)
   async login(

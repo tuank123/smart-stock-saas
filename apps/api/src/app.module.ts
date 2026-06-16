@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -38,6 +39,17 @@ import { validateEnv } from './config/env.validation';
     }),
 
     // ============================================
+    // RATE LIMITING
+    // ============================================
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: 60_000,   // 1 minute
+        limit: 100,    // 100 req/min global
+      },
+    ]),
+
+    // ============================================
     // DATABASE
     // ============================================
     PrismaModule,
@@ -68,7 +80,11 @@ import { validateEnv } from './config/env.validation';
   providers: [
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector, jwtService: JwtService, configService: ConfigService) => 
+      useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (reflector: Reflector, jwtService: JwtService, configService: ConfigService) =>
         new JwtAuthGuard(reflector, jwtService, configService),
       inject: [Reflector, JwtService, ConfigService],
     },
