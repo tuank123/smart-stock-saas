@@ -62,3 +62,9 @@ export class UpdateOrderItemDto {
   @Min(0.001)
   quantityOrdered: number = 0;
 }
+
+export class ReceiveOrderDto {
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}

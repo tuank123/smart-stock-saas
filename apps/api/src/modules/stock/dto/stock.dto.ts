@@ -3,8 +3,10 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsDateString,
   IsNumber,
   IsOptional,
+  IsString,
   IsUUID,
   Min,
   ValidateNested,
@@ -46,4 +48,28 @@ export class UpdateThresholdDto {
   @IsNumber()
   @Min(0)
   maxThreshold?: number;
+}
+
+export class StockBarcodeQueryDto {
+  @IsOptional()
+  @IsString()
+  barcode?: string;
+
+  @IsOptional()
+  @IsString()
+  sku?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+
+export class MovementQueryDto {
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @IsOptional()
+  @IsDateString()
+  since?: string;
 }

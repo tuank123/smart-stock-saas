@@ -4,10 +4,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SyncService } from '../sync/sync.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
-import { CheckThresholdsDto, CreateOrderDto, OrderQueryDto, UpdateOrderItemDto } from './dto/order.dto';
+import { CheckThresholdsDto, CreateOrderDto, OrderQueryDto, ReceiveOrderDto, UpdateOrderItemDto } from './dto/order.dto';
 
 const ORDER_INCLUDE = {
   supplier: { select: { id: true, name: true, whatsappNumber: true } },
@@ -242,6 +243,90 @@ export class OrdersService {
       }
 
       return created;
+    });
+  }
+
+  async listStationOrders(branchId: string, user: { tenantId: string }) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      return tx.purchaseOrder.findMany({
+        where: {
+          tenantId: user.tenantId,
+          branchId,
+          status: { in: ['APPROVED', 'SENT'] },
+        },
+        include: ORDER_INCLUDE,
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+  }
+
+  async receiveOrder(
+    orderId: string,
+    dto: ReceiveOrderDto,
+    user: { tenantId: string; userId: string },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const order = await tx.purchaseOrder.findUnique({
+        where: { id: orderId },
+        include: ORDER_INCLUDE,
+      });
+
+      if (!order || order.tenantId !== user.tenantId) {
+        throw new NotFoundException('Sipariş bulunamadı');
+      }
+      if (!['APPROVED', 'SENT'].includes(order.status)) {
+        throw new BadRequestException(
+          `Yalnızca APPROVED veya SENT siparişler teslim alınabilir (mevcut: ${order.status})`,
+        );
+      }
+
+      const received = await tx.purchaseOrder.update({
+        where: { id: orderId },
+        data: { status: 'RECEIVED' },
+        include: ORDER_INCLUDE,
+      });
+
+      await Promise.all(
+        order.items.map(async (item) => {
+          const qty = new Prisma.Decimal(item.quantityOrdered);
+
+          await tx.stockMovement.create({
+            data: {
+              tenantId: user.tenantId,
+              branchId: order.branchId,
+              productId: item.productId,
+              movementType: 'PURCHASE_IN',
+              quantity: qty,
+              referenceId: orderId,
+              referenceType: 'PURCHASE_ORDER',
+              notes: dto.notes ?? null,
+              createdBy: user.userId,
+            },
+          });
+
+          await tx.stockLevel.upsert({
+            where: { productId_branchId: { productId: item.productId, branchId: order.branchId } },
+            update: { quantity: { increment: qty.toNumber() } },
+            create: {
+              tenantId: user.tenantId,
+              branchId: order.branchId,
+              productId: item.productId,
+              quantity: qty.toNumber(),
+              minThreshold: Math.max(1, Math.floor(qty.toNumber() * 0.2)),
+              maxThresholdSet: false,
+              thresholdSource: 'AUTO',
+            },
+          });
+        }),
+      );
+
+      return received;
     });
   }
 

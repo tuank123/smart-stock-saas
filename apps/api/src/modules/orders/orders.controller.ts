@@ -16,6 +16,7 @@ import {
   CheckThresholdsDto,
   CreateOrderDto,
   OrderQueryDto,
+  ReceiveOrderDto,
   UpdateOrderItemDto,
 } from './dto/order.dto';
 import { OrdersService } from './orders.service';
@@ -55,6 +56,16 @@ export class OrdersController {
     return this.service.listDraftOrders(branchId, user);
   }
 
+  // NOTE: static 'station' segment before :branchId
+  @Roles(UserRole.DEPO)
+  @Get('station/:branchId')
+  stationOrders(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.listStationOrders(branchId, user);
+  }
+
   @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
   @Get(':branchId')
   list(
@@ -81,6 +92,17 @@ export class OrdersController {
     @CurrentUser() user: { tenantId: string },
   ) {
     return this.service.cancelOrder(orderId, user);
+  }
+
+  @Roles(UserRole.DEPO, UserRole.SUBE_MUDURU)
+  @Patch(':orderId/receive')
+  @HttpCode(200)
+  receive(
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+    @Body() dto: ReceiveOrderDto,
+    @CurrentUser() user: { tenantId: string; userId: string },
+  ) {
+    return this.service.receiveOrder(orderId, dto, user);
   }
 
   @Roles(UserRole.SUBE_MUDURU)

@@ -4,9 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   InitializeStockDto,
+  MovementQueryDto,
+  StockBarcodeQueryDto,
   StockQueryDto,
   UpdateThresholdDto,
 } from './dto/stock.dto';
@@ -105,6 +108,60 @@ export class StockService {
       }
 
       return level;
+    });
+  }
+
+  async queryByBarcode(
+    query: StockBarcodeQueryDto,
+    user: { tenantId: string; branchId: string },
+  ) {
+    if (!query.barcode && !query.sku && !query.search) {
+      throw new BadRequestException('barcode, sku veya search parametresi gereklidir');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const OR: Prisma.ProductWhereInput[] = [];
+      if (query.barcode) OR.push({ barcode: query.barcode });
+      if (query.sku) OR.push({ sku: query.sku });
+      if (query.search) OR.push({ name: { contains: query.search, mode: 'insensitive' } });
+
+      return tx.stockLevel.findMany({
+        where: {
+          tenantId: user.tenantId,
+          branchId: user.branchId,
+          product: { OR },
+        },
+        include: {
+          product: { select: { id: true, sku: true, name: true, unit: true, barcode: true } },
+        },
+      });
+    });
+  }
+
+  async listMovements(
+    branchId: string,
+    query: MovementQueryDto,
+    user: { tenantId: string },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const where: Prisma.StockMovementWhereInput = { tenantId: user.tenantId, branchId };
+      if (query.type) where.movementType = query.type;
+      if (query.since) where.createdAt = { gte: new Date(query.since) };
+
+      return tx.stockMovement.findMany({
+        where,
+        include: {
+          product: { select: { id: true, sku: true, name: true, unit: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
     });
   }
 

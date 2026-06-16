@@ -15,6 +15,16 @@ import { SyncService } from './sync.service';
 export class SyncController {
   constructor(private service: SyncService) {}
 
+  // NOTE: 'station' static segment must come before status/:branchId
+  @Roles(UserRole.KASIYER, UserRole.DEPO)
+  @Get('status/station/:branchId')
+  stationStatus(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.getStatus(branchId, user.tenantId);
+  }
+
   @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
   @Get('status/:branchId')
   status(
