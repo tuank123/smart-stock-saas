@@ -74,6 +74,13 @@ function OrderDetailInner({ orderId }: { orderId: string }) {
     onError: () => toast.error('İptal başarısız'),
   });
 
+  const receiveMut = useMutation({
+    mutationFn: () =>
+      api.patch(`/orders/${orderId}/receive`, { items: [] }).then((r) => r.data),
+    onSuccess: () => { invalidate(); toast.success('Teslim tamamlandı'); },
+    onError: () => toast.error('Teslim işlemi başarısız'),
+  });
+
   const order = ordersQuery.data?.find((o: Order) => o.id === orderId);
 
   const isLoading = ordersQuery.isPending;
@@ -107,6 +114,17 @@ function OrderDetailInner({ orderId }: { orderId: string }) {
               <Button size="sm" disabled={approveMut.isPending} onClick={() => approveMut.mutate()}>
                 <Check className="mr-1.5 h-4 w-4" />
                 {approveMut.isPending ? 'Onaylanıyor…' : 'Onayla'}
+              </Button>
+            )}
+            {order.status === 'PARTIAL' && (
+              <Button
+                size="sm"
+                className="bg-green-600 text-white hover:bg-green-700"
+                disabled={receiveMut.isPending}
+                onClick={() => receiveMut.mutate()}
+              >
+                <Check className="mr-1.5 h-4 w-4" />
+                {receiveMut.isPending ? 'Tamamlanıyor…' : 'Teslim Tamamla'}
               </Button>
             )}
           </div>
