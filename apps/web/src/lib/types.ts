@@ -57,6 +57,20 @@ export interface Report {
   pdfUrl?: string | null;
 }
 
+export interface Product {
+  id: string;
+  tenantId: string;
+  categoryId: string;
+  sku: string;
+  barcode?: string | null;
+  name: string;
+  unit: string;
+  imageUrl?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  category: { id: string; name: string };
+}
+
 // Branch augmented with per-branch dashboard data
 export interface BranchDashboardRow extends Branch {
   criticalStockCount: number;
