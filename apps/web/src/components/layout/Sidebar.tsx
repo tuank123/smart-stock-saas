@@ -2,33 +2,42 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import {
-  LayoutDashboard,
-  Package,
-  ShoppingCart,
-  Truck,
-  Users,
-  Building2,
-  BarChart3,
-  Settings,
-  ArrowLeftRight,
-  Warehouse,
-} from 'lucide-react';
+import { LayoutDashboard, Building2, ShoppingCart, BarChart3, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/branches', label: 'Şubeler', icon: Building2 },
-  { href: '/products', label: 'Ürünler', icon: Package },
-  { href: '/stock', label: 'Stok', icon: Warehouse },
-  { href: '/orders', label: 'Siparişler', icon: ShoppingCart },
-  { href: '/transfers', label: 'Transferler', icon: ArrowLeftRight },
-  { href: '/suppliers', label: 'Tedarikçiler', icon: Truck },
-  { href: '/users', label: 'Kullanıcılar', icon: Users },
-  { href: '/reports', label: 'Raporlar', icon: BarChart3 },
-  { href: '/settings', label: 'Ayarlar', icon: Settings },
+  {
+    href: '/dashboard',
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    match: ['/dashboard'],
+  },
+  {
+    href: '/branches',
+    label: 'Şubeler & Stok',
+    icon: Building2,
+    match: ['/branches', '/stock', '/products'],
+  },
+  {
+    href: '/orders',
+    label: 'Siparişler',
+    icon: ShoppingCart,
+    match: ['/orders', '/transfers', '/suppliers'],
+  },
+  {
+    href: '/reports',
+    label: 'Raporlar',
+    icon: BarChart3,
+    match: ['/reports'],
+  },
+  {
+    href: '/settings',
+    label: 'Ayarlar',
+    icon: Settings,
+    match: ['/settings', '/users'],
+  },
 ];
 
 export function Sidebar() {
@@ -40,19 +49,17 @@ export function Sidebar() {
         {/* Logo */}
         <div className="flex h-14 items-center border-b px-3 lg:px-4">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-bold">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-bold shrink-0">
               SP
             </div>
-            <span className="hidden font-semibold text-sidebar-foreground lg:block">
-              StokPilot
-            </span>
+            <span className="hidden font-semibold text-sidebar-foreground lg:block">StokPilot</span>
           </div>
         </div>
 
         {/* Nav */}
         <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
-          {navItems.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href || pathname.startsWith(href + '/');
+          {navItems.map(({ href, label, icon: Icon, match }) => {
+            const active = match.some((p) => pathname === p || pathname.startsWith(p + '/'));
             return (
               <Tooltip key={href}>
                 <TooltipTrigger asChild>
@@ -77,8 +84,6 @@ export function Sidebar() {
         </nav>
 
         <Separator />
-
-        {/* Footer spacer */}
         <div className="h-4" />
       </aside>
     </TooltipProvider>
