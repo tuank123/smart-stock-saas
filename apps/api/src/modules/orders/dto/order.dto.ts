@@ -63,8 +63,23 @@ export class UpdateOrderItemDto {
   quantityOrdered: number = 0;
 }
 
+export class ReceiveItemDto {
+  @IsUUID()
+  productId: string = '';
+
+  @IsNumber()
+  @Min(0.001)
+  quantityReceived: number = 0;
+}
+
 export class ReceiveOrderDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReceiveItemDto)
+  items?: ReceiveItemDto[];
 }

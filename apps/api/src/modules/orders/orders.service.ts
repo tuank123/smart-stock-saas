@@ -280,53 +280,79 @@ export class OrdersService {
       if (!order || order.tenantId !== user.tenantId) {
         throw new NotFoundException('Sipariş bulunamadı');
       }
-      if (!['APPROVED', 'SENT'].includes(order.status)) {
+      if (!['APPROVED', 'SENT', 'PARTIAL'].includes(order.status)) {
         throw new BadRequestException(
-          `Yalnızca APPROVED veya SENT siparişler teslim alınabilir (mevcut: ${order.status})`,
+          `Yalnızca APPROVED, SENT veya PARTIAL siparişler teslim alınabilir (mevcut: ${order.status})`,
         );
       }
 
-      const received = await tx.purchaseOrder.update({
+      // Build a receive-qty map: productId → qty to receive now
+      const receiveMap = new Map<string, number>();
+      if (dto.items && dto.items.length > 0) {
+        for (const ri of dto.items) {
+          receiveMap.set(ri.productId, ri.quantityReceived);
+        }
+      } else {
+        // Full receive: use quantityOrdered for each item
+        for (const item of order.items) {
+          receiveMap.set(item.productId, new Prisma.Decimal(item.quantityOrdered).toNumber());
+        }
+      }
+
+      // Update item quantityReceived and accumulate totals
+      let allFullyReceived = true;
+      for (const item of order.items) {
+        const nowQty = receiveMap.get(item.productId) ?? 0;
+        if (nowQty <= 0) continue;
+
+        const alreadyReceived = new Prisma.Decimal(item.quantityReceived).toNumber();
+        const totalReceived = alreadyReceived + nowQty;
+        const ordered = new Prisma.Decimal(item.quantityOrdered).toNumber();
+
+        await tx.purchaseOrderItem.update({
+          where: { id: item.id },
+          data: { quantityReceived: totalReceived },
+        });
+
+        if (totalReceived < ordered) allFullyReceived = false;
+
+        const qty = new Prisma.Decimal(nowQty);
+        await tx.stockMovement.create({
+          data: {
+            tenantId: user.tenantId,
+            branchId: order.branchId,
+            productId: item.productId,
+            movementType: 'PURCHASE_IN',
+            quantity: qty,
+            referenceId: orderId,
+            referenceType: 'PURCHASE_ORDER',
+            notes: dto.notes ?? null,
+            createdBy: user.userId,
+          },
+        });
+
+        await tx.stockLevel.upsert({
+          where: { productId_branchId: { productId: item.productId, branchId: order.branchId } },
+          update: { quantity: { increment: qty.toNumber() } },
+          create: {
+            tenantId: user.tenantId,
+            branchId: order.branchId,
+            productId: item.productId,
+            quantity: qty.toNumber(),
+            minThreshold: Math.max(1, Math.floor(qty.toNumber() * 0.2)),
+            maxThresholdSet: false,
+            thresholdSource: 'AUTO',
+          },
+        });
+      }
+
+      const newStatus = allFullyReceived ? 'RECEIVED' : 'PARTIAL';
+
+      return tx.purchaseOrder.update({
         where: { id: orderId },
-        data: { status: 'RECEIVED' },
+        data: { status: newStatus },
         include: ORDER_INCLUDE,
       });
-
-      await Promise.all(
-        order.items.map(async (item) => {
-          const qty = new Prisma.Decimal(item.quantityOrdered);
-
-          await tx.stockMovement.create({
-            data: {
-              tenantId: user.tenantId,
-              branchId: order.branchId,
-              productId: item.productId,
-              movementType: 'PURCHASE_IN',
-              quantity: qty,
-              referenceId: orderId,
-              referenceType: 'PURCHASE_ORDER',
-              notes: dto.notes ?? null,
-              createdBy: user.userId,
-            },
-          });
-
-          await tx.stockLevel.upsert({
-            where: { productId_branchId: { productId: item.productId, branchId: order.branchId } },
-            update: { quantity: { increment: qty.toNumber() } },
-            create: {
-              tenantId: user.tenantId,
-              branchId: order.branchId,
-              productId: item.productId,
-              quantity: qty.toNumber(),
-              minThreshold: Math.max(1, Math.floor(qty.toNumber() * 0.2)),
-              maxThresholdSet: false,
-              thresholdSource: 'AUTO',
-            },
-          });
-        }),
-      );
-
-      return received;
     });
   }
 
