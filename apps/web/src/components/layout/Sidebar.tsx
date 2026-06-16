@@ -12,6 +12,8 @@ import {
   ChevronDown,
   Warehouse,
   Package,
+  ArrowLeftRight,
+  Truck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -56,6 +58,11 @@ const navItems: NavItem[] = [
     label: 'Siparişler',
     icon: ShoppingCart,
     match: ['/orders', '/transfers', '/suppliers'],
+    children: [
+      { href: '/orders',    label: 'Siparişler',   icon: ShoppingCart },
+      { href: '/transfers', label: 'Transferler',  icon: ArrowLeftRight },
+      { href: '/suppliers', label: 'Tedarikçiler', icon: Truck },
+    ],
   },
   {
     href: '/reports',
