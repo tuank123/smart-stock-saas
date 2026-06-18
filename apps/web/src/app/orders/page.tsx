@@ -44,8 +44,17 @@ export default function OrdersPage() {
   const branchesQuery = useQuery<Branch[]>({ queryKey: ['branches'], queryFn: fetchBranches });
   const ordersQuery = useQuery<Order[]>({
     queryKey: ['orders', branchId],
-    queryFn: () => fetchOrders(branchId),
-    enabled: !!branchId,
+    queryFn: async () => {
+      if (branchId === 'ALL') {
+        const branches = branchesQuery.data ?? [];
+        const results = await Promise.all(
+          branches.map((b: Branch) => fetchOrders(b.id).catch(() => [] as Order[])),
+        );
+        return results.flat();
+      }
+      return fetchOrders(branchId);
+    },
+    enabled: !!branchId && branchesQuery.isSuccess,
     staleTime: 1000 * 30,
   });
 
@@ -76,6 +85,7 @@ export default function OrdersPage() {
             <Select value={branchId} onValueChange={(v) => { setBranchId(v); setStatusFilter('ALL'); }}>
               <SelectTrigger><SelectValue placeholder="Şube seçin…" /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="ALL">Tüm Şubeler</SelectItem>
                 {(branchesQuery.data ?? []).map((b: Branch) => (
                   <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                 ))}
@@ -133,6 +143,7 @@ export default function OrdersPage() {
               <TableRow>
                 <TableHead>Sipariş No</TableHead>
                 <TableHead>Tarih</TableHead>
+                {branchId === 'ALL' && <TableHead>Şube</TableHead>}
                 <TableHead>Tedarikçi</TableHead>
                 <TableHead className="text-center">Kalem</TableHead>
                 <TableHead className="text-center">Durum</TableHead>
@@ -144,6 +155,7 @@ export default function OrdersPage() {
                 <TableRow key={o.id}>
                   <TableCell className="font-mono text-sm">{o.id.slice(0, 8).toUpperCase()}</TableCell>
                   <TableCell className="text-muted-foreground">{fmt(o.createdAt)}</TableCell>
+                  {branchId === 'ALL' && <TableCell className="text-muted-foreground">{o.branch.name}</TableCell>}
                   <TableCell className="font-medium">{o.supplier.name}</TableCell>
                   <TableCell className="text-center text-muted-foreground">{o.items.length}</TableCell>
                   <TableCell className="text-center">
@@ -151,7 +163,7 @@ export default function OrdersPage() {
                   </TableCell>
                   <TableCell>
                     <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                      <Link href={`/orders/${o.id}?branchId=${branchId}`}>
+                      <Link href={`/orders/${o.id}?branchId=${o.branchId}`}>
                         <ExternalLink className="h-3.5 w-3.5" />
                       </Link>
                     </Button>
