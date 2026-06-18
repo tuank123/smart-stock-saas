@@ -47,6 +47,70 @@ export interface Report {
   pdfUrl?: string | null;
 }
 
+// ── Report detail (GET /reports/:id) ─────────────────────────────────────────
+
+interface DailyBranchStat {
+  branchId: string;
+  branchName: string;
+  totalOrders: number;
+  approvedOrdersValue: number;
+  criticalStockCount: number;
+  stockMovementsIn: number;
+  stockMovementsOut: number;
+}
+
+interface DailyTotals {
+  totalOrders: number;
+  totalApprovedValue: number;
+  totalCriticalStock: number;
+  totalMovementsIn: number;
+  totalMovementsOut: number;
+}
+
+interface PriceAnomaly {
+  id: string;
+  productId: string;
+  oldPrice: number;
+  newPrice: number;
+  changePct: number;
+  anomalyFlag: boolean;
+  createdAt: string;
+}
+
+export interface DailyPayload {
+  date: string;
+  branches: DailyBranchStat[];
+  totals: DailyTotals;
+  anomalies: PriceAnomaly[];
+}
+
+interface MonthlyBranchStat {
+  branchId: string;
+  branchName: string;
+  orderCount: number;
+  stockMovementCount: number;
+  criticalStockCount: number;
+}
+
+interface MonthlyTotals {
+  totalOrders: number;
+  totalMovements: number;
+  priceAnomalies: number;
+}
+
+export interface MonthlyPayload {
+  year: number;
+  month: number;
+  period: string;
+  branchComparison: MonthlyBranchStat[];
+  totals: MonthlyTotals;
+  dailyReportCount: number;
+}
+
+export interface ReportDetail extends Report {
+  payload: DailyPayload | MonthlyPayload;
+}
+
 export interface Product {
   id: string;
   tenantId: string;

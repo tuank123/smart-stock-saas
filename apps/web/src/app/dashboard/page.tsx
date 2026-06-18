@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Building2, ShoppingCart, AlertTriangle, FileText, Wifi, WifiOff } from 'lucide-react';
 import { PageLayout } from '@/components/layout/PageLayout';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -142,7 +143,10 @@ function ReportItem({ report }: { report: Report }) {
   });
 
   return (
-    <div className="flex items-center justify-between gap-3 py-2 border-b last:border-0">
+    <Link
+      href={`/reports/${report.id}`}
+      className="flex items-center justify-between gap-3 py-2 border-b last:border-0 hover:bg-muted/40 -mx-2 px-2 rounded transition-colors"
+    >
       <div className="flex items-center gap-2">
         <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
         <span className="text-sm">
@@ -154,7 +158,7 @@ function ReportItem({ report }: { report: Report }) {
           Okunmadı
         </Badge>
       )}
-    </div>
+    </Link>
   );
 }
 
