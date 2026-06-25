@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -17,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useQueryClient } from '@tanstack/react-query';
 import { useReport } from '@/hooks/useReports';
 import type { DailyPayload, MonthlyPayload, ReportDetail } from '@/lib/types';
 
@@ -278,8 +280,15 @@ function MonthlyDetail({ payload }: { payload: MonthlyPayload }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ReportDetailPage({ params }: { params: { id: string } }) {
+  const qc = useQueryClient();
   const query = useReport(params.id);
   const report = query.data;
+
+  useEffect(() => {
+    if (query.isSuccess) {
+      qc.invalidateQueries({ queryKey: ['reports', 'unread'] });
+    }
+  }, [query.isSuccess, qc]);
 
   const title = report
     ? `${report.reportType === 'DAILY' ? 'Günlük' : 'Aylık'} Rapor — ${fmtDate(report.reportDate)}`
