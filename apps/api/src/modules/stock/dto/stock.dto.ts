@@ -1,9 +1,9 @@
-import { Transform } from 'class-transformer';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
   IsDateString,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -72,4 +72,31 @@ export class MovementQueryDto {
   @IsOptional()
   @IsDateString()
   since?: string;
+}
+
+export class WasteStockDto {
+  @IsUUID()
+  productId: string = '';
+
+  @IsNumber()
+  @Min(0.001)
+  quantity: number = 0;
+
+  @IsString()
+  @IsNotEmpty()
+  reason: string = '';
+}
+
+export class PriceChangeQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  offset?: number;
 }

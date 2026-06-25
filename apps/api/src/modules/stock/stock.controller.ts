@@ -9,15 +9,18 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import {
   InitializeStockDto,
   MovementQueryDto,
+  PriceChangeQueryDto,
   StockBarcodeQueryDto,
   StockQueryDto,
   UpdateThresholdDto,
+  WasteStockDto,
 } from './dto/stock.dto';
 import { StockService } from './stock.service';
 
@@ -45,7 +48,17 @@ export class StockController {
     return this.service.queryByBarcode(query, user);
   }
 
-  // NOTE: 'movements' static segment before :branchId to avoid collision
+  // NOTE: static segments ('movements', 'price-changes') must be defined before :branchId
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
+  @Get('price-changes/:branchId')
+  listPriceChanges(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Query() query: PriceChangeQueryDto,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.listPriceChanges(branchId, query, user);
+  }
+
   @Roles(UserRole.SUBE_MUDURU, UserRole.DEPO)
   @Get('movements/:branchId')
   listMovements(
@@ -74,6 +87,17 @@ export class StockController {
     @CurrentUser() user: { tenantId: string },
   ) {
     return this.service.getStockLevel(branchId, productId, user);
+  }
+
+  @Roles(UserRole.SUBE_MUDURU)
+  @Post(':branchId/waste')
+  @HttpCode(201)
+  recordWaste(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Body() dto: WasteStockDto,
+    @CurrentUser() user: { tenantId: string; userId: string },
+  ) {
+    return this.service.recordWaste(branchId, dto, user);
   }
 
   @Roles(UserRole.SUBE_MUDURU)

@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
+
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -31,6 +32,15 @@ export class BranchesController {
   @Get()
   list(@CurrentUser() user: { tenantId: string; branchId?: string | null; role?: string | null }) {
     return this.service.listBranches(user);
+  }
+
+  @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
+  @Get(':branchId')
+  getOne(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @CurrentUser() user: { tenantId: string; branchId?: string | null; role?: string | null },
+  ) {
+    return this.service.getBranch(branchId, user);
   }
 
   @Roles(UserRole.PATRON)

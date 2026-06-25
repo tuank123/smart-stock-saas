@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -52,6 +53,40 @@ export class BranchesService {
       }
 
       return tx.branch.findMany({ where, orderBy: { createdAt: 'asc' } });
+    });
+  }
+
+  async getBranch(
+    branchId: string,
+    user: { tenantId: string; branchId?: string | null; role?: string | null },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      if (user.role === 'SUBE_MUDURU' && user.branchId !== branchId) {
+        throw new ForbiddenException('Bu şubeye erişim yetkiniz yok');
+      }
+
+      const branch = await tx.branch.findUnique({ where: { id: branchId } });
+
+      if (!branch || branch.tenantId !== user.tenantId) {
+        throw new NotFoundException('Şube bulunamadı');
+      }
+
+      const integration = await tx.branchIntegration.findFirst({
+        where: { branchId },
+        select: { adapterType: true, connectionStatus: true },
+      });
+
+      return {
+        id: branch.id,
+        name: branch.name,
+        slug: branch.slug,
+        isActive: branch.isActive,
+        address: branch.address,
+        integrationStatus: integration?.connectionStatus ?? null,
+      };
     });
   }
 

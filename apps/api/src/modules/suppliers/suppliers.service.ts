@@ -1,6 +1,6 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateSupplierDto, LinkBranchSupplierDto } from './dto/supplier.dto';
+import { CreateSupplierDto, LinkBranchSupplierDto, UpdateSupplierDto } from './dto/supplier.dto';
 
 @Injectable()
 export class SuppliersService {
@@ -60,6 +60,67 @@ export class SuppliersService {
         }
         throw e;
       }
+    });
+  }
+
+  async getSupplier(supplierId: string, user: { tenantId: string }) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const supplier = await tx.supplier.findUnique({
+        where: { id: supplierId },
+        include: {
+          branchSuppliers: {
+            include: { branch: { select: { id: true, name: true } } },
+          },
+        },
+      });
+
+      if (!supplier || supplier.tenantId !== user.tenantId) {
+        throw new NotFoundException('Tedarikçi bulunamadı');
+      }
+
+      return supplier;
+    });
+  }
+
+  async updateSupplier(
+    supplierId: string,
+    dto: UpdateSupplierDto,
+    user: { tenantId: string },
+  ) {
+    if (!dto.name && !dto.contactName && !dto.whatsappNumber && !dto.notes) {
+      throw new BadRequestException('En az bir alan güncellenmelidir');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const existing = await tx.supplier.findUnique({
+        where: { id: supplierId },
+        select: { tenantId: true },
+      });
+
+      if (!existing || existing.tenantId !== user.tenantId) {
+        throw new NotFoundException('Tedarikçi bulunamadı');
+      }
+
+      return tx.supplier.update({
+        where: { id: supplierId },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.contactName !== undefined && { contactName: dto.contactName }),
+          ...(dto.whatsappNumber !== undefined && { whatsappNumber: dto.whatsappNumber }),
+          ...(dto.notes !== undefined && { notes: dto.notes }),
+        },
+        include: {
+          branchSuppliers: {
+            include: { branch: { select: { id: true, name: true } } },
+          },
+        },
+      });
     });
   }
 

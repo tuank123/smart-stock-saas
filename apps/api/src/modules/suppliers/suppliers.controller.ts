@@ -1,8 +1,8 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { CreateSupplierDto, LinkBranchSupplierDto } from './dto/supplier.dto';
+import { CreateSupplierDto, LinkBranchSupplierDto, UpdateSupplierDto } from './dto/supplier.dto';
 import { SuppliersService } from './suppliers.service';
 
 @Controller('suppliers')
@@ -35,5 +35,24 @@ export class SuppliersController {
   @Get()
   list(@CurrentUser() user: { tenantId: string }) {
     return this.service.listSuppliers(user);
+  }
+
+  @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
+  @Get(':supplierId')
+  getOne(
+    @Param('supplierId', ParseUUIDPipe) supplierId: string,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.getSupplier(supplierId, user);
+  }
+
+  @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
+  @Patch(':supplierId')
+  update(
+    @Param('supplierId', ParseUUIDPipe) supplierId: string,
+    @Body() dto: UpdateSupplierDto,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.updateSupplier(supplierId, dto, user);
   }
 }

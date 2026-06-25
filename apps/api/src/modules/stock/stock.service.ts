@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,9 +10,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   InitializeStockDto,
   MovementQueryDto,
+  PriceChangeQueryDto,
   StockBarcodeQueryDto,
   StockQueryDto,
   UpdateThresholdDto,
+  WasteStockDto,
 } from './dto/stock.dto';
 
 @Injectable()
@@ -161,6 +164,71 @@ export class StockService {
         },
         orderBy: { createdAt: 'desc' },
         take: 100,
+      });
+    });
+  }
+
+  async recordWaste(
+    branchId: string,
+    dto: WasteStockDto,
+    user: { tenantId: string; userId: string },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const level = await tx.stockLevel.findUnique({
+        where: { productId_branchId: { productId: dto.productId, branchId } },
+        select: { id: true, tenantId: true },
+      });
+
+      if (!level || level.tenantId !== user.tenantId) {
+        throw new NotFoundException('Stok kaydı bulunamadı');
+      }
+
+      const [movement] = await Promise.all([
+        tx.stockMovement.create({
+          data: {
+            tenantId: user.tenantId,
+            productId: dto.productId,
+            branchId,
+            movementType: 'WASTE',
+            quantity: -dto.quantity,
+            createdBy: user.userId,
+            notes: dto.reason,
+          },
+          include: {
+            product: { select: { id: true, sku: true, name: true, unit: true } },
+          },
+        }),
+        tx.stockLevel.update({
+          where: { id: level.id },
+          data: { quantity: { decrement: dto.quantity } },
+        }),
+      ]);
+
+      return movement;
+    });
+  }
+
+  async listPriceChanges(
+    branchId: string,
+    query: PriceChangeQueryDto,
+    user: { tenantId: string },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      return tx.priceChangeLog.findMany({
+        where: { tenantId: user.tenantId, branchId },
+        include: {
+          product: { select: { id: true, sku: true, name: true } },
+          changer: { select: { id: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: query.limit ?? 50,
+        skip: query.offset ?? 0,
       });
     });
   }
