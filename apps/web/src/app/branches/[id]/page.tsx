@@ -213,7 +213,7 @@ export default function BranchDetailPage({ params }: { params: { id: string } })
             Bu şubede stok kaydı yok.
           </div>
         ) : (
-          <div className="rounded-xl border bg-card">
+          <div className="overflow-x-auto rounded-xl border bg-card">
             <Table>
               <TableHeader>
                 <TableRow>

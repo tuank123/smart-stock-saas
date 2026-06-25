@@ -124,7 +124,7 @@ function DailyDetail({ payload }: { payload: DailyPayload }) {
       {/* Branches table */}
       <div className="mt-6">
         <SectionHeading>Şubeler</SectionHeading>
-        <div className="rounded-xl border bg-card">
+        <div className="overflow-x-auto rounded-xl border bg-card">
           <Table>
             <TableHeader>
               <TableRow>
@@ -167,7 +167,7 @@ function DailyDetail({ payload }: { payload: DailyPayload }) {
               Fiyat Anomalileri
             </span>
           </SectionHeading>
-          <div className="rounded-xl border bg-card">
+          <div className="overflow-x-auto rounded-xl border bg-card">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -244,7 +244,7 @@ function MonthlyDetail({ payload }: { payload: MonthlyPayload }) {
       {/* Branch comparison table */}
       <div className="mt-6">
         <SectionHeading>Şube Karşılaştırma</SectionHeading>
-        <div className="rounded-xl border bg-card">
+        <div className="overflow-x-auto rounded-xl border bg-card">
           <Table>
             <TableHeader>
               <TableRow>

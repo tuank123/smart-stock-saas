@@ -78,7 +78,7 @@ export default function OrdersPage() {
     <PageLayout title="Siparişler">
       {/* Toolbar */}
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <div className="w-52">
+        <div className="w-full sm:w-52">
           {branchesQuery.isPending ? (
             <Skeleton className="h-9 w-full" />
           ) : (
@@ -96,7 +96,7 @@ export default function OrdersPage() {
 
         {branchId && (
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-full sm:w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">Tüm Durumlar</SelectItem>
               {ORDER_STATUS_LABELS.map(({ value, label }) => (
@@ -137,7 +137,7 @@ export default function OrdersPage() {
           {statusFilter !== 'ALL' ? 'Bu durumda sipariş bulunamadı.' : 'Bu şubede sipariş yok.'}
         </div>
       ) : (
-        <div className="rounded-xl border bg-card">
+        <div className="overflow-x-auto rounded-xl border bg-card">
           <Table>
             <TableHeader>
               <TableRow>

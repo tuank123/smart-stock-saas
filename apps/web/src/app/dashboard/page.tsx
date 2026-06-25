@@ -66,7 +66,7 @@ function StatCardSkeleton() {
 function BranchRow({ branch }: { branch: BranchDashboardRow }) {
   const hasIntegration = branch.integration != null;
   return (
-    <div className="flex items-start justify-between gap-4 rounded-lg border bg-card p-4 shadow-sm">
+    <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-sm sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
         <p className="font-medium truncate">{branch.name}</p>
         {branch.address ? (
@@ -76,7 +76,7 @@ function BranchRow({ branch }: { branch: BranchDashboardRow }) {
         )}
       </div>
 
-      <div className="flex shrink-0 flex-col items-end gap-2">
+      <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
         <Badge
           variant={hasIntegration ? 'default' : 'secondary'}
           className="flex items-center gap-1 text-xs"
@@ -115,7 +115,7 @@ function BranchListSkeleton() {
   return (
     <div className="space-y-3">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="rounded-lg border bg-card p-4 shadow-sm flex items-start justify-between gap-4">
+        <div key={i} className="rounded-lg border bg-card p-4 shadow-sm flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2 flex-1">
             <Skeleton className="h-4 w-40" />
             <Skeleton className="h-3 w-56" />
