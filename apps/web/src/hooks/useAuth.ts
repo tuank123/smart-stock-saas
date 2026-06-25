@@ -30,7 +30,11 @@ export function useAuth() {
     onSuccess: (data) => {
       setAuth(data.user, data.accessToken);
       toast.success('Giriş başarılı');
-      router.push('/dashboard');
+      if (data.user.role === 'SUBE_MUDURU') {
+        router.push('/mudur/dashboard');
+      } else {
+        router.push('/dashboard');
+      }
     },
     onError: () => {
       toast.error('E-posta veya şifre hatalı');
