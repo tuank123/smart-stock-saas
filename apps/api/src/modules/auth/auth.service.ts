@@ -1,10 +1,11 @@
-import { Injectable, BadRequestException, UnauthorizedException, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, BadRequestException, UnauthorizedException, Logger, OnModuleInit, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { createClient, RedisClientType } from 'redis';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { AuthResponse } from './dto/auth-response.dto';
 
 @Injectable()
@@ -213,6 +214,60 @@ export class AuthService implements OnModuleInit {
     } catch (error) {
       this.logger.warn('⚠️  Logout failed for invalid token');
     }
+  }
+
+  /**
+   * GET /auth/me — current user + tenant info
+   */
+  async getMe(userId: string, tenantId: string) {
+    const [user, tenant] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          branchId: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          id: true,
+          companyName: true,
+          taxNumber: true,
+          status: true,
+          planId: true,
+          settings: true,
+        },
+      }),
+    ]);
+
+    if (!user || !tenant) {
+      throw new NotFoundException('User or tenant not found');
+    }
+
+    return { user, tenant };
+  }
+
+  /**
+   * PATCH /auth/change-password
+   */
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!valid) throw new BadRequestException('Mevcut şifre hatalı');
+
+    const hash = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: hash },
+    });
+
+    return { message: 'Şifre güncellendi' };
   }
 
   /**

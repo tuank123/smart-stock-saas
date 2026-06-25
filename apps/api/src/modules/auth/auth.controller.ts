@@ -1,9 +1,11 @@
-import { Controller, Post, Body, Req, Res, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Req, Res, HttpCode } from '@nestjs/common';
 import { Response, Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { Public } from '../../common/decorators/public.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -82,6 +84,27 @@ export class AuthController {
         user,
       },
     };
+  }
+
+  /**
+   * GET /api/v1/auth/me
+   */
+  @Get('me')
+  me(
+    @CurrentUser() user: { userId: string; email: string; tenantId: string; role: string; branchId: string | null },
+  ) {
+    return this.authService.getMe(user.userId, user.tenantId);
+  }
+
+  /**
+   * PATCH /api/v1/auth/change-password
+   */
+  @Patch('change-password')
+  changePassword(
+    @Body() dto: ChangePasswordDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.authService.changePassword(user.userId, dto);
   }
 
   /**
