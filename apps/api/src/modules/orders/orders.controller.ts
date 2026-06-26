@@ -16,6 +16,7 @@ import {
   CheckThresholdsDto,
   CreateOrderDto,
   OrderQueryDto,
+  PatchOrderDto,
   ReceiveOrderDto,
   UpdateOrderItemDto,
 } from './dto/order.dto';
@@ -74,6 +75,16 @@ export class OrdersController {
     @CurrentUser() user: { tenantId: string },
   ) {
     return this.service.listOrders(branchId, query, user);
+  }
+
+  @Roles(UserRole.SUBE_MUDURU)
+  @Patch(':orderId')
+  update(
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+    @Body() dto: PatchOrderDto,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.updateOrder(orderId, dto, user);
   }
 
   @Roles(UserRole.SUBE_MUDURU)

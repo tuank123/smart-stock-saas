@@ -268,8 +268,9 @@ model Product {
   sku        String
   barcode    String?
   name       String
-  unit       String
-  variants   Json      @default("[]")
+  unit          String
+  unitsPerCase  Int?      @map("units_per_case")
+  variants      Json      @default("[]")
   imageUrl   String?   @map("image_url")
   isActive   Boolean   @default(true) @map("is_active")
   createdAt  DateTime  @default(now()) @map("created_at")

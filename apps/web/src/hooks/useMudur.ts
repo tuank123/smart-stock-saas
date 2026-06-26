@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
-import type { StockLevel, Order, Transfer, Branch } from '@/lib/types';
+import type { StockLevel, Order, Transfer, Branch, Supplier } from '@/lib/types';
 
 // ── API types ─────────────────────────────────────────────────────────────────
 
@@ -230,5 +230,143 @@ export function useBranches() {
     queryKey: ['branches'],
     queryFn: fetchBranches,
     staleTime: 1000 * 60 * 5,
+  });
+}
+
+// ── Order hooks ───────────────────────────────────────────────────────────────
+
+function fetchAllOrders(branchId: string): Promise<Order[]> {
+  return api.get<Order[]>(`/orders/${branchId}`).then((r) => r.data);
+}
+
+function fetchSuppliers(): Promise<Supplier[]> {
+  return api.get<Supplier[]>('/suppliers').then((r) => r.data);
+}
+
+export function useOrders() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<Order[]>({
+    queryKey: ['orders', branchId],
+    queryFn: () => fetchAllOrders(branchId),
+    staleTime: 1000 * 30,
+    enabled: !!branchId,
+  });
+}
+
+export function useDraftOrders() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<Order[]>({
+    queryKey: ['orders', 'draft', branchId],
+    queryFn: () => fetchDraftOrders(branchId),
+    staleTime: 1000 * 30,
+    enabled: !!branchId,
+  });
+}
+
+export function useApproveOrder() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: string) =>
+      api.patch(`/orders/${orderId}/approve`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orders', branchId] });
+      qc.invalidateQueries({ queryKey: ['orders', 'draft', branchId] });
+      toast.success('Sipariş onaylandı');
+    },
+    onError: () => toast.error('Sipariş onaylanamadı'),
+  });
+}
+
+export function useCancelOrder() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: string) =>
+      api.patch(`/orders/${orderId}/cancel`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orders', branchId] });
+      qc.invalidateQueries({ queryKey: ['orders', 'draft', branchId] });
+      toast.success('Sipariş iptal edildi');
+    },
+    onError: () => toast.error('Sipariş iptal edilemedi'),
+  });
+}
+
+export function useCreateOrder() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: {
+      branchId: string;
+      supplierId: string;
+      items: Array<{ productId: string; quantity: number }>;
+      notes?: string;
+    }) => api.post('/orders', dto).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orders', branchId] });
+      qc.invalidateQueries({ queryKey: ['orders', 'draft', branchId] });
+      toast.success('Sipariş oluşturuldu');
+    },
+    onError: () => toast.error('Sipariş oluşturulamadı'),
+  });
+}
+
+export function useSuppliers() {
+  return useQuery<Supplier[]>({
+    queryKey: ['suppliers'],
+    queryFn: fetchSuppliers,
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
+export function useOrderDetail(orderId: string) {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  // Select from the shared draft-orders cache — no extra network request when cache is warm
+  return useQuery<Order[], Error, Order | null>({
+    queryKey: ['orders', 'draft', branchId],
+    queryFn: () => fetchDraftOrders(branchId),
+    select: (orders: Order[]) => orders.find((o: Order) => o.id === orderId) ?? null,
+    staleTime: 1000 * 30,
+    enabled: !!branchId && !!orderId,
+  });
+}
+
+export function useUpdateUnitsPerCase() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { productId: string; unitsPerCase: number }) =>
+      api
+        .patch(`/products/${vars.productId}/units-per-case`, { unitsPerCase: vars.unitsPerCase })
+        .then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stock', branchId] });
+    },
+    onError: () => toast.error('Koli bilgisi güncellenemedi'),
+  });
+}
+
+export function useUpdateOrder() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      orderId: string;
+      data: { items: Array<{ productId: string; quantity: number }>; notes?: string };
+    }) => api.patch(`/orders/${vars.orderId}`, vars.data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orders', 'draft', branchId] });
+      qc.invalidateQueries({ queryKey: ['orders', branchId] });
+    },
+    onError: () => toast.error('Sipariş güncellenemedi'),
   });
 }

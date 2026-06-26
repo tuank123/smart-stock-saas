@@ -5,13 +5,14 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { CreateProductDto, ProductQueryDto } from './dto/product.dto';
+import { CreateProductDto, PatchUnitsPerCaseDto, ProductQueryDto } from './dto/product.dto';
 import { ProductsService } from './products.service';
 
 @Controller('products')
@@ -43,5 +44,15 @@ export class ProductsController {
     @CurrentUser() user: { tenantId: string },
   ) {
     return this.service.getProduct(id, user);
+  }
+
+  @Roles(UserRole.SUBE_MUDURU)
+  @Patch(':productId/units-per-case')
+  updateUnitsPerCase(
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @Body() dto: PatchUnitsPerCaseDto,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.updateUnitsPerCase(productId, dto, user);
   }
 }

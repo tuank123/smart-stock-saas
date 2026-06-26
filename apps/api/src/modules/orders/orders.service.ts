@@ -8,7 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SyncService } from '../sync/sync.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
-import { CheckThresholdsDto, CreateOrderDto, OrderQueryDto, ReceiveOrderDto, UpdateOrderItemDto } from './dto/order.dto';
+import { CheckThresholdsDto, CreateOrderDto, OrderQueryDto, PatchOrderDto, ReceiveOrderDto, UpdateOrderItemDto } from './dto/order.dto';
 
 const ORDER_INCLUDE = {
   supplier: { select: { id: true, name: true, whatsappNumber: true } },
@@ -16,7 +16,7 @@ const ORDER_INCLUDE = {
   approver: { select: { id: true, email: true } },
   items: {
     include: {
-      product: { select: { id: true, sku: true, name: true, unit: true } },
+      product: { select: { id: true, sku: true, name: true, unit: true, unitsPerCase: true } },
     },
   },
 } as const;
@@ -74,6 +74,41 @@ export class OrdersService {
         where,
         include: ORDER_INCLUDE,
         orderBy: { createdAt: 'desc' },
+      });
+    });
+  }
+
+  async updateOrder(orderId: string, dto: PatchOrderDto, user: { tenantId: string }) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const order = await tx.purchaseOrder.findUnique({
+        where: { id: orderId },
+        select: { id: true, tenantId: true, status: true },
+      });
+
+      if (!order || order.tenantId !== user.tenantId) {
+        throw new NotFoundException('Sipariş bulunamadı');
+      }
+      if (order.status !== 'DRAFT') {
+        throw new BadRequestException('Sadece taslak siparişler düzenlenebilir');
+      }
+
+      await tx.purchaseOrderItem.deleteMany({ where: { poId: orderId } });
+
+      return tx.purchaseOrder.update({
+        where: { id: orderId },
+        data: {
+          ...(dto.notes !== undefined && { notes: dto.notes }),
+          items: {
+            create: dto.items.map((item) => ({
+              productId: item.productId,
+              quantityOrdered: item.quantity,
+            })),
+          },
+        },
+        include: ORDER_INCLUDE,
       });
     });
   }

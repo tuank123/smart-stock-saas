@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateProductDto, ProductQueryDto } from './dto/product.dto';
+import { CreateProductDto, PatchUnitsPerCaseDto, ProductQueryDto } from './dto/product.dto';
 
 @Injectable()
 export class ProductsService {
@@ -82,6 +82,28 @@ export class ProductsService {
       }
 
       return product;
+    });
+  }
+
+  async updateUnitsPerCase(
+    productId: string,
+    dto: PatchUnitsPerCaseDto,
+    user: { tenantId: string },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const product = await tx.product.findUnique({ where: { id: productId } });
+      if (!product || product.tenantId !== user.tenantId || product.deletedAt) {
+        throw new NotFoundException('Ürün bulunamadı');
+      }
+
+      return tx.product.update({
+        where: { id: productId },
+        data: { unitsPerCase: dto.unitsPerCase },
+        include: { category: { select: { id: true, name: true } } },
+      });
     });
   }
 }

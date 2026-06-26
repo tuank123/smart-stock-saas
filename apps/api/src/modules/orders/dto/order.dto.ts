@@ -63,6 +63,27 @@ export class UpdateOrderItemDto {
   quantityOrdered: number = 0;
 }
 
+class PatchOrderItemDto {
+  @IsUUID()
+  productId: string = '';
+
+  @IsNumber()
+  @Min(0.001)
+  @Type(() => Number)
+  quantity: number = 0;
+}
+
+export class PatchOrderDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PatchOrderItemDto)
+  items!: PatchOrderItemDto[];
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
 export class ReceiveItemDto {
   @IsUUID()
   productId: string = '';

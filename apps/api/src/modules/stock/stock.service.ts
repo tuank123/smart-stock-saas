@@ -74,7 +74,7 @@ export class StockService {
         where: { branchId, tenantId: user.tenantId },
         include: {
           product: {
-            select: { id: true, sku: true, name: true, unit: true, barcode: true },
+            select: { id: true, sku: true, name: true, unit: true, barcode: true, unitsPerCase: true },
           },
         },
         orderBy: { product: { name: 'asc' } },
@@ -101,7 +101,7 @@ export class StockService {
         where: { productId_branchId: { productId, branchId } },
         include: {
           product: {
-            select: { id: true, sku: true, name: true, unit: true },
+            select: { id: true, sku: true, name: true, unit: true, unitsPerCase: true },
           },
         },
       });
@@ -138,7 +138,7 @@ export class StockService {
           product: { OR },
         },
         include: {
-          product: { select: { id: true, sku: true, name: true, unit: true, barcode: true } },
+          product: { select: { id: true, sku: true, name: true, unit: true, barcode: true, unitsPerCase: true } },
         },
       });
     });

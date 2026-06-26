@@ -1,10 +1,12 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
+  Min,
 } from 'class-validator';
 
 export class CreateProductDto {
@@ -29,6 +31,13 @@ export class CreateProductDto {
 
   @IsOptional()
   variants?: unknown[];
+}
+
+export class PatchUnitsPerCaseDto {
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  unitsPerCase: number = 1;
 }
 
 export class ProductQueryDto {

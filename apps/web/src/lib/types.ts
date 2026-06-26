@@ -34,6 +34,7 @@ export interface StockLevel {
     name: string;
     unit: string;
     barcode?: string | null;
+    unitsPerCase?: number | null;
   };
 }
 
@@ -136,7 +137,7 @@ export interface OrderItem {
   quantityReceived: string | number;
   unitPrice?: string | number | null;
   notes?: string | null;
-  product: { id: string; sku: string; name: string; unit: string };
+  product: { id: string; sku: string; name: string; unit: string; unitsPerCase?: number | null };
 }
 
 export interface Order {
