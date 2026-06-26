@@ -27,6 +27,7 @@ export interface StockLevel {
   productId: string;
   quantity: string | number;
   minThreshold: string | number;
+  maxThreshold?: string | number | null;
   product: {
     id: string;
     sku: string;

@@ -57,13 +57,26 @@ export default function LoginPage() {
             />
           </div>
 
+          <div className="space-y-1">
+            <label className="text-sm font-medium" htmlFor="tenantId">İşletme ID</label>
+            <input
+              id="tenantId"
+              type="text"
+              required
+              value={form.tenantId}
+              onChange={(e) => setForm((f) => ({ ...f, tenantId: e.target.value }))}
+              placeholder="Tenant ID'nizi girin"
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            />
+          </div>
+
           <Button type="submit" className="w-full" disabled={isLoggingIn}>
             {isLoggingIn ? 'Giriş yapılıyor...' : 'Giriş Yap'}
           </Button>
         </form>
 
         <p className="text-center text-xs text-muted-foreground">
-          Test: admin@acme.com / Test1234!
+          Test: admin@acme.com / Admin123! — tenantId: 290ec168-0ac0-4592-8d3f-163c70ad92cf
         </p>
       </div>
     </div>

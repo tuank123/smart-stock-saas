@@ -42,15 +42,11 @@ export class BranchesService {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
 
-      const where: { tenantId: string; isActive: boolean; deletedAt: null; id?: string } = {
+      const where = {
         tenantId: user.tenantId,
         isActive: true,
         deletedAt: null,
       };
-
-      if (user.role === 'SUBE_MUDURU' && user.branchId) {
-        where.id = user.branchId;
-      }
 
       return tx.branch.findMany({ where, orderBy: { createdAt: 'asc' } });
     });
