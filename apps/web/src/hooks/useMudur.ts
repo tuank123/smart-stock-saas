@@ -325,6 +325,56 @@ export function useSuppliers() {
   });
 }
 
+export function useSupplierDetail(supplierId: string) {
+  return useQuery<Supplier>({
+    queryKey: ['suppliers', supplierId],
+    queryFn: () => api.get<Supplier>(`/suppliers/${supplierId}`).then((r) => r.data),
+    staleTime: 1000 * 60 * 5,
+    enabled: !!supplierId,
+  });
+}
+
+export function useCreateSupplier() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (dto: {
+      name: string;
+      contactName?: string;
+      whatsappNumber: string;
+      notes?: string;
+    }) => {
+      const supplier = await api.post<Supplier>('/suppliers', dto).then((r) => r.data);
+      if (branchId) {
+        await api.post(`/suppliers/${supplier.id}/branches/${branchId}`, { isPrimary: true });
+      }
+      return supplier;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['suppliers'] });
+      toast.success('Tedarikçi eklendi');
+    },
+    onError: () => toast.error('Tedarikçi eklenemedi'),
+  });
+}
+
+export function useUpdateSupplier() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      supplierId: string;
+      data: { name?: string; contactName?: string; whatsappNumber?: string; notes?: string };
+    }) => api.patch(`/suppliers/${vars.supplierId}`, vars.data).then((r) => r.data),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['suppliers'] });
+      qc.invalidateQueries({ queryKey: ['suppliers', vars.supplierId] });
+      toast.success('Tedarikçi güncellendi');
+    },
+    onError: () => toast.error('Tedarikçi güncellenemedi'),
+  });
+}
+
 export function useOrderDetail(orderId: string) {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
