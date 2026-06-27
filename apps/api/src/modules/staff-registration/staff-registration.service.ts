@@ -39,6 +39,7 @@ export class StaffRegistrationService {
           tenantId: tenant.id,
           branchId: dto.branchId,
           email: dto.applicantEmail,
+          fullName: dto.applicantName,
           passwordHash,
           role: null,
           isActive: false,

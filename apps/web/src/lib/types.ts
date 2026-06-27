@@ -220,3 +220,33 @@ export interface BranchDashboardRow extends Branch {
   draftOrderCount: number;
   integration: BranchIntegration | null;
 }
+
+// ── Personnel ─────────────────────────────────────────────────────────────────
+
+export type UserRole = 'SUPER_ADMIN' | 'PATRON' | 'SUBE_MUDURU' | 'KASIYER' | 'DEPO';
+
+export interface BranchUser {
+  id: string;
+  email: string;
+  fullName: string | null;
+  role: UserRole | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface PendingRegistration {
+  id: string;
+  tenantId: string;
+  branchId: string;
+  token: string;
+  applicantName: string;
+  applicantEmail: string;
+  status: string;
+  createdUserId?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  usedAt?: string | null;
+  cancelledBy?: string | null;
+  cancelledAt?: string | null;
+  createdAt: string;
+}

@@ -4,7 +4,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
-import type { StockLevel, Order, Transfer, Branch, Supplier } from '@/lib/types';
+import type {
+  StockLevel,
+  Order,
+  Transfer,
+  Branch,
+  Supplier,
+  BranchUser,
+  PendingRegistration,
+} from '@/lib/types';
 
 // ── OCR types (exported for the OCR page) ────────────────────────────────────
 
@@ -444,6 +452,68 @@ export function useOcrConfirm() {
       toast.success('Fatura stoka işlendi');
     },
     onError: () => toast.error('Fatura onaylanamadı'),
+  });
+}
+
+// ── Personnel hooks ───────────────────────────────────────────────────────────
+
+function fetchBranchUsers(branchId: string): Promise<BranchUser[]> {
+  return api.get<BranchUser[]>(`/users/branch/${branchId}`).then((r) => r.data);
+}
+
+function fetchPendingRegistrations(branchId: string): Promise<PendingRegistration[]> {
+  return api.get<PendingRegistration[]>(`/auth/register/pending/${branchId}`).then((r) => r.data);
+}
+
+export function useBranchUsers() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<BranchUser[]>({
+    queryKey: ['users', branchId],
+    queryFn: () => fetchBranchUsers(branchId),
+    staleTime: 1000 * 30,
+    enabled: !!branchId,
+  });
+}
+
+export function usePendingRegistrations() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<PendingRegistration[]>({
+    queryKey: ['registrations', branchId],
+    queryFn: () => fetchPendingRegistrations(branchId),
+    staleTime: 1000 * 30,
+    enabled: !!branchId,
+  });
+}
+
+export function useApproveRegistration() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (tokenId: string) =>
+      api.patch(`/auth/register/approve/${tokenId}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['registrations', branchId] });
+      toast.success('Kayıt talebi onaylandı');
+    },
+    onError: () => toast.error('Kayıt talebi onaylanamadı'),
+  });
+}
+
+export function useAssignRole() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { userId: string; role: 'KASIYER' | 'DEPO' }) =>
+      api.patch(`/auth/register/assign-role/${vars.userId}`, { role: vars.role }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users', branchId] });
+      toast.success('Rol güncellendi');
+    },
+    onError: () => toast.error('Rol güncellenemedi'),
   });
 }
 

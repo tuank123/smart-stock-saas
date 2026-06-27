@@ -91,6 +91,7 @@ model User {
   tenantId        String   @db.Uuid @map("tenant_id")
   branchId        String?  @db.Uuid @map("branch_id")
   email           String   @map("email")
+  fullName        String?  @map("full_name")
   passwordHash    String   @map("password_hash")
   role            UserRole?
   isActive        Boolean  @default(true) @map("is_active")
