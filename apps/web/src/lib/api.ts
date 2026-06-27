@@ -1,7 +1,14 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { authStorage } from './auth';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1';
+// NEXT_PUBLIC_API_URL always wins. Otherwise: production builds (including the
+// Capacitor mobile shell, which is a static `next build` export) hit the
+// hosted API; local `next dev` hits the local API.
+const BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ??
+  (process.env.NODE_ENV === 'production'
+    ? 'https://api.stokpilot.com/api/v1'
+    : 'http://localhost:3000/api/v1');
 
 export const api = axios.create({
   baseURL: BASE_URL,

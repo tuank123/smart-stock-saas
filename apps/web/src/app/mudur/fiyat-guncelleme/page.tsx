@@ -161,7 +161,7 @@ export default function MudurFiyatGuncellemePage() {
                     </div>
                     <div className="flex shrink-0 gap-2">
                       <Button size="sm" variant="outline" className="gap-1.5" asChild>
-                        <Link href={`/mudur/fiyat-guncelleme/${upload.id}`}>
+                        <Link href={`/mudur/fiyat-guncelleme/duzenle?uploadId=${upload.id}`}>
                           <Pencil className="h-3.5 w-3.5" />
                           Düzenle
                         </Link>

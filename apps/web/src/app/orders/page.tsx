@@ -163,7 +163,7 @@ export default function OrdersPage() {
                   </TableCell>
                   <TableCell>
                     <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                      <Link href={`/orders/${o.id}?branchId=${o.branchId}`}>
+                      <Link href={`/orders/detay?id=${o.id}&branchId=${o.branchId}`}>
                         <ExternalLink className="h-3.5 w-3.5" />
                       </Link>
                     </Button>

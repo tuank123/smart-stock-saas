@@ -118,7 +118,7 @@ export default function MudurTedarikcilerPage() {
                     </div>
                   </div>
                   <Button asChild size="sm" variant="outline" className="shrink-0 gap-1.5">
-                    <Link href={`/mudur/tedarikciler/${supplier.id}`}>
+                    <Link href={`/mudur/tedarikciler/duzenle?supplierId=${supplier.id}`}>
                       <Pencil className="h-3.5 w-3.5" />
                       Düzenle
                     </Link>

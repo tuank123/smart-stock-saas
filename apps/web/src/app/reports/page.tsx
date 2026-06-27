@@ -50,7 +50,7 @@ function ReportCard({ report }: { report: Report }) {
 
   return (
     <Link
-      href={`/reports/${report.id}`}
+      href={`/reports/detay?id=${report.id}`}
       className="group block rounded-lg border bg-card p-4 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-start justify-between gap-3">

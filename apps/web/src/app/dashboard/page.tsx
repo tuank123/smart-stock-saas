@@ -144,7 +144,7 @@ function ReportItem({ report }: { report: Report }) {
 
   return (
     <Link
-      href={`/reports/${report.id}`}
+      href={`/reports/detay?id=${report.id}`}
       className="flex items-center justify-between gap-3 py-2 border-b last:border-0 hover:bg-muted/40 -mx-2 px-2 rounded transition-colors"
     >
       <div className="flex items-center gap-2">

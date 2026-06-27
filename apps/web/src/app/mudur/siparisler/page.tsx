@@ -184,7 +184,7 @@ export default function MudurSiparislerPage() {
                             disabled={mutationBusy}
                             asChild
                           >
-                            <Link href={`/mudur/siparisler/${order.id}/duzenle`}>
+                            <Link href={`/mudur/siparisler/duzenle?orderId=${order.id}`}>
                               <Pencil className="h-3.5 w-3.5" />
                               Düzenle
                             </Link>

@@ -256,7 +256,7 @@ export default function BranchesPage() {
               branch={b}
               integration={(integrationQueries[i]?.data as BranchIntegration | null | undefined) ?? null}
               integrationLoading={integrationQueries[i]?.isPending ?? false}
-              onClick={() => router.push(`/branches/${b.id}`)}
+              onClick={() => router.push(`/branches/detay?id=${b.id}`)}
             />
           ))}
         </div>

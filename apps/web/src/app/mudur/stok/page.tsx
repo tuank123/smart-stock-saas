@@ -120,7 +120,7 @@ export default function MudurStokPage() {
                   >
                     <td className="px-4 py-3">
                       <Link
-                        href={`/mudur/stok/${s.productId}`}
+                        href={`/mudur/stok/detay?productId=${s.productId}`}
                         className="font-medium hover:underline"
                       >
                         {s.product.name}
