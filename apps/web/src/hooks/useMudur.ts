@@ -12,6 +12,9 @@ import type {
   Supplier,
   BranchUser,
   PendingRegistration,
+  PendingPriceUpload,
+  PriceChange,
+  PriceUploadDetail,
 } from '@/lib/types';
 
 // ── OCR types (exported for the OCR page) ────────────────────────────────────
@@ -514,6 +517,94 @@ export function useAssignRole() {
       toast.success('Rol güncellendi');
     },
     onError: () => toast.error('Rol güncellenemedi'),
+  });
+}
+
+// ── Price update hooks ────────────────────────────────────────────────────────
+
+function fetchPendingPriceUploads(branchId: string): Promise<PendingPriceUpload[]> {
+  return api.get<PendingPriceUpload[]>(`/portal/uploads/${branchId}`).then((r) => r.data);
+}
+
+function fetchPriceChanges(branchId: string): Promise<PriceChange[]> {
+  return api.get<PriceChange[]>(`/stock/price-changes/${branchId}`).then((r) => r.data);
+}
+
+export function usePendingPriceUploads() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<PendingPriceUpload[]>({
+    queryKey: ['price-uploads', branchId],
+    queryFn: () => fetchPendingPriceUploads(branchId),
+    staleTime: 1000 * 30,
+    enabled: !!branchId,
+  });
+}
+
+export function useApprovePriceUpload() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (uploadId: string) =>
+      api.patch(`/portal/uploads/${uploadId}/approve`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['price-uploads', branchId] });
+      toast.success('Fiyat güncellemesi onaylandı');
+    },
+    onError: () => toast.error('Fiyat güncellemesi onaylanamadı'),
+  });
+}
+
+export function useRejectPriceUpload() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (uploadId: string) =>
+      api.patch(`/portal/uploads/${uploadId}/reject`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['price-uploads', branchId] });
+      toast.success('Fiyat güncellemesi reddedildi');
+    },
+    onError: () => toast.error('Fiyat güncellemesi reddedilemedi'),
+  });
+}
+
+export function usePriceUploadDetail(uploadId: string) {
+  return useQuery<PriceUploadDetail>({
+    queryKey: ['price-uploads', 'detail', uploadId],
+    queryFn: () => api.get<PriceUploadDetail>(`/portal/uploads/detail/${uploadId}`).then((r) => r.data),
+    enabled: !!uploadId,
+  });
+}
+
+export function useUpdatePriceItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      uploadId: string;
+      items: Array<{ productId: string; newPrice: number; discountPct?: number }>;
+    }) =>
+      api
+        .patch(`/portal/uploads/${vars.uploadId}/items`, { items: vars.items })
+        .then((r) => r.data),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['price-uploads', 'detail', vars.uploadId] });
+      toast.success('Fiyat listesi kaydedildi');
+    },
+    onError: () => toast.error('Fiyat listesi kaydedilemedi'),
+  });
+}
+
+export function usePriceChanges() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<PriceChange[]>({
+    queryKey: ['price-changes', branchId],
+    queryFn: () => fetchPriceChanges(branchId),
+    staleTime: 1000 * 30,
+    enabled: !!branchId,
   });
 }
 

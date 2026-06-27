@@ -10,7 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { createClient, RedisClientType } from 'redis';
 import { PrismaService } from '../../prisma/prisma.service';
-import { UploadDto } from './dto/portal.dto';
+import { UpdatePriceItemsDto, UploadDto } from './dto/portal.dto';
 
 const MOCK_OTP = '123456';
 const OTP_TTL_SECONDS = 300;
@@ -190,6 +190,9 @@ export class PortalService implements OnModuleInit {
 
       return tx.supplierPortalUpload.findMany({
         where: { branchId, tenantId, status: 'PENDING_REVIEW' },
+        include: {
+          supplier: { select: { id: true, name: true } },
+        },
         orderBy: { createdAt: 'desc' },
       });
     });
@@ -249,4 +252,75 @@ export class PortalService implements OnModuleInit {
       });
     });
   }
+
+  async getUploadDetail(uploadId: string, tenantId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const upload = await tx.supplierPortalUpload.findUnique({
+        where: { id: uploadId },
+        include: { supplier: { select: { id: true, name: true } } },
+      });
+
+      if (!upload || upload.tenantId !== tenantId) {
+        throw new NotFoundException('Yükleme bulunamadı');
+      }
+
+      return upload;
+    });
+  }
+
+  async updateUploadItems(uploadId: string, dto: UpdatePriceItemsDto, tenantId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const upload = await tx.supplierPortalUpload.findUnique({ where: { id: uploadId } });
+      if (!upload || upload.tenantId !== tenantId) {
+        throw new NotFoundException('Yükleme bulunamadı');
+      }
+
+      const existingItems = Array.isArray(upload.parsedItems)
+        ? (upload.parsedItems as unknown as ParsedItem[])
+        : [];
+
+      const products = await tx.product.findMany({
+        where: { id: { in: dto.items.map((i) => i.productId) } },
+        select: { id: true, name: true },
+      });
+      const productNames = new Map(products.map((p) => [p.id, p.name]));
+
+      const updatedItems: ParsedItem[] = dto.items.map((item) => {
+        const existing = existingItems.find((e) => e.productId === item.productId);
+        return {
+          productId: item.productId,
+          productName: existing?.productName ?? productNames.get(item.productId) ?? '',
+          oldPrice: existing?.oldPrice ?? null,
+          newPrice: item.newPrice,
+          discountPct: item.discountPct ?? existing?.discountPct ?? null,
+        };
+      });
+
+      const mergedItems = [
+        ...existingItems.filter(
+          (e) => !updatedItems.some((u) => u.productId === e.productId),
+        ),
+        ...updatedItems,
+      ];
+
+      return tx.supplierPortalUpload.update({
+        where: { id: uploadId },
+        data: { parsedItems: mergedItems as object[] },
+      });
+    });
+  }
+}
+
+interface ParsedItem {
+  productId: string;
+  productName: string;
+  oldPrice: number | null;
+  newPrice: number;
+  discountPct: number | null;
 }

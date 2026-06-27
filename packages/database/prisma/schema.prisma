@@ -614,6 +614,7 @@ model SupplierPortalUpload {
   status            String    @default("PENDING_REVIEW") @map("status")
   reviewedBy        String?   @db.Uuid @map("reviewed_by")
   reviewedAt        DateTime? @map("reviewed_at")
+  parsedItems       Json?     @map("parsed_items") // [{ productId, productName, oldPrice, newPrice, discountPct }]
   createdAt         DateTime  @default(now()) @map("created_at")
 
   tenant   Tenant               @relation(fields: [tenantId], references: [id])

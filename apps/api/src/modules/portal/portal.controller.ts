@@ -15,7 +15,7 @@ import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { SendOtpDto, UploadDto, VerifyOtpDto } from './dto/portal.dto';
+import { SendOtpDto, UpdatePriceItemsDto, UploadDto, VerifyOtpDto } from './dto/portal.dto';
 import { PortalService } from './portal.service';
 
 // ─── MANAGER ENDPOINTS (JWT required) ────────────────────────────────────────
@@ -45,6 +45,27 @@ export class PortalController {
     @CurrentUser() user: { tenantId: string },
   ) {
     return this.service.listUploads(branchId, user.tenantId);
+  }
+
+  // NOTE: static 'detail' segment keeps this from colliding with the
+  // branch-scoped list route above, which also matches 'portal/uploads/:param'.
+  @Roles(UserRole.SUBE_MUDURU)
+  @Get('portal/uploads/detail/:uploadId')
+  getUploadDetail(
+    @Param('uploadId', ParseUUIDPipe) uploadId: string,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.getUploadDetail(uploadId, user.tenantId);
+  }
+
+  @Roles(UserRole.SUBE_MUDURU)
+  @Patch('portal/uploads/:uploadId/items')
+  updateUploadItems(
+    @Param('uploadId', ParseUUIDPipe) uploadId: string,
+    @Body() dto: UpdatePriceItemsDto,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.updateUploadItems(uploadId, dto, user.tenantId);
   }
 
   @Roles(UserRole.SUBE_MUDURU)

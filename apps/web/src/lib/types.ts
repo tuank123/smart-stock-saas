@@ -250,3 +250,50 @@ export interface PendingRegistration {
   cancelledAt?: string | null;
   createdAt: string;
 }
+
+// ── Price updates (supplier portal uploads) ──────────────────────────────────
+
+// GET /portal/uploads/:branchId — pending price-update uploads
+export interface PendingPriceUpload {
+  id: string;
+  tenantId: string;
+  branchId: string;
+  supplierId: string | null;
+  portalId: string;
+  uploaderPhone: string;
+  pdfUrl: string;
+  ocrExtractedFirm: string | null;
+  ocrExtractedPhone: string | null;
+  uploadType: string;
+  status: string;
+  createdAt: string;
+  supplier: { id: string; name: string } | null;
+}
+
+// One parsed line item within a PendingPriceUpload.parsedItems blob
+export interface ParsedPriceItem {
+  productId: string;
+  productName: string;
+  oldPrice: number | null;
+  newPrice: number;
+  discountPct: number | null;
+}
+
+// GET /portal/uploads/detail/:uploadId — single upload with parsed items
+export interface PriceUploadDetail extends PendingPriceUpload {
+  parsedItems: ParsedPriceItem[] | null;
+}
+
+// GET /stock/price-changes/:branchId — price change history
+export interface PriceChange {
+  id: string;
+  productId: string;
+  branchId: string | null;
+  oldPrice: string | number;
+  newPrice: string | number;
+  changePct: string | number;
+  anomalyFlag: boolean;
+  createdAt: string;
+  product: { id: string; sku: string; name: string };
+  changer: { id: string; email: string };
+}

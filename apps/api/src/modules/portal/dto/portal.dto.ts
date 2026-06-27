@@ -1,4 +1,15 @@
-import { IsOptional, IsString, IsUUID, Matches } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsArray,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 export class SendOtpDto {
   @IsString()
@@ -30,4 +41,26 @@ export class UploadDto {
   @IsOptional()
   @IsUUID()
   supplierId?: string;
+}
+
+export class PriceItemDto {
+  @IsUUID()
+  productId: string = '';
+
+  @IsNumber()
+  @Min(0)
+  newPrice: number = 0;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  discountPct?: number;
+}
+
+export class UpdatePriceItemsDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PriceItemDto)
+  items: PriceItemDto[] = [];
 }
