@@ -6,6 +6,22 @@ import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import type { StockLevel, Order, Transfer, Branch, Supplier } from '@/lib/types';
 
+// ── OCR types (exported for the OCR page) ────────────────────────────────────
+
+export interface OcrParsedLine {
+  name: string;
+  qty: number;
+  unit: string;
+  confidence: number;
+  matchStatus: 'AUTO_MATCHED' | 'UNMATCHED';
+  matchedProductId?: string | null;
+}
+
+export interface OcrScanResult {
+  scanId: string;
+  parsedLines: OcrParsedLine[];
+}
+
 // ── API types ─────────────────────────────────────────────────────────────────
 
 export interface BranchDetail {
@@ -401,6 +417,33 @@ export function useUpdateUnitsPerCase() {
       qc.invalidateQueries({ queryKey: ['stock', branchId] });
     },
     onError: () => toast.error('Koli bilgisi güncellenemedi'),
+  });
+}
+
+export function useOcrScan() {
+  return useMutation({
+    mutationFn: (dto: { branchId: string; imageBase64?: string }) =>
+      api.post<OcrScanResult>('/ocr/scan', dto).then((r) => r.data),
+    onError: () => toast.error('Fatura taranamadı'),
+  });
+}
+
+export function useOcrConfirm() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      scanId: string;
+      lines: Array<{ productId: string; qty: number; unit: string }>;
+    }) =>
+      api.post(`/ocr/scan/${vars.scanId}/confirm`, { lines: vars.lines }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stock', branchId] });
+      qc.invalidateQueries({ queryKey: ['stock', 'movements', branchId] });
+      toast.success('Fatura stoka işlendi');
+    },
+    onError: () => toast.error('Fatura onaylanamadı'),
   });
 }
 
