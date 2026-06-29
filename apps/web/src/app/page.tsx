@@ -16,9 +16,6 @@ export default function HomePage() {
           <Button asChild>
             <Link href="/login">Giriş Yap</Link>
           </Button>
-          <Button variant="outline" asChild>
-            <Link href="/dashboard">Dashboard</Link>
-          </Button>
         </div>
       </div>
     </div>

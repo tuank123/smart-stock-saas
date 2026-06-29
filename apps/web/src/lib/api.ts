@@ -3,12 +3,16 @@ import { authStorage } from './auth';
 
 // NEXT_PUBLIC_API_URL always wins. Otherwise: production builds (including the
 // Capacitor mobile shell, which is a static `next build` export) hit the
-// hosted API; local `next dev` hits the local API.
+// hosted API. In development, a browser on localhost hits the local API
+// directly, but a simulator/device (Capacitor live-reload) has its own
+// "localhost" that isn't the Mac — so it needs the Mac's LAN IP instead.
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   (process.env.NODE_ENV === 'production'
     ? 'https://api.stokpilot.com/api/v1'
-    : 'http://localhost:3000/api/v1');
+    : typeof window !== 'undefined' && window.location.hostname === 'localhost'
+      ? 'http://localhost:3000/api/v1'
+      : 'http://192.168.1.165:3000/api/v1');
 
 export const api = axios.create({
   baseURL: BASE_URL,
