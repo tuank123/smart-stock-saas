@@ -10,7 +10,7 @@
     "lint": "next lint",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "type-check": "tsc --noEmit",
-    "build:mobile": "next build && npx cap sync",
+    "build:mobile": "NEXT_BUILD_EXPORT=true next build && npx cap sync",
     "cap:ios": "npx cap open ios",
     "cap:android": "npx cap open android"
   },

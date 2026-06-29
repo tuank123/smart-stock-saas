@@ -24,7 +24,9 @@ export function useAuth() {
 
   const loginMutation = useMutation({
     mutationFn: async (payload: LoginPayload) => {
+      console.log('LOGIN ATTEMPT:', payload.email, process.env.NEXT_PUBLIC_API_URL);
       const res = await api.post<{ data: LoginResponse }>('/auth/login', payload);
+      console.log('LOGIN RESPONSE:', res.data);
       // Backend envelope: { statusCode, message, data: { accessToken, user } }
       return res.data.data;
     },

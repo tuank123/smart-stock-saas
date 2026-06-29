@@ -33,11 +33,22 @@ async function bootstrap() {
   // CORS
   // ============================================
   app.enableCors({
-    origin: configService.get<string[]>('CORS_ORIGINS', [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:3002',
-    ]),
+    origin: (origin, callback) => {
+      const allowed = [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:3002',
+        'http://192.168.1.165:3001',
+        'capacitor://localhost',
+        'ionic://localhost',
+        'http://localhost',
+      ];
+      if (!origin || allowed.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, true); // dev'de hepsine izin ver
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
