@@ -71,5 +71,7 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Keep content clear of the iOS status bar / notch (Capacitor webview) */
+    padding-top: env(safe-area-inset-top);
   }
 }

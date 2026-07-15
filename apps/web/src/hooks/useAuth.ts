@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
+import axios from 'axios';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
@@ -16,6 +17,19 @@ interface LoginPayload {
 interface LoginResponse {
   accessToken: string;
   user: StoredUser;
+}
+
+// Turn an axios/network error into a message worth showing on screen.
+function getLoginErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    if (!error.response) {
+      return `Sunucuya bağlanılamadı: ${error.message}`;
+    }
+    const message = error.response.data?.message;
+    if (message === 'Invalid credentials') return 'E-posta veya şifre hatalı';
+    if (message) return Array.isArray(message) ? message.join(', ') : String(message);
+  }
+  return 'Giriş yapılamadı. Lütfen tekrar deneyin.';
 }
 
 export function useAuth() {
@@ -39,9 +53,6 @@ export function useAuth() {
         router.push('/dashboard');
       }
     },
-    onError: () => {
-      toast.error('E-posta veya şifre hatalı');
-    },
   });
 
   const logoutMutation = useMutation({
@@ -61,5 +72,6 @@ export function useAuth() {
     logout: logoutMutation.mutate,
     isLoggingIn: loginMutation.isPending,
     isLoggingOut: logoutMutation.isPending,
+    loginError: loginMutation.error ? getLoginErrorMessage(loginMutation.error) : null,
   };
 }

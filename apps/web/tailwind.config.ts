@@ -14,6 +14,9 @@ const config: Config = {
       screens: { '2xl': '1400px' },
     },
     extend: {
+      padding: {
+        safe: 'env(safe-area-inset-top)',
+      },
       colors: {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',

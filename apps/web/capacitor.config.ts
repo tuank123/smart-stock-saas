@@ -7,9 +7,11 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: 'https',
     cleartext: true,
-    url: 'http://192.168.1.165:3001',
   },
   plugins: {
+    StatusBar: {
+      overlaysWebView: false,
+    },
     SplashScreen: {
       launchShowDuration: 2000,
       backgroundColor: '#000000',
