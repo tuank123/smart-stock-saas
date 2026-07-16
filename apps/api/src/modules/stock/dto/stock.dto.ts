@@ -85,6 +85,10 @@ export class WasteStockDto {
   @IsString()
   @IsNotEmpty()
   reason: string = '';
+
+  @IsString()
+  @IsNotEmpty()
+  photoBase64: string = '';
 }
 
 export class PriceChangeQueryDto {

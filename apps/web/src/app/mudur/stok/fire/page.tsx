@@ -2,20 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, Camera, List, ScanBarcode, Video, VideoOff, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Camera, Video, VideoOff, X } from 'lucide-react';
 import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import { useStockList, useWaste } from '@/hooks/useMudur';
 import type { StockLevel } from '@/lib/types';
 
@@ -114,12 +106,34 @@ function BarcodeScanner({ onDetected }: BarcodeScannerProps) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+// Match OCR page's resizeAndEncode: canvas → max 1200px → JPEG 0.8 → base64
+// with the data-URL prefix stripped.
+function resizeAndEncode(f: File): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(f);
+    img.onload = () => {
+      const MAX = 1200;
+      let w = img.width, h = img.height;
+      if (w > MAX || h > MAX) {
+        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+        else { w = Math.round(w * MAX / h); h = MAX; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]);
+    };
+    img.src = url;
+  });
+}
+
 export default function MudurFirePage() {
   const router = useRouter();
-  const { data: stock, isPending: stockLoading } = useStockList();
+  const { data: stock } = useStockList();
   const wasteMutation = useWaste();
 
-  const [selectMode, setSelectMode] = useState<'list' | 'barcode'>('list');
   const [productId, setProductId] = useState('');
   const [scannedValue, setScannedValue] = useState<string | null>(null);
   const [quantity, setQuantity] = useState('');
@@ -166,13 +180,7 @@ export default function MudurFirePage() {
     setProductId('');
   }
 
-  function switchMode(mode: 'list' | 'barcode') {
-    setSelectMode(mode);
-    setProductId('');
-    setScannedValue(null);
-  }
-
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
 
@@ -189,9 +197,15 @@ export default function MudurFirePage() {
       setError('Sebep alanı zorunludur.');
       return;
     }
+    if (!photoFile) {
+      setError('Fotoğraf zorunludur.');
+      return;
+    }
+
+    const photoBase64 = await resizeAndEncode(photoFile);
 
     wasteMutation.mutate(
-      { productId, quantity: qty, reason: reason.trim() },
+      { productId, quantity: qty, reason: reason.trim(), photoBase64 },
       {
         onSuccess: () => {
           setProductId('');
@@ -219,105 +233,52 @@ export default function MudurFirePage() {
         <Card>
           <CardContent className="p-6">
             <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Ürün seç */}
+              {/* Ürün seç — yalnızca barkod okutma */}
               <div className="space-y-2">
-                <Label>Ürün *</Label>
+                <Label>Ürün * (barkod okut)</Label>
 
-                {/* Mode toggle */}
-                <div className="flex gap-1 rounded-md border border-input p-0.5 w-fit">
-                  <button
-                    type="button"
-                    onClick={() => switchMode('list')}
-                    className={`flex items-center gap-1.5 rounded px-3 py-1 text-sm font-medium transition-colors ${
-                      selectMode === 'list'
-                        ? 'bg-foreground text-background'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    <List className="h-3.5 w-3.5" />
-                    Listeden Seç
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => switchMode('barcode')}
-                    className={`flex items-center gap-1.5 rounded px-3 py-1 text-sm font-medium transition-colors ${
-                      selectMode === 'barcode'
-                        ? 'bg-foreground text-background'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    <ScanBarcode className="h-3.5 w-3.5" />
-                    Barkod Okut
-                  </button>
+                <div className="space-y-2">
+                  {/* Show scanner when no result yet */}
+                  {!scannedValue && <BarcodeScanner onDetected={handleBarcodeDetected} />}
+
+                  {/* Match found */}
+                  {scannedValue && productId && (
+                    <div className="flex items-center gap-2 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">
+                      <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-green-500" />
+                      <span className="font-medium">{selectedStock?.product.name}</span>
+                      <span className="text-xs text-green-600">
+                        ({selectedStock?.product.sku})
+                      </span>
+                    </div>
+                  )}
+
+                  {/* No match */}
+                  {scannedValue && !productId && (
+                    <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        Ürün bulunamadı —{' '}
+                        <span className="font-mono">{scannedValue}</span>
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Retry / re-scan */}
+                  {scannedValue && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full gap-1.5"
+                      onClick={retryBarcode}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Tekrar Dene
+                    </Button>
+                  )}
                 </div>
 
-                {/* List mode */}
-                {selectMode === 'list' &&
-                  (stockLoading ? (
-                    <Skeleton className="h-9 w-full" />
-                  ) : (
-                    <Select value={productId} onValueChange={setProductId}>
-                      <SelectTrigger id="product">
-                        <SelectValue placeholder="Ürün seçin…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(stock ?? []).map((s: StockLevel) => (
-                          <SelectItem key={s.productId} value={s.productId}>
-                            {s.product.name}
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              ({s.product.sku})
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ))}
-
-                {/* Barcode mode */}
-                {selectMode === 'barcode' && (
-                  <div className="space-y-2">
-                    {/* Show scanner when no result yet */}
-                    {!scannedValue && <BarcodeScanner onDetected={handleBarcodeDetected} />}
-
-                    {/* Match found */}
-                    {scannedValue && productId && (
-                      <div className="flex items-center gap-2 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">
-                        <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-green-500" />
-                        <span className="font-medium">{selectedStock?.product.name}</span>
-                        <span className="text-xs text-green-600">
-                          ({selectedStock?.product.sku})
-                        </span>
-                      </div>
-                    )}
-
-                    {/* No match */}
-                    {scannedValue && !productId && (
-                      <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                        <span>
-                          Ürün bulunamadı —{' '}
-                          <span className="font-mono">{scannedValue}</span>
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Retry / re-scan */}
-                    {scannedValue && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="w-full gap-1.5"
-                        onClick={retryBarcode}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                        Tekrar Dene
-                      </Button>
-                    )}
-                  </div>
-                )}
-
-                {/* Current stock hint — works for both modes */}
+                {/* Current stock hint */}
                 {selectedStock && (
                   <p className="text-xs text-muted-foreground">
                     Mevcut stok:{' '}
@@ -358,7 +319,7 @@ export default function MudurFirePage() {
 
               {/* Fotoğraf */}
               <div className="space-y-1.5">
-                <Label>Fotoğraf (opsiyonel)</Label>
+                <Label>Fotoğraf (zorunlu)</Label>
                 <input
                   ref={fileInputRef}
                   type="file"

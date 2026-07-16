@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -19,7 +20,10 @@ import {
 
 @Injectable()
 export class StockService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private config: ConfigService,
+  ) {}
 
   async initializeStock(dto: InitializeStockDto, user: { tenantId: string }) {
     return this.prisma.$transaction(async (tx) => {
@@ -186,6 +190,14 @@ export class StockService {
         throw new NotFoundException('Stok kaydı bulunamadı');
       }
 
+      // Store the waste photo. Same pattern as PortalService.uploadPdf: when S3
+      // is disabled we only mint a deterministic mock key (no real upload).
+      const s3Enabled = this.config.get('S3_ENABLED') === 'true';
+      const timestamp = Date.now();
+      const photoUrl = s3Enabled
+        ? `s3://stokpilot-uploads/waste/${timestamp}.jpg`
+        : `mock-s3/waste-${timestamp}.jpg`;
+
       const [movement] = await Promise.all([
         tx.stockMovement.create({
           data: {
@@ -196,6 +208,7 @@ export class StockService {
             quantity: -dto.quantity,
             createdBy: user.userId,
             notes: dto.reason,
+            photoUrl,
           },
           include: {
             product: { select: { id: true, sku: true, name: true, unit: true } },

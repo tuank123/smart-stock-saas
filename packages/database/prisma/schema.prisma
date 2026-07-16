@@ -333,6 +333,7 @@ model StockMovement {
   referenceId   String?   @db.Uuid @map("reference_id")
   referenceType String?   @map("reference_type")
   notes         String?
+  photoUrl      String?   @map("photo_url")
   createdBy     String    @db.Uuid @map("created_by")
   createdAt     DateTime  @default(now()) @map("created_at")
 

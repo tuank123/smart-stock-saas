@@ -221,7 +221,7 @@ export function useWaste() {
   const branchId = user?.branchId ?? '';
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (dto: { productId: string; quantity: number; reason: string }) =>
+    mutationFn: (dto: { productId: string; quantity: number; reason: string; photoBase64: string }) =>
       api.post(`/stock/${branchId}/waste`, dto).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stock', branchId] });
