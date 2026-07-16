@@ -90,7 +90,7 @@ export function MudurSidebar() {
           />
           <DialogPrimitive.Content
             className={cn(
-              'fixed inset-x-0 bottom-0 z-50 rounded-t-2xl border bg-white p-4 shadow-lg',
+              'fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-2xl border bg-white px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] shadow-lg',
               'data-[state=open]:animate-in data-[state=closed]:animate-out',
               'data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom',
             )}
