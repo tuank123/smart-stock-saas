@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { Providers } from './providers';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { SafeAreaSpacer } from '@/components/layout/SafeAreaSpacer';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="tr" suppressHydrationWarning>
       <body className={inter.className}>
+        <SafeAreaSpacer />
         <Providers>
           <ErrorBoundary>{children}</ErrorBoundary>
         </Providers>

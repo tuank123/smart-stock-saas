@@ -21,7 +21,7 @@ export default function MudurLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="p-4 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:p-6 lg:pb-[calc(4rem+env(safe-area-inset-bottom))]">
+      <main className="p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(4rem+env(safe-area-inset-bottom))] lg:p-6 lg:pt-[calc(1.5rem+env(safe-area-inset-top))] lg:pb-[calc(4rem+env(safe-area-inset-bottom))]">
         {children}
       </main>
       <MudurSidebar />

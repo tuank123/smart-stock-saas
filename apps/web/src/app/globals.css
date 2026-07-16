@@ -71,8 +71,6 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* Keep content clear of the iOS status bar / notch (Capacitor webview) */
-    padding-top: env(safe-area-inset-top);
   }
   /* iOS auto-zooms focused fields whose font-size is under 16px — pin to 16px */
   input,
