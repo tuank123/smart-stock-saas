@@ -32,7 +32,7 @@ const moreItems = [
   { href: '/mudur/ocr',               label: 'Fatura Tarama',     icon: Scan },
   { href: '/mudur/personel',          label: 'Personel',          icon: Users },
   { href: '/mudur/fiyat-guncelleme',  label: 'Fiyat Güncelleme',  icon: Tag },
-  { href: '/settings',                label: 'Ayarlar',           icon: Settings },
+  { href: '/mudur/ayarlar',           label: 'Ayarlar',           icon: Settings },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────────
