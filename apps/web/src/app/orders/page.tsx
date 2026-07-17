@@ -7,6 +7,7 @@ import { ExternalLink, RefreshCw, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { PageLayout } from '@/components/layout/PageLayout';
+import { PageTabs } from '@/components/layout/PageTabs';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -76,6 +77,13 @@ export default function OrdersPage() {
 
   return (
     <PageLayout title="Siparişler">
+      <PageTabs
+        tabs={[
+          { href: '/orders', label: 'Siparişler' },
+          { href: '/transfers', label: 'Transferler' },
+          { href: '/suppliers', label: 'Tedarikçiler' },
+        ]}
+      />
       {/* Toolbar */}
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <div className="w-full sm:w-52">

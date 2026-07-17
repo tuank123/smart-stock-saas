@@ -7,6 +7,7 @@ import { Plus, Building2, Phone, MapPin, Wifi, WifiOff, AlertTriangle } from 'lu
 import toast from 'react-hot-toast';
 
 import { PageLayout } from '@/components/layout/PageLayout';
+import { PageTabs } from '@/components/layout/PageTabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -211,6 +212,13 @@ export default function BranchesPage() {
 
   return (
     <PageLayout title="Şubeler">
+      <PageTabs
+        tabs={[
+          { href: '/branches', label: 'Şubeler' },
+          { href: '/stock', label: 'Stok' },
+          { href: '/products', label: 'Ürünler' },
+        ]}
+      />
       <div className="mb-5 flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {branchesQuery.isSuccess ? `${branches.length} şube` : ' '}

@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Search, AlertTriangle } from 'lucide-react';
 
 import { PageLayout } from '@/components/layout/PageLayout';
+import { PageTabs } from '@/components/layout/PageTabs';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -89,6 +90,13 @@ export default function StockPage() {
 
   return (
     <PageLayout title="Stok Durumu">
+      <PageTabs
+        tabs={[
+          { href: '/branches', label: 'Şubeler' },
+          { href: '/stock', label: 'Stok' },
+          { href: '/products', label: 'Ürünler' },
+        ]}
+      />
       {/* Toolbar */}
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <div className="w-56">

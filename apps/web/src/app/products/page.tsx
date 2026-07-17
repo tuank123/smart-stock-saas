@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Search, Package, ExternalLink, AlertTriangle } from 'lucide-react';
 
 import { PageLayout } from '@/components/layout/PageLayout';
+import { PageTabs } from '@/components/layout/PageTabs';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -62,6 +63,13 @@ export default function ProductsPage() {
 
   return (
     <PageLayout title="Ürünler">
+      <PageTabs
+        tabs={[
+          { href: '/branches', label: 'Şubeler' },
+          { href: '/stock', label: 'Stok' },
+          { href: '/products', label: 'Ürünler' },
+        ]}
+      />
       {/* Toolbar */}
       <div className="mb-5 flex items-center justify-between gap-3">
         <div className="relative flex-1 max-w-sm">

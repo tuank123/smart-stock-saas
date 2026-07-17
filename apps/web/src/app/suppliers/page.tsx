@@ -6,6 +6,7 @@ import { Plus, Phone, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast';
 
 import { PageLayout } from '@/components/layout/PageLayout';
+import { PageTabs } from '@/components/layout/PageTabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -98,6 +99,13 @@ export default function SuppliersPage() {
 
   return (
     <PageLayout title="Tedarikçiler">
+      <PageTabs
+        tabs={[
+          { href: '/orders', label: 'Siparişler' },
+          { href: '/transfers', label: 'Transferler' },
+          { href: '/suppliers', label: 'Tedarikçiler' },
+        ]}
+      />
       <div className="mb-5 flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {suppliersQuery.isSuccess ? `${suppliers.length} tedarikçi` : ' '}
