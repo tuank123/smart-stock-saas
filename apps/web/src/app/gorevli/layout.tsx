@@ -2,11 +2,15 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { LogOut } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/store/auth.store';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function GorevliLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, isAuthenticated } = useAuthStore();
+  const { logout, isLoggingOut } = useAuth();
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== 'KASIYER') {
@@ -18,13 +22,23 @@ export default function GorevliLayout({ children }: { children: React.ReactNode 
     return null;
   }
 
-  // NOTE: no bottom tab bar yet — the Şube Görevlisi nav is a follow-up task,
-  // so we don't reserve bottom padding for a bar that doesn't exist.
   return (
     <div className="min-h-screen bg-background">
-      <main className="p-4 pt-[calc(1rem+env(safe-area-inset-top))] lg:p-6 lg:pt-[calc(1.5rem+env(safe-area-inset-top))]">
-        {children}
-      </main>
+      {/* Sabit üst bar — tüm /gorevli/* sayfalarında görünür */}
+      <header className="flex min-h-14 items-center justify-between border-b bg-background px-4 pt-[env(safe-area-inset-top)] lg:px-6">
+        <h1 className="text-base font-semibold text-foreground">Şube Görevlisi</h1>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => logout()}
+          disabled={isLoggingOut}
+          title="Çıkış yap"
+        >
+          <LogOut className="h-4 w-4" />
+        </Button>
+      </header>
+
+      <main className="p-4 lg:p-6">{children}</main>
     </div>
   );
 }

@@ -1,12 +1,35 @@
 'use client';
 
+import Link from 'next/link';
+import { Camera, ScanBarcode, type LucideIcon } from 'lucide-react';
+
+// İleride yeni istasyon eklemek için bu diziye bir satır eklemek yeterli.
+interface StationAction {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+const actions: StationAction[] = [
+  { href: '/gorevli/stok-sorgu', label: 'Stok Sorgulama', icon: ScanBarcode },
+  { href: '/gorevli/fatura-tarama', label: 'Fatura Tarama', icon: Camera },
+];
+
 export default function GorevliDashboardPage() {
   return (
-    <div>
-      <h1 className="mb-6 text-xl font-semibold">Şube Görevlisi Paneli</h1>
-      <p className="text-sm text-muted-foreground">
-        Bu panel yakında hazır olacak.
-      </p>
+    <div className="mx-auto w-full max-w-lg">
+      <div className="grid grid-cols-2 gap-4">
+        {actions.map(({ href, label, icon: Icon }) => (
+          <Link
+            key={href}
+            href={href}
+            className="flex min-h-32 flex-col items-center justify-center gap-3 rounded-2xl border bg-card p-4 text-center shadow-sm transition-colors hover:bg-muted active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Icon className="h-10 w-10 text-primary" />
+            <span className="text-base font-medium">{label}</span>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }

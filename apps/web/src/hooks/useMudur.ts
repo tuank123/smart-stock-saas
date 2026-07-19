@@ -183,6 +183,21 @@ export function useStockDetail(productId: string) {
   });
 }
 
+// Product-name lookup for the KASIYER station screen — sends `search`, which
+// the backend matches against product.name (case-insensitive contains).
+// Returns [] when nothing matches. Short staleTime so results stay fresh.
+export function useStockQuery(query: string | null) {
+  return useQuery<StockLevel[]>({
+    queryKey: ['stock', 'query', query],
+    queryFn: () =>
+      api
+        .get<StockLevel[]>('/stock/query', { params: { search: query } })
+        .then((r) => r.data),
+    enabled: !!query,
+    staleTime: 1000 * 2,
+  });
+}
+
 export function useStockMovements() {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
