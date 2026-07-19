@@ -1,11 +1,19 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle, Pencil, Users } from 'lucide-react';
+import { Copy, Pencil, UserPlus, Users } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -14,30 +22,29 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
   useAssignRole,
-  useApproveRegistration,
   useBranchUsers,
-  usePendingRegistrations,
+  useGenerateRegistrationCode,
 } from '@/hooks/useMudur';
-import type { BranchUser, PendingRegistration, UserRole } from '@/lib/types';
+import type { BranchUser, UserRole } from '@/lib/types';
+import { ROLE_LABELS } from '@/lib/roleLabels';
 
 // ── Badges ────────────────────────────────────────────────────────────────────
 
 const ROLE_CONFIG: Record<string, { label: string; className: string }> = {
-  SUBE_MUDURU: { label: 'Şube Müdürü', className: 'border-blue-200 bg-blue-100 text-blue-700' },
-  KASIYER: { label: 'Şube Görevlisi', className: 'border-green-200 bg-green-100 text-green-700' },
-  DEPO: { label: 'Depo Görevlisi', className: 'border-orange-200 bg-orange-100 text-orange-700' },
+  SUBE_MUDURU: { label: ROLE_LABELS.SUBE_MUDURU, className: 'border-blue-200 bg-blue-100 text-blue-700' },
+  KASIYER: { label: ROLE_LABELS.KASIYER, className: 'border-green-200 bg-green-100 text-green-700' },
+  DEPO: { label: ROLE_LABELS.DEPO, className: 'border-orange-200 bg-orange-100 text-orange-700' },
 };
 
-function RoleBadge({ role }: { role: UserRole }) {
+function RoleBadge({ role }: { role: UserRole | null }) {
+  if (!role) {
+    return (
+      <Badge variant="outline" className="border-slate-200 bg-slate-50 text-xs text-muted-foreground">
+        Rol Atanmadı
+      </Badge>
+    );
+  }
   const cfg = ROLE_CONFIG[role];
   if (!cfg) return null;
   return (
@@ -67,29 +74,30 @@ function fmt(dateStr: string) {
 
 // ── Skeletons ─────────────────────────────────────────────────────────────────
 
-function TableSkeleton() {
+function SkeletonCard() {
   return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="space-y-3">
-        {[1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-10 w-full" />
-        ))}
-      </div>
-    </div>
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-28" />
+          </div>
+          <Skeleton className="h-5 w-20 shrink-0 rounded-full" />
+        </div>
+        <Skeleton className="mt-3 h-8 w-28" />
+      </CardContent>
+    </Card>
   );
 }
 
-function RequestCardSkeleton() {
+function ListSkeleton() {
   return (
-    <Card>
-      <CardContent className="flex items-center justify-between gap-3 p-4">
-        <div className="space-y-2">
-          <Skeleton className="h-4 w-44" />
-          <Skeleton className="h-3 w-28" />
-        </div>
-        <Skeleton className="h-8 w-20 shrink-0" />
-      </CardContent>
-    </Card>
+    <div className="space-y-3">
+      {[1, 2, 3].map((i) => (
+        <SkeletonCard key={i} />
+      ))}
+    </div>
   );
 }
 
@@ -102,21 +110,23 @@ function RoleEditCell({ user }: { user: BranchUser }) {
   );
   const assignRole = useAssignRole();
 
-  if (user.role !== 'KASIYER' && user.role !== 'DEPO') return null;
+  // Managers aren't reassigned from here; everyone else (KASIYER / DEPO /
+  // not-yet-assigned) can get a role.
+  if (user.role === 'SUBE_MUDURU') return null;
 
   if (!editing) {
     return (
-      <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={() => setEditing(true)}>
+      <Button variant="outline" size="sm" className="w-full gap-1.5 text-xs" onClick={() => setEditing(true)}>
         <Pencil className="h-3.5 w-3.5" />
-        Rol Değiştir
+        {user.role ? 'Rol Değiştir' : 'Rol Ata'}
       </Button>
     );
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-2">
       <Select value={role} onValueChange={(v) => setRole(v as 'KASIYER' | 'DEPO')}>
-        <SelectTrigger className="h-8 w-36 text-xs">
+        <SelectTrigger className="h-9 w-full text-sm">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -124,28 +134,30 @@ function RoleEditCell({ user }: { user: BranchUser }) {
           <SelectItem value="DEPO">Depo Görevlisi</SelectItem>
         </SelectContent>
       </Select>
-      <Button
-        size="sm"
-        className="h-8 gap-1.5 text-xs"
-        disabled={assignRole.isPending}
-        onClick={() =>
-          assignRole.mutate(
-            { userId: user.id, role },
-            { onSuccess: () => setEditing(false) },
-          )
-        }
-      >
-        Kaydet
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-8 text-xs"
-        disabled={assignRole.isPending}
-        onClick={() => setEditing(false)}
-      >
-        Vazgeç
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          className="h-9 flex-1"
+          disabled={assignRole.isPending}
+          onClick={() =>
+            assignRole.mutate(
+              { userId: user.id, role },
+              { onSuccess: () => setEditing(false) },
+            )
+          }
+        >
+          Kaydet
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 flex-1"
+          disabled={assignRole.isPending}
+          onClick={() => setEditing(false)}
+        >
+          Vazgeç
+        </Button>
+      </div>
     </div>
   );
 }
@@ -153,161 +165,115 @@ function RoleEditCell({ user }: { user: BranchUser }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MudurPersonelPage() {
-  const [tab, setTab] = useState<'staff' | 'requests'>('staff');
-
   const { data: users, isPending: usersLoading, isError: usersError } = useBranchUsers();
-  const assignedUsers: Array<BranchUser & { role: UserRole }> = (users ?? []).filter(
-    (u: BranchUser): u is BranchUser & { role: UserRole } =>
-      u.role === 'SUBE_MUDURU' || u.role === 'KASIYER' || u.role === 'DEPO',
-  );
-  const {
-    data: registrations,
-    isPending: registrationsLoading,
-    isError: registrationsError,
-  } = usePendingRegistrations();
-  const approveMutation = useApproveRegistration();
+  const generateCode = useGenerateRegistrationCode();
+
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [generatedCode, setGeneratedCode] = useState('');
+
+  const staff = users ?? [];
+
+  function handleGenerate() {
+    generateCode.mutate(undefined, {
+      onSuccess: (data) => {
+        setGeneratedCode(data.token);
+        setCodeOpen(true);
+      },
+      onError: () => toast.error('Kod oluşturulamadı'),
+    });
+  }
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(generatedCode);
+      toast.success('Kod kopyalandı');
+    } catch {
+      toast.error('Kopyalanamadı');
+    }
+  }
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold">Personel</h1>
-
-      {/* Tab bar */}
-      <div className="mb-6 flex w-fit gap-1 rounded-lg border border-input bg-muted/30 p-1">
-        <button
-          type="button"
-          onClick={() => setTab('staff')}
-          className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-            tab === 'staff'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold">Personel</h1>
+        <Button
+          size="sm"
+          className="gap-1.5"
+          disabled={generateCode.isPending}
+          onClick={handleGenerate}
         >
-          Personel Listesi
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab('requests')}
-          className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-            tab === 'requests'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          Kayıt Talepleri
-          {(registrations?.length ?? 0) > 0 && (
-            <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700">
-              {registrations!.length}
-            </span>
-          )}
-        </button>
+          <UserPlus className="h-4 w-4" />
+          {generateCode.isPending ? 'Oluşturuluyor…' : 'Yeni Çalışan Ekle'}
+        </Button>
       </div>
 
-      {/* ── Personel Listesi ── */}
-      {tab === 'staff' && (
-        <div>
-          {usersError && (
-            <div className="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-              Personel listesi yüklenirken hata oluştu.
-            </div>
-          )}
-
-          {usersLoading ? (
-            <TableSkeleton />
-          ) : assignedUsers.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed bg-card py-12 text-center">
-              <Users className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">Henüz personel bulunmuyor.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-xl border bg-card">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>E-posta</TableHead>
-                    <TableHead>Rol</TableHead>
-                    <TableHead>Durum</TableHead>
-                    <TableHead>Katılım Tarihi</TableHead>
-                    <TableHead className="w-44" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {assignedUsers.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        {user.fullName ? (
-                          <div>
-                            <p className="font-medium">{user.fullName}</p>
-                            <p className="text-xs text-muted-foreground">{user.email}</p>
-                          </div>
-                        ) : (
-                          <p className="font-medium">{user.email}</p>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <RoleBadge role={user.role} />
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge isActive={user.isActive} />
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{fmt(user.createdAt)}</TableCell>
-                      <TableCell>
-                        <RoleEditCell user={user} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+      {usersError && (
+        <div className="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+          Personel listesi yüklenirken hata oluştu.
         </div>
       )}
 
-      {/* ── Kayıt Talepleri ── */}
-      {tab === 'requests' && (
-        <div>
-          {registrationsError && (
-            <div className="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-              Kayıt talepleri yüklenirken hata oluştu.
-            </div>
-          )}
+      {usersLoading ? (
+        <ListSkeleton />
+      ) : staff.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed bg-card py-12 text-center">
+          <Users className="h-8 w-8 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">Henüz personel bulunmuyor.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {staff.map((user: BranchUser) => (
+            <Card key={user.id}>
+              <CardContent className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-0.5">
+                    {user.fullName ? (
+                      <>
+                        <p className="truncate font-medium">{user.fullName}</p>
+                        <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                      </>
+                    ) : (
+                      <p className="truncate font-medium">{user.email}</p>
+                    )}
+                    <p className="pt-0.5 text-xs text-muted-foreground">
+                      Katılım: {fmt(user.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <RoleBadge role={user.role} />
+                    <StatusBadge isActive={user.isActive} />
+                  </div>
+                </div>
 
-          {registrationsLoading ? (
-            <div className="space-y-3">
-              <RequestCardSkeleton />
-              <RequestCardSkeleton />
-            </div>
-          ) : (registrations?.length ?? 0) === 0 ? (
-            <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed bg-card py-12 text-center">
-              <CheckCircle className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">Bekleyen kayıt talebi yok.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {(registrations ?? []).map((reg: PendingRegistration) => (
-                <Card key={reg.id}>
-                  <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-                    <div className="space-y-1">
-                      <p className="font-semibold">{reg.applicantEmail}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {reg.applicantName} — {fmt(reg.createdAt)}
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      className="gap-1.5"
-                      disabled={approveMutation.isPending}
-                      onClick={() => approveMutation.mutate(reg.id)}
-                    >
-                      <CheckCircle className="h-3.5 w-3.5" />
-                      Onayla
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+                <RoleEditCell user={user} />
+              </CardContent>
+            </Card>
+          ))}
         </div>
       )}
+
+      {/* Yeni çalışan kayıt kodu */}
+      <Dialog open={codeOpen} onOpenChange={setCodeOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Yeni Çalışan Kodu</DialogTitle>
+            <DialogDescription>
+              Bu kodu yeni çalışana ilet, mobil uygulamadan &quot;Kayıt Ol&quot; ekranında bu kodu
+              kullanarak hesap oluşturabilir.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col items-center gap-4 py-2">
+            <div className="select-all rounded-xl border bg-muted/40 px-6 py-4 font-mono text-3xl font-bold tracking-[0.3em]">
+              {generatedCode}
+            </div>
+            <Button variant="outline" className="gap-1.5" onClick={copyCode}>
+              <Copy className="h-4 w-4" />
+              Kopyala
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

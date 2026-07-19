@@ -218,8 +218,8 @@ model StaffRegistrationToken {
   tenantId      String   @db.Uuid @map("tenant_id")
   branchId      String   @db.Uuid @map("branch_id")
   token         String   @unique
-  applicantName String   @map("applicant_name")
-  applicantEmail String  @map("applicant_email")
+  applicantName String?  @map("applicant_name")
+  applicantEmail String? @map("applicant_email")
   status        StaffTokenStatus @default(PENDING)
   createdUserId String?  @db.Uuid @map("created_user_id")
   approvedBy    String?  @db.Uuid @map("approved_by")

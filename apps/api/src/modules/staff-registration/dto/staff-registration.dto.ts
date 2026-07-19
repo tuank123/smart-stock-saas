@@ -1,29 +1,23 @@
-import { IsEmail, IsIn, IsNotEmpty, IsString, IsUUID } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, IsString, MinLength } from 'class-validator';
 
-export class RequestRegistrationDto {
-  @IsNotEmpty()
-  @IsString()
-  applicantName: string = '';
+// Body-less — the branch is taken from the authenticated SUBE_MUDURU.
+export class GenerateCodeDto {}
 
-  @IsEmail()
-  applicantEmail: string = '';
-
-  @IsNotEmpty()
-  @IsString()
-  password: string = '';
-
-  @IsNotEmpty()
-  @IsString()
-  companyName: string = '';
-
-  @IsUUID()
-  branchId: string = '';
-}
-
-export class VerifyTokenDto {
+export class CompleteRegistrationDto {
   @IsNotEmpty()
   @IsString()
   token: string = '';
+
+  @IsNotEmpty()
+  @IsString()
+  name: string = '';
+
+  @IsEmail()
+  email: string = '';
+
+  @IsString()
+  @MinLength(8)
+  password: string = '';
 }
 
 export class AssignRoleDto {

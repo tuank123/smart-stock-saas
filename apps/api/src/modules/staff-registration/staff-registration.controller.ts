@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  Get,
   HttpCode,
   Param,
   ParseUUIDPipe,
@@ -14,8 +13,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import {
   AssignRoleDto,
-  RequestRegistrationDto,
-  VerifyTokenDto,
+  CompleteRegistrationDto,
 } from './dto/staff-registration.dto';
 import { StaffRegistrationService } from './staff-registration.service';
 
@@ -23,36 +21,21 @@ import { StaffRegistrationService } from './staff-registration.service';
 export class StaffRegistrationController {
   constructor(private service: StaffRegistrationService) {}
 
-  @Public()
-  @Post('request')
+  @Roles(UserRole.SUBE_MUDURU)
+  @Post('generate-code')
   @HttpCode(201)
-  request(@Body() dto: RequestRegistrationDto) {
-    return this.service.requestRegistration(dto);
-  }
-
-  @Roles(UserRole.SUBE_MUDURU)
-  @Get('pending/:branchId')
-  listPending(
-    @Param('branchId', ParseUUIDPipe) branchId: string,
-    @CurrentUser() user: { tenantId: string },
+  generateCode(
+    @CurrentUser()
+    user: { userId: string; tenantId: string; branchId?: string | null },
   ) {
-    return this.service.listPending(branchId, user);
-  }
-
-  @Roles(UserRole.SUBE_MUDURU)
-  @Patch('approve/:tokenId')
-  approve(
-    @Param('tokenId', ParseUUIDPipe) tokenId: string,
-    @CurrentUser() user: { userId: string; tenantId: string },
-  ) {
-    return this.service.approveToken(tokenId, user);
+    return this.service.generateCode(user);
   }
 
   @Public()
-  @Patch('verify')
-  @HttpCode(200)
-  verify(@Body() dto: VerifyTokenDto) {
-    return this.service.verifyToken(dto);
+  @Post('complete')
+  @HttpCode(201)
+  complete(@Body() dto: CompleteRegistrationDto) {
+    return this.service.completeRegistration(dto);
   }
 
   @Roles(UserRole.SUBE_MUDURU)

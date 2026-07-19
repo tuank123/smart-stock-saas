@@ -49,7 +49,10 @@ export function useAuth() {
       toast.success('Giriş başarılı');
       if (data.user.role === 'SUBE_MUDURU') {
         router.push('/mudur/dashboard');
+      } else if (data.user.role === 'KASIYER') {
+        router.push('/gorevli/dashboard');
       } else {
+        // DEPO screens not built yet → falls through to /dashboard for now.
         router.push('/dashboard');
       }
     },

@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMe, useChangePassword } from '@/hooks/useSettings';
+import { roleLabel } from '@/lib/roleLabels';
 
 // ── Config maps ───────────────────────────────────────────────────────────────
 
@@ -24,14 +25,6 @@ const PLAN_CONFIG: Record<string, { label: string; className: string }> = {
   STARTER:      { label: 'Başlangıç', className: 'bg-slate-100 text-slate-600 border-slate-200' },
   PROFESSIONAL: { label: 'Büyüme',    className: 'bg-blue-100 text-blue-700 border-blue-200' },
   ENTERPRISE:   { label: 'Kurumsal',  className: 'bg-purple-100 text-purple-700 border-purple-200' },
-};
-
-const ROLE_LABELS: Record<string, string> = {
-  PATRON:       'Patron',
-  SUPER_ADMIN:  'Süper Admin',
-  SUBE_MUDURU:  'Şube Müdürü',
-  KASIYER:      'Kasiyer',
-  DEPO:         'Depo',
 };
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
@@ -181,7 +174,7 @@ export function SettingsContent() {
             <CardContent className="p-6 grid gap-4 sm:grid-cols-2">
               <InfoRow label="E-posta">{user?.email}</InfoRow>
               <InfoRow label="Rol">
-                {user && (ROLE_LABELS[user.role] ?? user.role)}
+                {user && roleLabel(user.role)}
               </InfoRow>
               <InfoRow label="Üyelik Başlangıcı">
                 {user &&

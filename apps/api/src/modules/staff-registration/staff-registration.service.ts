@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,8 +9,7 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AssignRoleDto,
-  RequestRegistrationDto,
-  VerifyTokenDto,
+  CompleteRegistrationDto,
 } from './dto/staff-registration.dto';
 import { UserRole } from '@prisma/client';
 
@@ -17,120 +17,95 @@ import { UserRole } from '@prisma/client';
 export class StaffRegistrationService {
   constructor(private prisma: PrismaService) {}
 
-  async requestRegistration(dto: RequestRegistrationDto) {
-    const passwordHash = await bcrypt.hash(dto.password, 10);
+  // ─── STEP 1: manager mints a code for their branch ───────────────────────
+  async generateCode(user: {
+    userId: string;
+    tenantId: string;
+    branchId?: string | null;
+  }) {
+    if (!user.branchId) {
+      throw new BadRequestException('Şube bilgisi bulunamadı');
+    }
+
     const tokenString = this.generateToken();
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
-
-      const tenant = await tx.tenant.findFirst({
-        where: { companyName: dto.companyName, deletedAt: null, status: 'ACTIVE' },
-        select: { id: true },
-      });
-
-      if (!tenant) throw new NotFoundException('Şirket bulunamadı');
-
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenant.id}'`);
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
-
-      const user = await tx.user.create({
-        data: {
-          tenantId: tenant.id,
-          branchId: dto.branchId,
-          email: dto.applicantEmail,
-          fullName: dto.applicantName,
-          passwordHash,
-          role: null,
-          isActive: false,
-        },
-      });
 
       const token = await tx.staffRegistrationToken.create({
         data: {
-          tenantId: tenant.id,
-          branchId: dto.branchId,
+          tenantId: user.tenantId,
+          branchId: user.branchId!,
           token: tokenString,
-          applicantName: dto.applicantName,
-          applicantEmail: dto.applicantEmail,
+          applicantName: null,
+          applicantEmail: null,
+          // status defaults to PENDING
+        },
+      });
+
+      return { token: token.token };
+    });
+  }
+
+  // ─── STEP 2: applicant completes registration with the code ──────────────
+  async completeRegistration(dto: CompleteRegistrationDto) {
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+
+    return this.prisma.$transaction(async (tx) => {
+      // Look the token up globally (no tenant context yet)
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+
+      const token = await tx.staffRegistrationToken.findUnique({
+        where: { token: dto.token },
+        select: { id: true, status: true, tenantId: true, branchId: true },
+      });
+
+      if (!token || token.status !== 'PENDING') {
+        throw new BadRequestException('Geçersiz veya kullanılmış kod');
+      }
+
+      // Scope the rest of the work to the token's tenant
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${token.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const existing = await tx.user.findFirst({
+        where: { tenantId: token.tenantId, email: dto.email },
+        select: { id: true },
+      });
+      if (existing) {
+        throw new ConflictException('Bu e-posta zaten kayıtlı');
+      }
+
+      const user = await tx.user.create({
+        data: {
+          tenantId: token.tenantId,
+          branchId: token.branchId,
+          email: dto.email,
+          fullName: dto.name,
+          passwordHash,
+          role: null,
+          isActive: true,
+        },
+        select: { id: true, email: true, fullName: true },
+      });
+
+      await tx.staffRegistrationToken.update({
+        where: { id: token.id },
+        data: {
+          applicantName: dto.name,
+          applicantEmail: dto.email,
+          status: 'USED',
+          usedAt: new Date(),
           createdUserId: user.id,
         },
       });
 
-      return { message: 'Talebiniz iletildi', tokenId: token.id };
+      return { id: user.id, email: user.email, name: user.fullName };
     });
   }
 
-  async listPending(branchId: string, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
-
-      return tx.staffRegistrationToken.findMany({
-        where: { branchId, status: 'PENDING' },
-        orderBy: { createdAt: 'desc' },
-      });
-    });
-  }
-
-  async approveToken(tokenId: string, user: { userId: string; tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
-
-      const existing = await tx.staffRegistrationToken.findUnique({
-        where: { id: tokenId },
-        select: { id: true, status: true, token: true },
-      });
-
-      if (!existing) throw new NotFoundException('Token bulunamadı');
-      if (existing.status !== 'PENDING') {
-        throw new BadRequestException('Yalnızca PENDING tokenlar onaylanabilir');
-      }
-
-      await tx.staffRegistrationToken.update({
-        where: { id: tokenId },
-        data: {
-          status: 'APPROVED',
-          approvedBy: user.userId,
-          approvedAt: new Date(),
-        },
-      });
-
-      return { token: existing.token };
-    });
-  }
-
-  async verifyToken(dto: VerifyTokenDto) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
-
-      const registrationToken = await tx.staffRegistrationToken.findUnique({
-        where: { token: dto.token },
-        select: { id: true, status: true, tenantId: true, createdUserId: true },
-      });
-
-      if (!registrationToken || registrationToken.status !== 'APPROVED') {
-        throw new BadRequestException('Geçersiz veya onaylanmamış token');
-      }
-
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${registrationToken.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
-
-      await tx.user.update({
-        where: { id: registrationToken.createdUserId! },
-        data: { isActive: true },
-      });
-
-      await tx.staffRegistrationToken.update({
-        where: { id: registrationToken.id },
-        data: { status: 'USED', usedAt: new Date() },
-      });
-
-      return { message: 'Hesabınız aktif, müdürünüz rol atayacak' };
-    });
-  }
-
+  // ─── STEP 3: manager assigns a role to the new user ──────────────────────
   async assignRole(
     userId: string,
     dto: AssignRoleDto,

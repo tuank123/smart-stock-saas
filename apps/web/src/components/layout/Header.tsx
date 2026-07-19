@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuthStore } from '@/store/auth.store';
 import { useAuth } from '@/hooks/useAuth';
+import { roleLabel } from '@/lib/roleLabels';
 
 export function Header({ title }: { title?: string }) {
   const { user } = useAuthStore();
@@ -24,7 +25,7 @@ export function Header({ title }: { title?: string }) {
         {user && (
           <div className="hidden flex-col text-right text-xs sm:flex">
             <span className="font-medium">{user.email}</span>
-            <span className="text-muted-foreground">{user.role ?? 'Rol atanmadı'}</span>
+            <span className="text-muted-foreground">{roleLabel(user.role)}</span>
           </div>
         )}
 

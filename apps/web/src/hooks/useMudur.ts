@@ -11,7 +11,6 @@ import type {
   Branch,
   Supplier,
   BranchUser,
-  PendingRegistration,
   PendingPriceUpload,
   PriceChange,
   PriceUploadDetail,
@@ -464,10 +463,6 @@ function fetchBranchUsers(branchId: string): Promise<BranchUser[]> {
   return api.get<BranchUser[]>(`/users/branch/${branchId}`).then((r) => r.data);
 }
 
-function fetchPendingRegistrations(branchId: string): Promise<PendingRegistration[]> {
-  return api.get<PendingRegistration[]>(`/auth/register/pending/${branchId}`).then((r) => r.data);
-}
-
 export function useBranchUsers() {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
@@ -479,29 +474,33 @@ export function useBranchUsers() {
   });
 }
 
-export function usePendingRegistrations() {
-  const { user } = useAuthStore();
-  const branchId = user?.branchId ?? '';
-  return useQuery<PendingRegistration[]>({
-    queryKey: ['registrations', branchId],
-    queryFn: () => fetchPendingRegistrations(branchId),
-    staleTime: 1000 * 30,
-    enabled: !!branchId,
+// Manager mints a one-time registration code for their branch.
+export function useGenerateRegistrationCode() {
+  return useMutation({
+    mutationFn: () =>
+      api
+        .post<{ token: string }>('/auth/register/generate-code')
+        .then((r) => r.data),
   });
 }
 
-export function useApproveRegistration() {
-  const { user } = useAuthStore();
-  const branchId = user?.branchId ?? '';
-  const qc = useQueryClient();
+// Public — applicant completes registration with the code. Uses the shared
+// `api` client (like /auth/login): no token is stored yet, so the request
+// interceptor simply attaches no Authorization header.
+export function useCompleteRegistration() {
   return useMutation({
-    mutationFn: (tokenId: string) =>
-      api.patch(`/auth/register/approve/${tokenId}`).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['registrations', branchId] });
-      toast.success('Kayıt talebi onaylandı');
-    },
-    onError: () => toast.error('Kayıt talebi onaylanamadı'),
+    mutationFn: (vars: {
+      token: string;
+      name: string;
+      email: string;
+      password: string;
+    }) =>
+      api
+        .post<{ id: string; email: string; name: string | null }>(
+          '/auth/register/complete',
+          vars,
+        )
+        .then((r) => r.data),
   });
 }
 

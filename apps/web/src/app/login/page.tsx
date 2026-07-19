@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 
@@ -82,6 +83,13 @@ export default function LoginPage() {
           </Button>
 
           {error && <p className="text-center text-sm text-red-500">{error}</p>}
+
+          <p className="text-center text-sm text-muted-foreground">
+            Hesabın yok mu?{' '}
+            <Link href="/kayit-ol" className="font-medium text-primary hover:underline">
+              Kayıt Ol
+            </Link>
+          </p>
         </form>
       </div>
     </div>
