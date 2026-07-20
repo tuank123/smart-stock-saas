@@ -1,9 +1,10 @@
-import { Controller, Post, Get, Patch, Body, Req, Res, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Req, Res, HttpCode, Headers } from '@nestjs/common';
 import { Response, Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -22,12 +23,13 @@ export class AuthController {
   @HttpCode(200)
   async login(
     @Body() loginDto: LoginDto,
+    @Headers('x-client-platform') clientPlatform: string | undefined,
     @Res({ passthrough: true }) response: Response,
   ) {
     const { accessToken, refreshToken, user } =
       await this.authService.login(loginDto);
 
-    // Set refresh token in HttpOnly cookie
+    // Cookie is always set (web relies on it; harmless for native).
     response.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -35,11 +37,16 @@ export class AuthController {
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
+    // Native (Capacitor) clients can't rely on the cross-origin cookie, so
+    // they ask for the refresh token in the body via X-Client-Platform: native.
+    const isNative = clientPlatform === 'native';
+
     return {
       statusCode: 200,
       message: 'Login successful',
       data: {
         accessToken,
+        ...(isNative ? { refreshToken } : {}),
         user,
       },
     };
@@ -54,9 +61,13 @@ export class AuthController {
   @HttpCode(200)
   async refresh(
     @Req() request: Request,
+    @Body() dto: RefreshTokenDto,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const refreshToken = request.cookies['refreshToken'];
+    const cookieToken = request.cookies['refreshToken'];
+    const bodyToken = dto?.refreshToken;
+    // Prefer the cookie (web); fall back to the body token (native client).
+    const refreshToken = cookieToken ?? bodyToken;
 
     if (!refreshToken) {
       return {
@@ -68,7 +79,7 @@ export class AuthController {
     const { accessToken, refreshToken: newRefreshToken, user } =
       await this.authService.refreshToken(refreshToken);
 
-    // Set new refresh token in HttpOnly cookie
+    // Set new refresh token in HttpOnly cookie (unchanged for web).
     response.cookie('refreshToken', newRefreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -76,11 +87,16 @@ export class AuthController {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
+    // If the request supplied the token in the body (native client), also
+    // return the rotated refresh token so it can be re-stored client-side.
+    const fromBody = !!bodyToken;
+
     return {
       statusCode: 200,
       message: 'Token refreshed successfully',
       data: {
         accessToken,
+        ...(fromBody ? { refreshToken: newRefreshToken } : {}),
         user,
       },
     };

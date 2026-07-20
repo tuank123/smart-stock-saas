@@ -1,5 +1,7 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { authStorage } from './auth';
+import { isNative } from './platform';
+import { useAuthStore } from '@/store/auth.store';
 
 // NEXT_PUBLIC_API_URL always wins. Otherwise: production builds (including the
 // Capacitor mobile shell, which is a static `next build` export) hit the
@@ -26,6 +28,11 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // Tell the backend this is the Capacitor native client so it returns the
+  // refresh token in the body (cross-origin cookie isn't reliable on native).
+  if (isNative()) {
+    config.headers['X-Client-Platform'] = 'native';
+  }
   return config;
 });
 
@@ -39,21 +46,45 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
+      const native = isNative();
 
       try {
-        const { data } = await axios.post(
-          `${BASE_URL}/auth/refresh`,
-          {},
-          { withCredentials: true },
-        );
+        let data: { data?: { accessToken?: string; refreshToken?: string } } | undefined;
+
+        if (native) {
+          // Native: no cookie — send the stored refresh token in the body.
+          const storedRefresh = authStorage.getRefreshToken();
+          if (!storedRefresh) throw new Error('No stored refresh token');
+          ({ data } = await axios.post(`${BASE_URL}/auth/refresh`, {
+            refreshToken: storedRefresh,
+          }));
+        } else {
+          // Web: unchanged cookie flow.
+          ({ data } = await axios.post(
+            `${BASE_URL}/auth/refresh`,
+            {},
+            { withCredentials: true },
+          ));
+        }
+
         const newToken = data?.data?.accessToken;
         if (newToken) {
           authStorage.setToken(newToken);
+          // Native rotation: persist the new refresh token if returned.
+          if (native && data?.data?.refreshToken) {
+            authStorage.setRefreshToken(data.data.refreshToken);
+          }
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
           return api(originalRequest);
         }
+
+        // No access token returned. On native this is a hard failure; on web
+        // keep the existing silent fall-through (reject below, no redirect).
+        if (native) throw new Error('Refresh returned no access token');
       } catch {
+        // Clear BOTH client stores so a stale persisted session can't survive.
         authStorage.clear();
+        useAuthStore.getState().clearAuth();
         if (typeof window !== 'undefined') {
           window.location.href = '/login';
         }

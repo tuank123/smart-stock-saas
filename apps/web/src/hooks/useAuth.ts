@@ -6,7 +6,8 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
-import type { StoredUser } from '@/lib/auth';
+import { authStorage, type StoredUser } from '@/lib/auth';
+import { isNative } from '@/lib/platform';
 
 interface LoginPayload {
   email: string;
@@ -16,6 +17,8 @@ interface LoginPayload {
 
 interface LoginResponse {
   accessToken: string;
+  // Only present for native clients (X-Client-Platform: native).
+  refreshToken?: string;
   user: StoredUser;
 }
 
@@ -46,6 +49,10 @@ export function useAuth() {
     },
     onSuccess: (data) => {
       setAuth(data.user, data.accessToken);
+      // Native: persist the body refresh token (web keeps using the cookie).
+      if (isNative() && data.refreshToken) {
+        authStorage.setRefreshToken(data.refreshToken);
+      }
       toast.success('Giriş başarılı');
       if (data.user.role === 'SUBE_MUDURU') {
         router.push('/mudur/dashboard');
