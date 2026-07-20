@@ -86,3 +86,38 @@ export function useAuth() {
     loginError: loginMutation.error ? getLoginErrorMessage(loginMutation.error) : null,
   };
 }
+
+// ── İşletme (tenant) kaydı ──────────────────────────────────────────────────
+
+interface SignupPayload {
+  companyName: string;
+  taxNumber: string;
+  businessType: 'TEK_SUBE' | 'COK_SUBE';
+  branchName: string;
+  fullName: string;
+  email: string;
+  password: string;
+}
+
+export function useTenantSignup() {
+  const router = useRouter();
+  const { setAuth } = useAuthStore();
+
+  return useMutation({
+    mutationFn: async (payload: SignupPayload) => {
+      // Envelope: { statusCode, message, data: { accessToken, refreshToken?, user } }
+      const res = await api.post<{ data: LoginResponse }>('/tenants/signup', payload);
+      return res.data.data;
+    },
+    onSuccess: (data) => {
+      // Login akışıyla aynı: store'a yaz, native ise refresh token'ı sakla.
+      setAuth(data.user, data.accessToken);
+      if (isNative() && data.refreshToken) {
+        authStorage.setRefreshToken(data.refreshToken);
+      }
+      toast.success('İşletme kaydı başarılı');
+      // role her zaman PATRON → dashboard.
+      router.push('/dashboard');
+    },
+  });
+}

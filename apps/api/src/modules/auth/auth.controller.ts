@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { setRefreshTokenCookie, buildAuthData } from './auth-http.util';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -30,25 +31,12 @@ export class AuthController {
       await this.authService.login(loginDto);
 
     // Cookie is always set (web relies on it; harmless for native).
-    response.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
-
-    // Native (Capacitor) clients can't rely on the cross-origin cookie, so
-    // they ask for the refresh token in the body via X-Client-Platform: native.
-    const isNative = clientPlatform === 'native';
+    setRefreshTokenCookie(response, refreshToken);
 
     return {
       statusCode: 200,
       message: 'Login successful',
-      data: {
-        accessToken,
-        ...(isNative ? { refreshToken } : {}),
-        user,
-      },
+      data: buildAuthData(accessToken, refreshToken, user, clientPlatform),
     };
   }
 
@@ -80,12 +68,7 @@ export class AuthController {
       await this.authService.refreshToken(refreshToken);
 
     // Set new refresh token in HttpOnly cookie (unchanged for web).
-    response.cookie('refreshToken', newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    setRefreshTokenCookie(response, newRefreshToken);
 
     // If the request supplied the token in the body (native client), also
     // return the rotated refresh token so it can be re-stored client-side.

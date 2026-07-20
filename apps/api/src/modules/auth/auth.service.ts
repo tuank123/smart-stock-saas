@@ -308,6 +308,23 @@ export class AuthService implements OnModuleInit {
   }
 
   /**
+   * Public helper: issue an access + refresh token pair for a user. Reuses the
+   * same signing logic as login so other flows (e.g. tenant signup) don't
+   * duplicate token generation.
+   */
+  async issueTokens(user: {
+    id: string;
+    email: string;
+    tenantId: string;
+    branchId: string | null;
+    role: string | null;
+  }): Promise<{ accessToken: string; refreshToken: string }> {
+    const accessToken = await this.generateAccessToken(user);
+    const refreshToken = await this.generateRefreshToken(user);
+    return { accessToken, refreshToken };
+  }
+
+  /**
    * Verify and return user from refresh token
    */
   async getUserFromRefreshToken(refreshToken: string): Promise<any> {

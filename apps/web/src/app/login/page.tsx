@@ -90,6 +90,13 @@ export default function LoginPage() {
               Kayıt Ol
             </Link>
           </p>
+
+          <p className="text-center text-sm text-muted-foreground">
+            İşletme sahibi misin?{' '}
+            <Link href="/isletme-kaydi" className="font-medium text-primary hover:underline">
+              İşletme Kaydı Oluştur
+            </Link>
+          </p>
         </form>
       </div>
     </div>
