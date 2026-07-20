@@ -6,6 +6,8 @@ interface AuthState {
   user: StoredUser | null;
   accessToken: string | null;
   isAuthenticated: boolean;
+  // Son başarılı girişin zamanı (ms). Kök sayfa oturum yaşını buradan hesaplar.
+  loginTimestamp: number | null;
   // True once persist has finished rehydrating from localStorage. Guards must
   // wait for this before deciding whether the user is logged in — otherwise the
   // initial `false` values bounce a logged-in user to /login on a hard reload.
@@ -23,17 +25,18 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       accessToken: null,
       isAuthenticated: false,
+      loginTimestamp: null,
       hasHydrated: false,
 
       setAuth: (user, accessToken) => {
         authStorage.setToken(accessToken);
         authStorage.setUser(user);
-        set({ user, accessToken, isAuthenticated: true });
+        set({ user, accessToken, isAuthenticated: true, loginTimestamp: Date.now() });
       },
 
       clearAuth: () => {
         authStorage.clear();
-        set({ user: null, accessToken: null, isAuthenticated: false });
+        set({ user: null, accessToken: null, isAuthenticated: false, loginTimestamp: null });
       },
 
       updateToken: (accessToken) => {
@@ -51,6 +54,7 @@ export const useAuthStore = create<AuthState>()(
         user: state.user,
         accessToken: state.accessToken,
         isAuthenticated: state.isAuthenticated,
+        loginTimestamp: state.loginTimestamp,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);

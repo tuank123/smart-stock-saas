@@ -1,7 +1,47 @@
+'use client';
+
+import { useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { useAuthStore } from '@/store/auth.store';
+import { FullPageSpinner } from '@/components/shared/LoadingSpinner';
+
+const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 saat
+
+// Login-sonrası yönlendirmeyle (useAuth.ts) tutarlı rol→dashboard eşlemesi.
+function dashboardFor(role: string | null | undefined): string {
+  if (role === 'SUBE_MUDURU') return '/mudur/dashboard';
+  if (role === 'KASIYER') return '/gorevli/dashboard';
+  return '/dashboard';
+}
 
 export default function HomePage() {
+  const router = useRouter();
+  const { user, isAuthenticated, hasHydrated, loginTimestamp, clearAuth } = useAuthStore();
+
+  // Oturum hâlâ geçerli mi? (girişli + zaman damgası var + 8 saat dolmamış)
+  const sessionValid =
+    isAuthenticated &&
+    loginTimestamp != null &&
+    Date.now() - loginTimestamp < SESSION_MAX_AGE_MS;
+
+  useEffect(() => {
+    if (!hasHydrated) return;
+    if (sessionValid) {
+      router.replace(dashboardFor(user?.role));
+    } else if (isAuthenticated) {
+      // Oturum süresi dolmuş — temiz state için çıkış yap, landing göster.
+      clearAuth();
+    }
+  }, [hasHydrated, sessionValid, isAuthenticated, user, router, clearAuth]);
+
+  // Rehydrate bitene kadar VEYA geçerli oturum varken (yönlendirme sürerken)
+  // landing'i gösterme — "Giriş Yap" butonunun bir an görünüp kaybolmasını önler.
+  if (!hasHydrated || sessionValid) {
+    return <FullPageSpinner />;
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="text-center">
