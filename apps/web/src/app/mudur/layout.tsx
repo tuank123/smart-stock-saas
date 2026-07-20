@@ -4,16 +4,23 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import { MudurSidebar } from '@/components/layout/MudurSidebar';
+import { FullPageSpinner } from '@/components/shared/LoadingSpinner';
 
 export default function MudurLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { user, isAuthenticated } = useAuthStore();
+  const { user, isAuthenticated, hasHydrated } = useAuthStore();
 
   useEffect(() => {
+    if (!hasHydrated) return;
     if (!isAuthenticated || user?.role !== 'SUBE_MUDURU') {
       router.replace('/login');
     }
-  }, [isAuthenticated, user, router]);
+  }, [hasHydrated, isAuthenticated, user, router]);
+
+  // Persist henüz rehydrate olmadıysa karar verme — yükleniyor göster.
+  if (!hasHydrated) {
+    return <FullPageSpinner />;
+  }
 
   if (!isAuthenticated || user?.role !== 'SUBE_MUDURU') {
     return null;

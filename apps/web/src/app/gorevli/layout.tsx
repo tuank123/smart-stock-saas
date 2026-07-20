@@ -6,17 +6,24 @@ import { LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/store/auth.store';
 import { useAuth } from '@/hooks/useAuth';
+import { FullPageSpinner } from '@/components/shared/LoadingSpinner';
 
 export default function GorevliLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { user, isAuthenticated } = useAuthStore();
+  const { user, isAuthenticated, hasHydrated } = useAuthStore();
   const { logout, isLoggingOut } = useAuth();
 
   useEffect(() => {
+    if (!hasHydrated) return;
     if (!isAuthenticated || user?.role !== 'KASIYER') {
       router.replace('/login');
     }
-  }, [isAuthenticated, user, router]);
+  }, [hasHydrated, isAuthenticated, user, router]);
+
+  // Persist henüz rehydrate olmadıysa karar verme — yükleniyor göster.
+  if (!hasHydrated) {
+    return <FullPageSpinner />;
+  }
 
   if (!isAuthenticated || user?.role !== 'KASIYER') {
     return null;
