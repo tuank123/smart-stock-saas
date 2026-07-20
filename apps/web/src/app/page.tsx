@@ -13,6 +13,7 @@ const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 saat
 function dashboardFor(role: string | null | undefined): string {
   if (role === 'SUBE_MUDURU') return '/mudur/dashboard';
   if (role === 'KASIYER') return '/gorevli/dashboard';
+  if (role === 'DEPO') return '/depo/dashboard';
   return '/dashboard';
 }
 

@@ -5,10 +5,10 @@ import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 /**
- * Şube Görevlisi alt sayfaları için basit geri-dönüş başlığı:
- * sol tarafta geri oku (router.back()) + başlık.
+ * İstasyon (Şube Görevlisi / Depo) alt sayfaları için basit geri-dönüş başlığı:
+ * sol tarafta geri oku (router.back()) + başlık. Role'den bağımsız, generic.
  */
-export function GorevliPageHeader({ title }: { title: string }) {
+export function StationPageHeader({ title }: { title: string }) {
   const router = useRouter();
   return (
     <div className="mb-6 flex items-center gap-3">

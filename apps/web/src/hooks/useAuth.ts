@@ -51,8 +51,9 @@ export function useAuth() {
         router.push('/mudur/dashboard');
       } else if (data.user.role === 'KASIYER') {
         router.push('/gorevli/dashboard');
+      } else if (data.user.role === 'DEPO') {
+        router.push('/depo/dashboard');
       } else {
-        // DEPO screens not built yet → falls through to /dashboard for now.
         router.push('/dashboard');
       }
     },

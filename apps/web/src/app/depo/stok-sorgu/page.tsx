@@ -13,7 +13,7 @@ import type { StockLevel } from '@/lib/types';
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 300;
 
-export default function GorevliStokSorguPage() {
+export default function DepoStokSorguPage() {
   const [input, setInput] = useState('');
   const [debounced, setDebounced] = useState('');
   const [selected, setSelected] = useState<StockLevel | null>(null);

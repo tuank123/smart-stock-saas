@@ -3,7 +3,7 @@
 import { StationPageHeader } from '@/components/layout/StationPageHeader';
 import { OcrScanFlow } from '@/components/shared/OcrScanFlow';
 
-export default function GorevliFaturaTaramaPage() {
+export default function DepoFaturaTaramaPage() {
   return (
     <div>
       <StationPageHeader title="Fatura Tarama" />

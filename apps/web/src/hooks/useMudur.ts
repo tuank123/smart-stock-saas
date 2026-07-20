@@ -280,6 +280,11 @@ function fetchAllOrders(branchId: string): Promise<Order[]> {
   return api.get<Order[]>(`/orders/${branchId}`).then((r) => r.data);
 }
 
+// Depo istasyonu — yalnızca teslim alınabilir (APPROVED/SENT) siparişler.
+function fetchStationOrders(branchId: string): Promise<Order[]> {
+  return api.get<Order[]>(`/orders/station/${branchId}`).then((r) => r.data);
+}
+
 function fetchSuppliers(): Promise<Supplier[]> {
   return api.get<Supplier[]>('/suppliers').then((r) => r.data);
 }
@@ -303,6 +308,44 @@ export function useDraftOrders() {
     queryFn: () => fetchDraftOrders(branchId),
     staleTime: 1000 * 30,
     enabled: !!branchId,
+  });
+}
+
+// Depo istasyonu için teslim alınabilir siparişler (APPROVED/SENT).
+export function useStationOrders() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<Order[]>({
+    queryKey: ['orders', 'station', branchId],
+    queryFn: () => fetchStationOrders(branchId),
+    staleTime: 1000 * 30,
+    enabled: !!branchId,
+  });
+}
+
+export function useReceiveOrder() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      orderId: string;
+      notes?: string;
+      items?: Array<{ productId: string; quantityReceived: number }>;
+    }) =>
+      api
+        .patch(`/orders/${vars.orderId}/receive`, {
+          notes: vars.notes,
+          items: vars.items,
+        })
+        .then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orders', 'station', branchId] });
+      qc.invalidateQueries({ queryKey: ['stock', branchId] });
+      qc.invalidateQueries({ queryKey: ['stock', 'movements', branchId] });
+      toast.success('Sipariş teslim alındı');
+    },
+    onError: () => toast.error('Teslim alma başarısız'),
   });
 }
 
