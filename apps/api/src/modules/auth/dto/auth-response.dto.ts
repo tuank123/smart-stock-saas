@@ -7,11 +7,13 @@ export class AuthResponse {
     role: string | null;
     tenantId: string;
     branchId?: string | null;
+    planId?: string | null;
   } = {
     id: '',
     email: '',
     role: null,
     tenantId: '',
     branchId: null,
+    planId: null,
   };
 }

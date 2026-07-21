@@ -8,6 +8,7 @@ export interface StoredUser {
   role: string | null;
   tenantId: string;
   branchId: string | null;
+  planId: string | null;
 }
 
 export const authStorage = {

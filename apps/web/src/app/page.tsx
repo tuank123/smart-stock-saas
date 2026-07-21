@@ -6,16 +6,9 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/store/auth.store';
 import { FullPageSpinner } from '@/components/shared/LoadingSpinner';
+import { dashboardFor } from '@/lib/routing';
 
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 saat
-
-// Login-sonrası yönlendirmeyle (useAuth.ts) tutarlı rol→dashboard eşlemesi.
-function dashboardFor(role: string | null | undefined): string {
-  if (role === 'SUBE_MUDURU') return '/mudur/dashboard';
-  if (role === 'KASIYER') return '/gorevli/dashboard';
-  if (role === 'DEPO') return '/depo/dashboard';
-  return '/dashboard';
-}
 
 export default function HomePage() {
   const router = useRouter();
@@ -30,7 +23,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!hasHydrated) return;
     if (sessionValid) {
-      router.replace(dashboardFor(user?.role));
+      router.replace(dashboardFor(user?.role, user?.planId));
     } else if (isAuthenticated) {
       // Oturum süresi dolmuş — temiz state için çıkış yap, landing göster.
       clearAuth();

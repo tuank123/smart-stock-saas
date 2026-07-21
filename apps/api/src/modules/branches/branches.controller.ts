@@ -5,13 +5,18 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
 } from '@nestjs/common';
 
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { CreateBranchDto, CreateIntegrationDto } from './dto/branch.dto';
+import {
+  CreateBranchDto,
+  CreateIntegrationDto,
+  UpdateIntegrationDto,
+} from './dto/branch.dto';
 import { BranchesService } from './branches.service';
 
 @Controller('branches')
@@ -52,6 +57,16 @@ export class BranchesController {
     @CurrentUser() user: { tenantId: string },
   ) {
     return this.service.createIntegration(branchId, dto, user);
+  }
+
+  @Roles(UserRole.PATRON)
+  @Patch(':branchId/integration')
+  updateIntegration(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Body() dto: UpdateIntegrationDto,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.updateIntegration(branchId, dto, user);
   }
 
   @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)

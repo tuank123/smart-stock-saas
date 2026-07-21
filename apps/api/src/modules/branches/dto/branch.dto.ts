@@ -40,3 +40,23 @@ export class CreateIntegrationDto {
   @Min(1)
   pollingIntervalSec?: number;
 }
+
+// Kısmi güncelleme: tüm alanlar opsiyonel — sadece değişenler gönderilir.
+export class UpdateIntegrationDto {
+  @IsOptional()
+  @IsString()
+  adapterType?: string;
+
+  @IsOptional()
+  @IsString()
+  webserviceUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  apiKey?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  pollingIntervalSec?: number;
+}

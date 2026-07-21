@@ -122,7 +122,8 @@ export class AuthService implements OnModuleInit {
         email: user.email,
         role: user.role,
         tenantId: user.tenantId,
-        branchId: user.branchId ?? undefined ?? undefined,
+        branchId: user.branchId ?? null,
+        planId: user.tenant?.planId ?? null,
       },
     };
   }
@@ -180,6 +181,7 @@ export class AuthService implements OnModuleInit {
           role: user.role,
           tenantId: user.tenantId,
           branchId: user.branchId,
+          planId: user.tenant?.planId ?? null,
         },
       };
     } catch (error) {
@@ -281,6 +283,8 @@ export class AuthService implements OnModuleInit {
         tenantId: user.tenantId,
         branchId: user.branchId ?? null,
         role: user.role,
+        // login/refresh: user.tenant.planId; issueTokens: user.planId (düz alan)
+        planId: user.planId ?? user.tenant?.planId ?? null,
         type: 'access',
       },
       {
@@ -318,6 +322,7 @@ export class AuthService implements OnModuleInit {
     tenantId: string;
     branchId: string | null;
     role: string | null;
+    planId?: string | null;
   }): Promise<{ accessToken: string; refreshToken: string }> {
     const accessToken = await this.generateAccessToken(user);
     const refreshToken = await this.generateRefreshToken(user);

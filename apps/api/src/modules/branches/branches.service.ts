@@ -6,7 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateBranchDto, CreateIntegrationDto } from './dto/branch.dto';
+import {
+  CreateBranchDto,
+  CreateIntegrationDto,
+  UpdateIntegrationDto,
+} from './dto/branch.dto';
 
 @Injectable()
 export class BranchesService {
@@ -131,6 +135,52 @@ export class BranchesService {
         }
         throw e;
       }
+    });
+  }
+
+  async updateIntegration(
+    branchId: string,
+    dto: UpdateIntegrationDto,
+    user: { tenantId: string },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const existing = await tx.branchIntegration.findUnique({
+        where: { branchId },
+        select: { id: true, tenantId: true },
+      });
+
+      if (!existing || existing.tenantId !== user.tenantId) {
+        throw new NotFoundException('Bu şubeye ait integration bulunamadı');
+      }
+
+      // Yeni bir adaptör tipi geldiyse geçerliliğini doğrula.
+      if (dto.adapterType !== undefined) {
+        const adapter = await tx.integrationAdapter.findUnique({
+          where: { adapterType: dto.adapterType, isActive: true },
+          select: { adapterType: true },
+        });
+        if (!adapter) {
+          throw new BadRequestException(
+            `'${dto.adapterType}' geçerli bir adaptör değil`,
+          );
+        }
+      }
+
+      // Sadece gönderilen alanları güncelle (undefined'lar Prisma'da atlanır).
+      return tx.branchIntegration.update({
+        where: { branchId },
+        data: {
+          adapterType: dto.adapterType,
+          webserviceUrl: dto.webserviceUrl,
+          pollingIntervalSec: dto.pollingIntervalSec,
+          ...(dto.apiKey !== undefined
+            ? { apiKeyEncrypted: Buffer.from(dto.apiKey).toString('base64') }
+            : {}),
+        },
+      });
     });
   }
 

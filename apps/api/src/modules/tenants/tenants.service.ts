@@ -100,6 +100,7 @@ export class TenantsService {
       tenantId: user.tenantId,
       branchId: user.branchId,
       role: user.role,
+      planId,
     });
 
     return {
@@ -111,6 +112,7 @@ export class TenantsService {
         role: user.role,
         tenantId: user.tenantId,
         branchId: user.branchId,
+        planId,
       },
     };
   }

@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { authStorage, type StoredUser } from '@/lib/auth';
 import { isNative } from '@/lib/platform';
+import { dashboardFor } from '@/lib/routing';
 
 interface LoginPayload {
   email: string;
@@ -54,15 +55,8 @@ export function useAuth() {
         authStorage.setRefreshToken(data.refreshToken);
       }
       toast.success('Giriş başarılı');
-      if (data.user.role === 'SUBE_MUDURU') {
-        router.push('/mudur/dashboard');
-      } else if (data.user.role === 'KASIYER') {
-        router.push('/gorevli/dashboard');
-      } else if (data.user.role === 'DEPO') {
-        router.push('/depo/dashboard');
-      } else {
-        router.push('/dashboard');
-      }
+      // Rol + plan + platform (native) bazlı merkezi yönlendirme.
+      router.push(dashboardFor(data.user.role, data.user.planId));
     },
   });
 
@@ -116,8 +110,8 @@ export function useTenantSignup() {
         authStorage.setRefreshToken(data.refreshToken);
       }
       toast.success('İşletme kaydı başarılı');
-      // role her zaman PATRON → dashboard.
-      router.push('/dashboard');
+      // role her zaman PATRON; hedef seçilen plana (planId) ve platforma göre.
+      router.push(dashboardFor(data.user.role, data.user.planId));
     },
   });
 }
