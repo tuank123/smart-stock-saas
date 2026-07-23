@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -78,7 +79,18 @@ export class OrdersService {
     });
   }
 
-  async updateOrder(orderId: string, dto: PatchOrderDto, user: { tenantId: string }) {
+  async updateOrder(
+    orderId: string,
+    dto: PatchOrderDto,
+    user: { tenantId: string; role?: string | null; planId?: string | null },
+  ) {
+    // Çok-şubeli PATRON bu işlemi yapamaz — yalnız SUBE_MUDURU veya tek şubeli PATRON.
+    if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+      throw new ForbiddenException(
+        'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+      );
+    }
+
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
@@ -113,7 +125,17 @@ export class OrdersService {
     });
   }
 
-  async approveOrder(orderId: string, user: { tenantId: string; userId: string }) {
+  async approveOrder(
+    orderId: string,
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
+  ) {
+    // Çok-şubeli PATRON bu işlemi yapamaz — yalnız SUBE_MUDURU veya tek şubeli PATRON.
+    if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+      throw new ForbiddenException(
+        'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+      );
+    }
+
     const approved = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
@@ -152,7 +174,17 @@ export class OrdersService {
     return approved;
   }
 
-  async cancelOrder(orderId: string, user: { tenantId: string }) {
+  async cancelOrder(
+    orderId: string,
+    user: { tenantId: string; role?: string | null; planId?: string | null },
+  ) {
+    // Çok-şubeli PATRON bu işlemi yapamaz — yalnız SUBE_MUDURU veya tek şubeli PATRON.
+    if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+      throw new ForbiddenException(
+        'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+      );
+    }
+
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);

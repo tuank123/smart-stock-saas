@@ -46,12 +46,13 @@ export class ProductsController {
     return this.service.getProduct(id, user);
   }
 
-  @Roles(UserRole.SUBE_MUDURU)
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Patch(':productId/units-per-case')
   updateUnitsPerCase(
     @Param('productId', ParseUUIDPipe) productId: string,
     @Body() dto: PatchUnitsPerCaseDto,
-    @CurrentUser() user: { tenantId: string },
+    @CurrentUser()
+    user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
     return this.service.updateUnitsPerCase(productId, dto, user);
   }

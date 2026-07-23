@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, CheckCircle, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Trash2 } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { StationPageHeader } from '@/components/layout/StationPageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -35,18 +36,22 @@ interface OrderItemDraft {
   productName: string;
   productSku: string;
   productUnit: string;
-  quantity: number;
+  quantity: number; // son geçerli sayısal değer (payload/not için)
+  qtyText: string; // input'un ham metni (controlled value — canlı yazım)
   unitsPerCase: number | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function buildAutoNote(items: OrderItemDraft[], branchName: string): string {
-  const parts = items.map((i) =>
-    i.unitsPerCase != null
-      ? `${i.productName} ${Math.ceil(i.quantity / i.unitsPerCase)} koli`
-      : `${i.productName} ${i.quantity} adet`,
-  );
+  const parts = items.map((i) => {
+    // Canlı ham metni tercih et (henüz commit olmamış yazımda bile güncel not);
+    // geçersiz/boşsa son geçerli sayısal değere düş.
+    const qty = Number(i.qtyText) || i.quantity;
+    return i.unitsPerCase != null
+      ? `${i.productName} ${Math.ceil(qty / i.unitsPerCase)} koli`
+      : `${i.productName} ${qty} adet`;
+  });
   return `Otomatik — ${parts.join(', ')}, ${branchName} şubesine sipariş`;
 }
 
@@ -85,6 +90,7 @@ function OrderEditInner() {
         productSku: item.product.sku,
         productUnit: item.product.unit,
         quantity: Number(item.quantityOrdered),
+        qtyText: String(Number(item.quantityOrdered)),
         unitsPerCase: item.product.unitsPerCase ?? null,
       }));
       setOrderItems(items);
@@ -102,6 +108,20 @@ function OrderEditInner() {
       setInitialized(true);
     }
   }, [orderQuery.data, branch, initialized]);
+
+  // Miktar (qtyText) veya koli değiştikçe otomatik notu canlı yeniden üret —
+  // yalnız kullanıcı notu elle düzenlemediyse (noteIsAuto) ve tüm koliler doluysa.
+  useEffect(() => {
+    if (!noteIsAuto) return;
+    if (!branch) return;
+    if (!initialized) return; // ilk yüklemeyi mount effect'i hallediyor
+    const allFilled = orderItems.every((i) => i.unitsPerCase != null);
+    if (allFilled) {
+      setNotes(buildAutoNote(orderItems, branch.name));
+    }
+    // initialized kasıtlı olarak dependency dışı (yalnız guard için okunuyor).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderItems, branch, noteIsAuto]);
 
   function applyUnitsPerCase(item: OrderItemDraft, n: number) {
     updateUnitsPerCase.mutate(
@@ -160,9 +180,17 @@ function OrderEditInner() {
 
   function updateItemQuantity(productId: string, value: string) {
     const qty = parseFloat(value);
-    if (isNaN(qty) || qty <= 0) return;
+    const valid = !isNaN(qty) && qty > 0;
     setOrderItems((prev) =>
-      prev.map((i) => (i.productId === productId ? { ...i, quantity: qty } : i)),
+      prev.map((i) =>
+        i.productId === productId
+          ? {
+              ...i,
+              qtyText: value, // ham metni her zaman koru (geçersizse de göster)
+              quantity: valid ? qty : i.quantity, // payload için son geçerli değer
+            }
+          : i,
+      ),
     );
   }
 
@@ -190,7 +218,7 @@ function OrderEditInner() {
     if (!validate()) return;
     updateOrder.mutate(
       { orderId, data: buildPayload() },
-      { onSuccess: () => router.push('/mudur/siparisler') },
+      { onSuccess: () => router.push('/isletme-app/siparis-onerileri') },
     );
   }
 
@@ -201,7 +229,7 @@ function OrderEditInner() {
       {
         onSuccess: () => {
           approveOrder.mutate(orderId, {
-            onSuccess: () => router.push('/mudur/siparisler'),
+            onSuccess: () => router.push('/isletme-app/siparis-onerileri'),
           });
         },
       },
@@ -210,7 +238,6 @@ function OrderEditInner() {
 
   const allCaseFilled = orderItems.length > 0 && orderItems.every((i) => i.unitsPerCase != null && i.unitsPerCase > 0);
   const isBusy = updateOrder.isPending || approveOrder.isPending;
-  const order = orderQuery.data;
   const saveDisabled = isBusy || orderQuery.isPending || !allCaseFilled;
   const saveTooltip = !allCaseFilled ? 'Önce tüm ürünler için koli bilgisi girin' : undefined;
 
@@ -233,17 +260,7 @@ function OrderEditInner() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="mb-6 flex items-center gap-3">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/mudur/siparisler">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <div>
-          <h1 className="text-xl font-semibold">Sipariş Düzenle</h1>
-          {order && <p className="text-xs text-muted-foreground">{order.supplier.name}</p>}
-        </div>
-      </div>
+      <StationPageHeader title="Sipariş Düzenle" />
 
       {orderQuery.isError && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3">
@@ -278,92 +295,83 @@ function OrderEditInner() {
                     </div>
                   ) : (
                     orderItems.length > 0 && (
-                      <div className="overflow-hidden rounded-md border">
-                        {/* Column headers — must match row grid exactly */}
-                        <div className="grid grid-cols-[1fr_8rem_9rem_2rem] gap-x-3 border-b bg-muted/40 px-3 py-1.5">
-                          <span className="text-xs text-muted-foreground">Ürün</span>
-                          <span className="text-right text-xs text-muted-foreground">Miktar</span>
-                          <span className="text-right text-xs text-muted-foreground">Koli (adet/koli)</span>
-                          <span />
-                        </div>
+                      <div className="space-y-3">
+                        {orderItems.map((item) => {
+                          // Koli, ham metinden canlı hesaplanır — her tuşta güncellenir.
+                          const parsedQty = parseFloat(item.qtyText);
+                          const koli =
+                            item.unitsPerCase != null &&
+                            item.unitsPerCase > 0 &&
+                            !isNaN(parsedQty) &&
+                            parsedQty > 0
+                              ? Math.ceil(parsedQty / item.unitsPerCase)
+                              : null;
+                          const caseEmpty = item.unitsPerCase === null;
 
-                        <div className="divide-y">
-                          {orderItems.map((item) => {
-                            const koli =
-                              item.unitsPerCase != null && item.unitsPerCase > 0
-                                ? Math.ceil(item.quantity / item.unitsPerCase)
-                                : null;
-                            const caseEmpty = item.unitsPerCase === null;
-
-                            return (
-                              <div
-                                key={item.productId}
-                                className="grid grid-cols-[1fr_8rem_9rem_2rem] items-start gap-x-3 px-3 py-2.5"
-                              >
-                                {/* Product info */}
-                                <div className="flex min-w-0 flex-col justify-center pt-1.5">
+                          return (
+                            <div key={item.productId} className="rounded-md border p-3">
+                              {/* Başlık: ürün adı + SKU, sağ üstte sil */}
+                              <div className="mb-3 flex items-start justify-between gap-2">
+                                <div className="min-w-0">
                                   <p className="truncate text-sm font-medium">{item.productName}</p>
                                   <p className="text-xs text-muted-foreground">{item.productSku}</p>
                                 </div>
-
-                                {/* Quantity */}
-                                <div className="flex flex-col items-center gap-1">
-                                  <Input
-                                    type="number"
-                                    min="0.001"
-                                    step="0.001"
-                                    defaultValue={item.quantity}
-                                    onBlur={(e) =>
-                                      updateItemQuantity(item.productId, e.target.value)
-                                    }
-                                    className="w-full text-right text-sm"
-                                  />
-                                  <span className="text-xs text-muted-foreground">
-                                    {item.productUnit}
-                                  </span>
-                                  {koli != null && (
-                                    <span className="text-xs text-muted-foreground">
-                                      ({koli} koli)
-                                    </span>
-                                  )}
-                                </div>
-
-                                {/* unitsPerCase */}
-                                <div className="flex flex-col items-center gap-1">
-                                  <Input
-                                    type="number"
-                                    min="1"
-                                    step="1"
-                                    defaultValue={item.unitsPerCase ?? ''}
-                                    onBlur={(e) => handleUnitsPerCaseBlur(item, e)}
-                                    placeholder={caseEmpty ? 'Zorunlu' : ''}
-                                    className={`w-full text-right text-sm ${
-                                      caseEmpty
-                                        ? 'border-destructive placeholder:text-destructive/60 focus-visible:ring-destructive'
-                                        : ''
-                                    }`}
-                                  />
-                                  <span className="text-xs text-muted-foreground">
-                                    {item.unitsPerCase != null
-                                      ? `1 kolide ${item.unitsPerCase} adet`
-                                      : 'adet/koli'}
-                                  </span>
-                                </div>
-
-                                {/* Remove */}
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   size="icon"
-                                  className="mt-0.5 h-7 w-7 text-muted-foreground hover:text-destructive"
+                                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
                                   onClick={() => removeItem(item.productId)}
                                 >
-                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <Trash2 className="h-4 w-4" />
                                 </Button>
                               </div>
-                            );
-                          })}
-                        </div>
+
+                              {/* Miktar — controlled, canlı koli */}
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`qty-${item.productId}`}>
+                                  Miktar ({item.productUnit})
+                                </Label>
+                                <Input
+                                  id={`qty-${item.productId}`}
+                                  type="number"
+                                  min="0.001"
+                                  step="0.001"
+                                  value={item.qtyText}
+                                  onChange={(e) => updateItemQuantity(item.productId, e.target.value)}
+                                  className="w-full text-sm"
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                  {koli != null ? `${koli} koli` : '– koli'}
+                                </p>
+                              </div>
+
+                              {/* Koli (adet/koli) — onBlur akışı (AlertDialog onayı) korunur */}
+                              <div className="mt-3 space-y-1.5">
+                                <Label htmlFor={`upc-${item.productId}`}>Koli (adet/koli)</Label>
+                                <Input
+                                  id={`upc-${item.productId}`}
+                                  type="number"
+                                  min="1"
+                                  step="1"
+                                  defaultValue={item.unitsPerCase ?? ''}
+                                  onBlur={(e) => handleUnitsPerCaseBlur(item, e)}
+                                  placeholder={caseEmpty ? 'Zorunlu' : ''}
+                                  className={`w-full text-sm ${
+                                    caseEmpty
+                                      ? 'border-destructive placeholder:text-destructive/60 focus-visible:ring-destructive'
+                                      : ''
+                                  }`}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                  {item.unitsPerCase != null
+                                    ? `1 kolide ${item.unitsPerCase} adet`
+                                    : 'Koli başına adet sayısını girin'}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )
                   )}
@@ -399,7 +407,7 @@ function OrderEditInner() {
                 {/* Actions */}
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Button type="button" variant="outline" className="sm:flex-1" asChild>
-                    <Link href="/mudur/siparisler">← Siparişlere Dön</Link>
+                    <Link href="/isletme-app/siparis-onerileri">← Siparişlere Dön</Link>
                   </Button>
                   <span
                     className={`contents ${saveDisabled ? 'cursor-not-allowed' : ''}`}

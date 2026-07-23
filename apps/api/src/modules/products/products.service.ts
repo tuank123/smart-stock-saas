@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -88,8 +89,15 @@ export class ProductsService {
   async updateUnitsPerCase(
     productId: string,
     dto: PatchUnitsPerCaseDto,
-    user: { tenantId: string },
+    user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
+    // Çok-şubeli PATRON bu işlemi yapamaz — yalnız SUBE_MUDURU veya tek şubeli PATRON.
+    if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+      throw new ForbiddenException(
+        'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+      );
+    }
+
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);

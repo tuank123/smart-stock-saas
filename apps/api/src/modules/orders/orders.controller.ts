@@ -77,30 +77,32 @@ export class OrdersController {
     return this.service.listOrders(branchId, query, user);
   }
 
-  @Roles(UserRole.SUBE_MUDURU)
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Patch(':orderId')
   update(
     @Param('orderId', ParseUUIDPipe) orderId: string,
     @Body() dto: PatchOrderDto,
-    @CurrentUser() user: { tenantId: string },
+    @CurrentUser()
+    user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
     return this.service.updateOrder(orderId, dto, user);
   }
 
-  @Roles(UserRole.SUBE_MUDURU)
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Patch(':orderId/approve')
   approve(
     @Param('orderId', ParseUUIDPipe) orderId: string,
-    @CurrentUser() user: { tenantId: string; userId: string },
+    @CurrentUser()
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
   ) {
     return this.service.approveOrder(orderId, user);
   }
 
-  @Roles(UserRole.SUBE_MUDURU)
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Patch(':orderId/cancel')
   cancel(
     @Param('orderId', ParseUUIDPipe) orderId: string,
-    @CurrentUser() user: { tenantId: string },
+    @CurrentUser() user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
     return this.service.cancelOrder(orderId, user);
   }
