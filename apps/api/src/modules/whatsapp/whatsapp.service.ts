@@ -7,6 +7,7 @@ export interface WhatsappSendParams {
   supplierName: string;
   branchName: string;
   items: { name: string; quantity: string | number; unit: string }[];
+  notes?: string | null;
 }
 
 export interface WhatsappSendResult {
@@ -22,15 +23,19 @@ export class WhatsappService {
 
   constructor(private config: ConfigService) {}
 
-  buildMessage(params: Pick<WhatsappSendParams, 'supplierName' | 'branchName' | 'items'>): string {
+  buildMessage(
+    params: Pick<WhatsappSendParams, 'supplierName' | 'branchName' | 'items' | 'notes'>,
+  ): string {
     const lines = params.items
       .map((i) => `- ${i.name}: ${i.quantity} ${i.unit}`)
       .join('\n');
-    return (
+    // Mevcut şablon aynen korunur; kullanıcı notu (varsa) mesajın sonuna eklenir.
+    const base =
       `Merhaba ${params.supplierName}, ${params.branchName} şubemizden sipariş:\n` +
       `${lines}\n` +
-      `Toplam ${params.items.length} kalem. Teşekkürler, StokPilot`
-    );
+      `Toplam ${params.items.length} kalem. Teşekkürler, StokPilot`;
+    const note = params.notes?.trim();
+    return note ? `${base}\n\nNot: ${note}` : base;
   }
 
   async sendOrderMessage(params: WhatsappSendParams): Promise<WhatsappSendResult> {

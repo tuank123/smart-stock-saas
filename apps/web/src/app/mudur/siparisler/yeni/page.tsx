@@ -34,6 +34,7 @@ import {
   useUpdateUnitsPerCase,
 } from '@/hooks/useMudur';
 import type { StockLevel, Supplier } from '@/lib/types';
+import { formatCaseBreakdown } from '@/lib/caseFormat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -49,11 +50,10 @@ interface OrderItemDraft {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function buildAutoNote(items: OrderItemDraft[], branchName: string): string {
-  const parts = items.map((i) =>
-    i.unitsPerCase != null
-      ? `${i.productName} ${Math.ceil(i.quantity / i.unitsPerCase)} koli`
-      : `${i.productName} ${i.quantity} adet`,
-  );
+  const parts = items.map((i) => {
+    const breakdown = formatCaseBreakdown(i.quantity, i.unitsPerCase);
+    return `${i.productName} ${breakdown ?? `${i.quantity} adet`}`;
+  });
   return `${parts.join(', ')}, ${branchName} şubesine sipariş`;
 }
 
@@ -332,10 +332,7 @@ export default function MudurYeniSiparisPage() {
 
                     <div className="divide-y">
                       {orderItems.map((item) => {
-                        const koli =
-                          item.unitsPerCase != null && item.unitsPerCase > 0
-                            ? Math.ceil(item.quantity / item.unitsPerCase)
-                            : null;
+                        const koli = formatCaseBreakdown(item.quantity, item.unitsPerCase);
                         const caseEmpty = item.unitsPerCase === null;
 
                         return (
@@ -374,7 +371,7 @@ export default function MudurYeniSiparisPage() {
                                 {item.productUnit}
                               </span>
                               {koli != null && (
-                                <span className="text-xs text-muted-foreground">({koli} koli)</span>
+                                <span className="text-xs text-muted-foreground">({koli})</span>
                               )}
                             </div>
 

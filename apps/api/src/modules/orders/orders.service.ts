@@ -299,7 +299,7 @@ export class OrdersService {
             branchId: level.branchId,
             supplierId: branchSupplier.supplierId,
             status: 'DRAFT',
-            notes: `Otomatik — ${level.product.name} stok eşiği aşıldı`,
+            notes: null,
             items: {
               create: [{ productId: level.productId, quantityOrdered }],
             },
@@ -516,6 +516,7 @@ export class OrdersService {
       id: string;
       branchId: string;
       supplierId: string;
+      notes?: string | null;
       supplier: { name: string; whatsappNumber: string };
       branch: { name: string };
       items: { quantityOrdered: { toString(): string }; product: { name: string; unit: string } }[];
@@ -534,6 +535,7 @@ export class OrdersService {
       supplierName: order.supplier.name,
       branchName: order.branch.name,
       items,
+      notes: order.notes,
     });
 
     try {

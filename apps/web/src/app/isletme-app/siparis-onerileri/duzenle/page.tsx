@@ -22,12 +22,12 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   useApproveOrder,
-  useBranchDetail,
   useOrderDetail,
   useUpdateOrder,
   useUpdateUnitsPerCase,
 } from '@/hooks/useMudur';
 import type { OrderItem } from '@/lib/types';
+import { formatCaseBreakdown } from '@/lib/caseFormat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -41,20 +41,6 @@ interface OrderItemDraft {
   unitsPerCase: number | null;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function buildAutoNote(items: OrderItemDraft[], branchName: string): string {
-  const parts = items.map((i) => {
-    // Canlı ham metni tercih et (henüz commit olmamış yazımda bile güncel not);
-    // geçersiz/boşsa son geçerli sayısal değere düş.
-    const qty = Number(i.qtyText) || i.quantity;
-    return i.unitsPerCase != null
-      ? `${i.productName} ${Math.ceil(qty / i.unitsPerCase)} koli`
-      : `${i.productName} ${qty} adet`;
-  });
-  return `Otomatik — ${parts.join(', ')}, ${branchName} şubesine sipariş`;
-}
-
 // ── Inner content — needs useSearchParams so wrapped in Suspense ──────────────
 
 function OrderEditInner() {
@@ -63,14 +49,12 @@ function OrderEditInner() {
   const router = useRouter();
 
   const orderQuery = useOrderDetail(orderId);
-  const { data: branch } = useBranchDetail();
   const updateOrder = useUpdateOrder();
   const approveOrder = useApproveOrder();
   const updateUnitsPerCase = useUpdateUnitsPerCase();
 
   const [orderItems, setOrderItems] = useState<OrderItemDraft[]>([]);
   const [notes, setNotes] = useState('');
-  const [noteIsAuto, setNoteIsAuto] = useState(true);
   const [error, setError] = useState('');
   const [initialized, setInitialized] = useState(false);
 
@@ -81,9 +65,10 @@ function OrderEditInner() {
   } | null>(null);
   const pendingInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Pre-fill form once both order and branch are loaded
+  // Pre-fill form once the order is loaded. Notlar opsiyonel serbest metin:
+  // varsa kullanıcının önceki notunu göster, yoksa boş bırak.
   useEffect(() => {
-    if (orderQuery.data && branch && !initialized) {
+    if (orderQuery.data && !initialized) {
       const items = orderQuery.data.items.map((item: OrderItem) => ({
         productId: item.productId,
         productName: item.product.name,
@@ -94,50 +79,21 @@ function OrderEditInner() {
         unitsPerCase: item.product.unitsPerCase ?? null,
       }));
       setOrderItems(items);
-
-      const existingNote = orderQuery.data.notes ?? '';
-      if (!existingNote || existingNote.startsWith('Otomatik —')) {
-        const allFilled = items.every((i: OrderItemDraft) => i.unitsPerCase != null);
-        setNotes(allFilled ? buildAutoNote(items, branch.name) : '');
-        setNoteIsAuto(true);
-      } else {
-        setNotes(existingNote);
-        setNoteIsAuto(false);
-      }
-
+      setNotes(orderQuery.data.notes ?? '');
       setInitialized(true);
     }
-  }, [orderQuery.data, branch, initialized]);
-
-  // Miktar (qtyText) veya koli değiştikçe otomatik notu canlı yeniden üret —
-  // yalnız kullanıcı notu elle düzenlemediyse (noteIsAuto) ve tüm koliler doluysa.
-  useEffect(() => {
-    if (!noteIsAuto) return;
-    if (!branch) return;
-    if (!initialized) return; // ilk yüklemeyi mount effect'i hallediyor
-    const allFilled = orderItems.every((i) => i.unitsPerCase != null);
-    if (allFilled) {
-      setNotes(buildAutoNote(orderItems, branch.name));
-    }
-    // initialized kasıtlı olarak dependency dışı (yalnız guard için okunuyor).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderItems, branch, noteIsAuto]);
+  }, [orderQuery.data, initialized]);
 
   function applyUnitsPerCase(item: OrderItemDraft, n: number) {
     updateUnitsPerCase.mutate(
       { productId: item.productId, unitsPerCase: n },
       {
         onSuccess: () => {
-          setOrderItems((prev) => {
-            const updated = prev.map((i) =>
+          setOrderItems((prev) =>
+            prev.map((i) =>
               i.productId === item.productId ? { ...i, unitsPerCase: n } : i,
-            );
-            if (noteIsAuto && branch) {
-              const allFilled = updated.every((i) => i.unitsPerCase != null);
-              if (allFilled) setNotes(buildAutoNote(updated, branch.name));
-            }
-            return updated;
-          });
+            ),
+          );
         },
       },
     );
@@ -298,14 +254,10 @@ function OrderEditInner() {
                       <div className="space-y-3">
                         {orderItems.map((item) => {
                           // Koli, ham metinden canlı hesaplanır — her tuşta güncellenir.
-                          const parsedQty = parseFloat(item.qtyText);
-                          const koli =
-                            item.unitsPerCase != null &&
-                            item.unitsPerCase > 0 &&
-                            !isNaN(parsedQty) &&
-                            parsedQty > 0
-                              ? Math.ceil(parsedQty / item.unitsPerCase)
-                              : null;
+                          const koli = formatCaseBreakdown(
+                            parseFloat(item.qtyText),
+                            item.unitsPerCase,
+                          );
                           const caseEmpty = item.unitsPerCase === null;
 
                           return (
@@ -342,7 +294,7 @@ function OrderEditInner() {
                                   className="w-full text-sm"
                                 />
                                 <p className="text-xs text-muted-foreground">
-                                  {koli != null ? `${koli} koli` : '– koli'}
+                                  {koli ?? '–'}
                                 </p>
                               </div>
 
@@ -386,12 +338,9 @@ function OrderEditInner() {
                     <textarea
                       id="notes"
                       value={notes}
-                      onChange={(e) => {
-                        setNotes(e.target.value);
-                        setNoteIsAuto(false);
-                      }}
+                      onChange={(e) => setNotes(e.target.value)}
                       rows={3}
-                      placeholder="Tedarikçiye iletmek istediğiniz notu yazın..."
+                      placeholder="Tedarikçiye iletilecek ekstra not (opsiyonel)"
                       className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     />
                   )}
