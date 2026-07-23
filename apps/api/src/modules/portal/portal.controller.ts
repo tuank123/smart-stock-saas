@@ -38,52 +38,57 @@ export class PortalController {
     };
   }
 
-  @Roles(UserRole.SUBE_MUDURU)
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Get('portal/uploads/:branchId')
   listUploads(
     @Param('branchId', ParseUUIDPipe) branchId: string,
-    @CurrentUser() user: { tenantId: string },
+    @CurrentUser()
+    user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.service.listUploads(branchId, user.tenantId);
+    return this.service.listUploads(branchId, user.tenantId, user.role, user.planId);
   }
 
   // NOTE: static 'detail' segment keeps this from colliding with the
   // branch-scoped list route above, which also matches 'portal/uploads/:param'.
-  @Roles(UserRole.SUBE_MUDURU)
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Get('portal/uploads/detail/:uploadId')
   getUploadDetail(
     @Param('uploadId', ParseUUIDPipe) uploadId: string,
-    @CurrentUser() user: { tenantId: string },
+    @CurrentUser()
+    user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.service.getUploadDetail(uploadId, user.tenantId);
+    return this.service.getUploadDetail(uploadId, user.tenantId, user.role, user.planId);
   }
 
-  @Roles(UserRole.SUBE_MUDURU)
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Patch('portal/uploads/:uploadId/items')
   updateUploadItems(
     @Param('uploadId', ParseUUIDPipe) uploadId: string,
     @Body() dto: UpdatePriceItemsDto,
-    @CurrentUser() user: { tenantId: string },
+    @CurrentUser()
+    user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.service.updateUploadItems(uploadId, dto, user.tenantId);
+    return this.service.updateUploadItems(uploadId, dto, user.tenantId, user.role, user.planId);
   }
 
-  @Roles(UserRole.SUBE_MUDURU)
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Patch('portal/uploads/:uploadId/approve')
   approveUpload(
     @Param('uploadId', ParseUUIDPipe) uploadId: string,
-    @CurrentUser() user: { tenantId: string; userId: string },
+    @CurrentUser()
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.service.approveUpload(uploadId, user.userId, user.tenantId);
+    return this.service.approveUpload(uploadId, user.userId, user.tenantId, user.role, user.planId);
   }
 
-  @Roles(UserRole.SUBE_MUDURU)
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Patch('portal/uploads/:uploadId/reject')
   rejectUpload(
     @Param('uploadId', ParseUUIDPipe) uploadId: string,
-    @CurrentUser() user: { tenantId: string; userId: string },
+    @CurrentUser()
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.service.rejectUpload(uploadId, user.userId, user.tenantId);
+    return this.service.rejectUpload(uploadId, user.userId, user.tenantId, user.role, user.planId);
   }
 
   // ─── PUBLIC ENDPOINTS (no JWT) ─────────────────────────────────────────────

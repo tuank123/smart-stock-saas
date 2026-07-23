@@ -268,6 +268,8 @@ export interface PendingPriceUpload {
   status: string;
   createdAt: string;
   supplier: { id: string; name: string } | null;
+  // Liste endpoint'i scalar olarak döndürür (kartta ürün sayısı için).
+  parsedItems?: ParsedPriceItem[] | null;
 }
 
 // One parsed line item within a PendingPriceUpload.parsedItems blob

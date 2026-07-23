@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -183,10 +184,20 @@ export class PortalService implements OnModuleInit {
 
   // ─── REVIEW ──────────────────────────────────────────────────────────────
 
-  async listUploads(branchId: string, tenantId: string) {
+  async listUploads(
+    branchId: string,
+    tenantId: string,
+    role?: string | null,
+    planId?: string | null,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (role === 'PATRON' && planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
 
       return tx.supplierPortalUpload.findMany({
         where: { branchId, tenantId, status: 'PENDING_REVIEW' },
@@ -198,10 +209,21 @@ export class PortalService implements OnModuleInit {
     });
   }
 
-  async approveUpload(uploadId: string, reviewerId: string, tenantId: string) {
+  async approveUpload(
+    uploadId: string,
+    reviewerId: string,
+    tenantId: string,
+    role?: string | null,
+    planId?: string | null,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (role === 'PATRON' && planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
 
       const upload = await tx.supplierPortalUpload.findUnique({ where: { id: uploadId } });
       if (!upload || upload.tenantId !== tenantId) {
@@ -224,6 +246,55 @@ export class PortalService implements OnModuleInit {
         supplierId = newSupplier.id;
       }
 
+      // Onay = fiyatları GERÇEKTEN uygula: her kalem için Product.salePrice güncelle
+      // ve PriceChangeLog kaydı oluştur.
+      const items = Array.isArray(upload.parsedItems)
+        ? (upload.parsedItems as unknown as ParsedItem[])
+        : [];
+
+      for (const item of items) {
+        const product = await tx.product.findUnique({
+          where: { id: item.productId },
+          select: { id: true, tenantId: true, salePrice: true },
+        });
+        // Başka tenant'a ait veya bulunamayan ürünleri atla (güvenlik).
+        if (!product || product.tenantId !== tenantId) continue;
+
+        // İndirim uygulanmış nihai fiyat (2 ondalık).
+        const discount = item.discountPct ?? 0;
+        const finalPrice = round2(item.newPrice * (1 - discount / 100));
+
+        // Eski fiyat = DB'deki mevcut salePrice (güvenilir kaynak); yoksa null.
+        const oldPrice = product.salePrice != null ? Number(product.salePrice) : null;
+
+        // Değişim yüzdesi + anomali. İlk fiyat atamasında (oldPrice yok/0) değişim 0,
+        // anomali sayılmaz.
+        let changePct = 0;
+        let anomalyFlag = false;
+        if (oldPrice != null && oldPrice !== 0) {
+          changePct = clampPct(round2(((finalPrice - oldPrice) / oldPrice) * 100));
+          anomalyFlag = Math.abs(changePct) > PRICE_ANOMALY_PCT;
+        }
+
+        await tx.product.update({
+          where: { id: product.id },
+          data: { salePrice: finalPrice },
+        });
+
+        await tx.priceChangeLog.create({
+          data: {
+            tenantId,
+            productId: product.id,
+            branchId: upload.branchId,
+            oldPrice: oldPrice ?? 0, // PriceChangeLog.oldPrice zorunlu; ilk atamada 0
+            newPrice: finalPrice,
+            changePct,
+            anomalyFlag,
+            changedBy: reviewerId,
+          },
+        });
+      }
+
       return tx.supplierPortalUpload.update({
         where: { id: uploadId },
         data: {
@@ -236,10 +307,21 @@ export class PortalService implements OnModuleInit {
     });
   }
 
-  async rejectUpload(uploadId: string, reviewerId: string, tenantId: string) {
+  async rejectUpload(
+    uploadId: string,
+    reviewerId: string,
+    tenantId: string,
+    role?: string | null,
+    planId?: string | null,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (role === 'PATRON' && planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
 
       const upload = await tx.supplierPortalUpload.findUnique({ where: { id: uploadId } });
       if (!upload || upload.tenantId !== tenantId) {
@@ -253,10 +335,20 @@ export class PortalService implements OnModuleInit {
     });
   }
 
-  async getUploadDetail(uploadId: string, tenantId: string) {
+  async getUploadDetail(
+    uploadId: string,
+    tenantId: string,
+    role?: string | null,
+    planId?: string | null,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (role === 'PATRON' && planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
 
       const upload = await tx.supplierPortalUpload.findUnique({
         where: { id: uploadId },
@@ -271,10 +363,21 @@ export class PortalService implements OnModuleInit {
     });
   }
 
-  async updateUploadItems(uploadId: string, dto: UpdatePriceItemsDto, tenantId: string) {
+  async updateUploadItems(
+    uploadId: string,
+    dto: UpdatePriceItemsDto,
+    tenantId: string,
+    role?: string | null,
+    planId?: string | null,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (role === 'PATRON' && planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
 
       const upload = await tx.supplierPortalUpload.findUnique({ where: { id: uploadId } });
       if (!upload || upload.tenantId !== tenantId) {
@@ -323,4 +426,16 @@ interface ParsedItem {
   oldPrice: number | null;
   newPrice: number;
   discountPct: number | null;
+}
+
+// |değişim| bu yüzdeyi aşarsa anomali olarak işaretlenir.
+const PRICE_ANOMALY_PCT = 50;
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+// changePct kolonu Decimal(5,2) → maksimum ±999.99; taşmayı önlemek için sınırla.
+function clampPct(n: number): number {
+  return Math.max(-999.99, Math.min(999.99, n));
 }
