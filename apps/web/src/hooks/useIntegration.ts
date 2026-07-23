@@ -14,14 +14,8 @@ export interface BranchIntegrationDetail {
   webserviceUrl: string | null;
   pollingIntervalSec: number | null;
   connectionStatus: string | null;
+  agentId?: string | null;
   agentVersion?: string | null;
-}
-
-export interface SaveIntegrationPayload {
-  adapterType: string;
-  apiKey: string;
-  webserviceUrl?: string;
-  pollingIntervalSec?: number;
 }
 
 function fetchIntegration(branchId: string): Promise<BranchIntegrationDetail | null> {
@@ -32,6 +26,7 @@ function fetchIntegration(branchId: string): Promise<BranchIntegrationDetail | n
 }
 
 // PATRON kendi tek şubesi için: branchId store'daki user'dan gelir.
+// PENDING_INSTALL iken 5 sn'de bir yenilenir → Agent bağlanınca otomatik CONNECTED'e döner.
 export function useBranchIntegration() {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
@@ -40,11 +35,13 @@ export function useBranchIntegration() {
     queryFn: () => fetchIntegration(branchId),
     enabled: !!branchId,
     staleTime: 1000 * 30,
+    refetchInterval: (query) =>
+      query.state.data?.connectionStatus === 'PENDING_INSTALL' ? 5000 : false,
   });
 }
 
 function integrationErrorMessage(err: unknown): string {
-  let msg = 'Entegrasyon kaydedilemedi';
+  let msg = 'Kurulum kodu oluşturulamadı';
   if (axios.isAxiosError(err)) {
     const m = err.response?.data?.message;
     if (typeof m === 'string') msg = m;
@@ -53,33 +50,18 @@ function integrationErrorMessage(err: unknown): string {
   return msg;
 }
 
-// Yeni kayıt (POST). Kayıt zaten varsa backend 409 döner → PATCH kullanılmalı.
-export function useSaveBranchIntegration() {
+// Agent kurulum kodu üret (POST). BranchIntegration PENDING_INSTALL olarak hazırlanır.
+export function useGenerateSetupCode() {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: SaveIntegrationPayload) =>
-      api.post(`/branches/${branchId}/integration`, payload).then((r) => r.data),
+    mutationFn: (payload: { adapterType: string }) =>
+      api
+        .post<{ token: string }>(`/branches/${branchId}/integration/setup-code`, payload)
+        .then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['branches', branchId, 'integration'] });
-      toast.success('Entegrasyon kaydedildi');
-    },
-    onError: (err: unknown) => toast.error(integrationErrorMessage(err)),
-  });
-}
-
-// Kısmi güncelleme (PATCH) — mevcut kayıt için.
-export function useUpdateBranchIntegration() {
-  const { user } = useAuthStore();
-  const branchId = user?.branchId ?? '';
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: Partial<SaveIntegrationPayload>) =>
-      api.patch(`/branches/${branchId}/integration`, payload).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['branches', branchId, 'integration'] });
-      toast.success('Entegrasyon güncellendi');
     },
     onError: (err: unknown) => toast.error(integrationErrorMessage(err)),
   });

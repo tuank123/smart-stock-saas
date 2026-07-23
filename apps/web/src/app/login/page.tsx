@@ -5,14 +5,11 @@ import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 
-const DEFAULT_TENANT = '290ec168-0ac0-4592-8d3f-163c70ad92cf';
-
 export default function LoginPage() {
   const { login, isLoggingIn, loginError: error } = useAuth();
   const [form, setForm] = useState({
     email: '',
     password: '',
-    tenantId: DEFAULT_TENANT,
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -58,24 +55,6 @@ export default function LoginPage() {
               placeholder="••••••••"
               className="w-full rounded-md border bg-background px-4 py-3 text-base outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2"
             />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground" htmlFor="tenantId">
-              İşletme ID
-            </label>
-            <input
-              id="tenantId"
-              type="text"
-              required
-              value={form.tenantId}
-              onChange={(e) => setForm((f) => ({ ...f, tenantId: e.target.value }))}
-              placeholder="Tenant ID'nizi girin"
-              className="w-full rounded-md border bg-background px-4 py-2.5 text-sm text-muted-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2"
-            />
-            <p className="text-xs text-muted-foreground">
-              Sistem otomatik doldurdu, değiştirmeyin.
-            </p>
           </div>
 
           <Button type="submit" className="h-12 w-full py-3 text-base" disabled={isLoggingIn}>

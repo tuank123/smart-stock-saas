@@ -1,4 +1,4 @@
-import { IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateBranchDto {
   @IsNotEmpty()
@@ -22,41 +22,20 @@ export class CreateBranchDto {
   timezone?: string;
 }
 
-export class CreateIntegrationDto {
+// Agent kurulum kodu üretimi — adapterType whitelist'i service'te DB'ye karşı doğrulanır.
+export class GenerateSetupCodeDto {
   @IsNotEmpty()
   @IsString()
   adapterType: string = '';
+}
 
-  @IsOptional()
+// Agent'ın public bağlanma isteği.
+export class ConnectAgentDto {
+  @IsNotEmpty()
   @IsString()
-  webserviceUrl?: string;
+  token: string = '';
 
   @IsNotEmpty()
   @IsString()
-  apiKey: string = '';
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  pollingIntervalSec?: number;
-}
-
-// Kısmi güncelleme: tüm alanlar opsiyonel — sadece değişenler gönderilir.
-export class UpdateIntegrationDto {
-  @IsOptional()
-  @IsString()
-  adapterType?: string;
-
-  @IsOptional()
-  @IsString()
-  webserviceUrl?: string;
-
-  @IsOptional()
-  @IsString()
-  apiKey?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  pollingIntervalSec?: number;
+  agentVersion: string = '';
 }

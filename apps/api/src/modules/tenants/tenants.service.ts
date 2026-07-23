@@ -49,6 +49,16 @@ export class TenantsService {
         throw new ConflictException('Bu vergi numarası zaten kayıtlı');
       }
 
+      // E-posta global tekilik: bir e-posta yalnızca bir işletmeye ait olabilir
+      // (login'deki "aynı email birden fazla tenant" belirsizliğini önler).
+      const existingUser = await tx.user.findFirst({
+        where: { email: dto.email, deletedAt: null },
+        select: { id: true },
+      });
+      if (existingUser) {
+        throw new ConflictException('Bu e-posta adresi zaten başka bir işletmede kayıtlı');
+      }
+
       let tenant;
       try {
         tenant = await tx.tenant.create({

@@ -41,7 +41,7 @@ export class AuthService implements OnModuleInit {
    * Returns access token (in response body) + refresh token (in HttpOnly cookie)
    */
   async login(loginDto: LoginDto): Promise<AuthResponse> {
-    const { email, password, tenantId } = loginDto;
+    const { email, password } = loginDto;
 
     // Check rate limiting (5 attempts per 15 minutes)
     if (this.redisClient) {
@@ -68,19 +68,19 @@ export class AuthService implements OnModuleInit {
       }
     }
 
-    // Find user
-    const user = await this.prisma.user.findUnique({
-      where: {
-        tenantId_email: {
-          tenantId,
-          email,
-        },
-      },
-      include: {
-        tenant: true,
-        branch: true,
-      },
+    // E-postaya göre global kullanıcı araması (tenant bağlamı yok → super-admin RLS).
+    const users = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+      return tx.user.findMany({
+        where: { email, deletedAt: null },
+        include: { tenant: true, branch: true },
+      });
     });
+
+    // Tek kayıt → onu kullan. Birden fazla (aynı email farklı tenant'larda) →
+    // ilk aktif olanı seç. Boş veya seçilen kayıt aktif değilse: kimlik sızdırma.
+    const user =
+      users.length === 1 ? users[0] : (users.find((u) => u.isActive) ?? null);
 
     if (!user || !user.isActive) {
       throw new UnauthorizedException('Invalid credentials');

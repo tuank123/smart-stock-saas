@@ -13,7 +13,6 @@ import { dashboardFor } from '@/lib/routing';
 interface LoginPayload {
   email: string;
   password: string;
-  tenantId: string;
 }
 
 interface LoginResponse {

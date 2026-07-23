@@ -5,17 +5,18 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
-  Patch,
   Post,
 } from '@nestjs/common';
 
+import { Throttle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import {
   CreateBranchDto,
-  CreateIntegrationDto,
-  UpdateIntegrationDto,
+  GenerateSetupCodeDto,
+  ConnectAgentDto,
 } from './dto/branch.dto';
 import { BranchesService } from './branches.service';
 
@@ -48,25 +49,26 @@ export class BranchesController {
     return this.service.getBranch(branchId, user);
   }
 
+  // Agent kurulum kodu üret (BranchIntegration'ı PENDING_INSTALL olarak hazırlar).
   @Roles(UserRole.PATRON)
-  @Post(':branchId/integration')
+  @Post(':branchId/integration/setup-code')
   @HttpCode(201)
-  createIntegration(
+  generateSetupCode(
     @Param('branchId', ParseUUIDPipe) branchId: string,
-    @Body() dto: CreateIntegrationDto,
+    @Body() dto: GenerateSetupCodeDto,
     @CurrentUser() user: { tenantId: string },
   ) {
-    return this.service.createIntegration(branchId, dto, user);
+    return this.service.generateSetupToken(branchId, dto, user);
   }
 
-  @Roles(UserRole.PATRON)
-  @Patch(':branchId/integration')
-  updateIntegration(
-    @Param('branchId', ParseUUIDPipe) branchId: string,
-    @Body() dto: UpdateIntegrationDto,
-    @CurrentUser() user: { tenantId: string },
-  ) {
-    return this.service.updateIntegration(branchId, dto, user);
+  // PUBLIC — Agent, kurulum koduyla kendini şubeye bağlar.
+  // Rate-limit: dakikada 10 deneme (brute-force koruması).
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('agent-connect')
+  @HttpCode(200)
+  agentConnect(@Body() dto: ConnectAgentDto) {
+    return this.service.connectAgent(dto);
   }
 
   @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)

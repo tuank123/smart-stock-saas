@@ -1,13 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Eye, EyeOff, Wifi, WifiOff } from 'lucide-react';
+import { useState } from 'react';
+import { Copy, Wifi, Loader2, WifiOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -17,11 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  useBranchIntegration,
-  useSaveBranchIntegration,
-  useUpdateBranchIntegration,
-} from '@/hooks/useIntegration';
+import { useBranchIntegration, useGenerateSetupCode } from '@/hooks/useIntegration';
 
 // value'lar backend'deki integration_adapters tablosuyla BİREBİR eşleşmeli
 // (adapterType DB'ye karşı doğrulanıyor). Label'lar kullanıcıya Türkçe gösterilir.
@@ -38,74 +33,41 @@ const ADAPTERS: { value: string; label: string }[] = [
   { value: 'LUCA', label: 'Luca' },
 ];
 
-const STATUS_LABEL: Record<string, string> = {
-  CONNECTED: 'Bağlı',
-  PENDING_INSTALL: 'Kurulum bekleniyor',
-  DISCONNECTED: 'Bağlantı yok',
-  ERROR: 'Hata',
-};
-
 function adapterLabel(value: string) {
   return ADAPTERS.find((a) => a.value === value)?.label ?? value;
 }
 
 export default function EntegrasyonPage() {
   const query = useBranchIntegration();
-  const save = useSaveBranchIntegration();
-  const update = useUpdateBranchIntegration();
+  const generate = useGenerateSetupCode();
   const existing = query.data ?? null;
-  const saving = save.isPending || update.isPending;
 
   const [adapterType, setAdapterType] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [webserviceUrl, setWebserviceUrl] = useState('');
-  const [pollingIntervalSec, setPollingIntervalSec] = useState('');
-  const [showKey, setShowKey] = useState(false);
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
 
-  // Mevcut entegrasyon yüklendiğinde formu "Düzenle" moduna doldur
-  // (apiKey backend'den dönmez, güvenlik için boş kalır).
-  useEffect(() => {
-    if (existing) {
-      setAdapterType(existing.adapterType ?? '');
-      setWebserviceUrl(existing.webserviceUrl ?? '');
-      setPollingIntervalSec(
-        existing.pollingIntervalSec != null ? String(existing.pollingIntervalSec) : '',
-      );
-    }
-  }, [existing]);
+  const status = existing?.connectionStatus ?? null;
+  const isConnected = status === 'CONNECTED';
+  const isPendingInstall = status === 'PENDING_INSTALL';
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGenerate = () => {
     if (!adapterType) {
       toast.error('Adaptör tipi seçin');
       return;
     }
+    generate.mutate(
+      { adapterType },
+      { onSuccess: (data) => setGeneratedCode(data.token) },
+    );
+  };
 
-    const webservice = webserviceUrl.trim() || undefined;
-    const polling = pollingIntervalSec ? Number(pollingIntervalSec) : undefined;
-
-    if (existing) {
-      // Güncelleme (PATCH): apiKey boşsa mevcut anahtar korunur.
-      update.mutate({
-        adapterType,
-        webserviceUrl: webservice,
-        pollingIntervalSec: polling,
-        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-      });
-      return;
+  const copyCode = async () => {
+    if (!generatedCode) return;
+    try {
+      await navigator.clipboard.writeText(generatedCode);
+      toast.success('Kod kopyalandı');
+    } catch {
+      toast.error('Kopyalanamadı');
     }
-
-    // Yeni kurulum (POST): apiKey zorunlu.
-    if (!apiKey.trim()) {
-      toast.error('API anahtarı gerekli');
-      return;
-    }
-    save.mutate({
-      adapterType,
-      apiKey: apiKey.trim(),
-      webserviceUrl: webservice,
-      pollingIntervalSec: polling,
-    });
   };
 
   return (
@@ -113,8 +75,8 @@ export default function EntegrasyonPage() {
       <div className="mb-6">
         <h1 className="text-xl font-semibold">Barkod Entegrasyonu</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Kasa / POS yazılımınızı bağlayarak stok ve fiyatların otomatik
-          senkronize olmasını sağlayın.
+          Kasa / POS yazılımınızı bağlamak için bir kurulum kodu üretin ve
+          StokPilot Agent üzerinden girin.
         </p>
       </div>
 
@@ -123,23 +85,56 @@ export default function EntegrasyonPage() {
         <Skeleton className="mb-6 h-20 w-full rounded-xl" />
       ) : existing ? (
         <Card className="mb-6">
-          <CardContent className="flex items-center justify-between gap-3 p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-green-100">
-                <Wifi className="h-4 w-4 text-green-700" />
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
+                    isConnected ? 'bg-green-100' : 'bg-yellow-100'
+                  }`}
+                >
+                  {isConnected ? (
+                    <Wifi className="h-4 w-4 text-green-700" />
+                  ) : (
+                    <Loader2 className="h-4 w-4 animate-spin text-yellow-700" />
+                  )}
+                </div>
+                <div>
+                  <p className="font-medium leading-tight">{adapterLabel(existing.adapterType)}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">
+                    {isConnected
+                      ? 'Agent bağlı'
+                      : isPendingInstall
+                        ? 'Agent bağlantısı bekleniyor…'
+                        : (status ?? 'Durum bilinmiyor')}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="font-medium leading-tight">{adapterLabel(existing.adapterType)}</p>
-                <p className="mt-0.5 text-sm text-muted-foreground">
-                  {existing.connectionStatus
-                    ? (STATUS_LABEL[existing.connectionStatus] ?? existing.connectionStatus)
-                    : 'Durum bilinmiyor'}
-                </p>
-              </div>
+              {isConnected ? (
+                <Badge
+                  variant="outline"
+                  className="text-xs border-green-300 bg-green-50 text-green-700"
+                >
+                  Bağlandı
+                </Badge>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className="text-xs border-yellow-300 bg-yellow-50 text-yellow-700"
+                >
+                  Kurulum Bekleniyor
+                </Badge>
+              )}
             </div>
-            <Badge variant="outline" className="text-xs">
-              Kurulu
-            </Badge>
+
+            {/* Bağlı Agent detayları */}
+            {isConnected && (existing.agentVersion || existing.agentId) && (
+              <div className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+                {existing.agentVersion && <span>Agent v{existing.agentVersion}</span>}
+                {existing.agentVersion && existing.agentId && <span> · </span>}
+                {existing.agentId && <span className="font-mono">{existing.agentId}</span>}
+              </div>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -148,15 +143,13 @@ export default function EntegrasyonPage() {
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
               <WifiOff className="h-4 w-4 text-muted-foreground" />
             </div>
-            <p className="text-sm text-muted-foreground">
-              Henüz bir entegrasyon kurulmadı.
-            </p>
+            <p className="text-sm text-muted-foreground">Henüz bir entegrasyon kurulmadı.</p>
           </CardContent>
         </Card>
       )}
 
-      {/* Kur / Düzenle formu */}
-      <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Adaptör seçimi + kod üret */}
+      <div className="space-y-5">
         <div className="space-y-1.5">
           <Label htmlFor="adapterType">Adaptör Tipi</Label>
           <Select value={adapterType} onValueChange={setAdapterType}>
@@ -173,61 +166,33 @@ export default function EntegrasyonPage() {
           </Select>
         </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="apiKey">API Anahtarı</Label>
-          <div className="relative">
-            <Input
-              id="apiKey"
-              type={showKey ? 'text' : 'password'}
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={existing ? 'Yeni anahtar girin' : '••••••••'}
-              className="pr-10"
-              autoComplete="off"
-            />
-            <button
-              type="button"
-              onClick={() => setShowKey((v) => !v)}
-              className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground"
-              tabIndex={-1}
-              aria-label={showKey ? 'Gizle' : 'Göster'}
-            >
-              {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="webserviceUrl">
-            Web Servis URL <span className="text-muted-foreground">(opsiyonel)</span>
-          </Label>
-          <Input
-            id="webserviceUrl"
-            type="url"
-            value={webserviceUrl}
-            onChange={(e) => setWebserviceUrl(e.target.value)}
-            placeholder="https://…"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="pollingIntervalSec">
-            Yoklama Aralığı (sn) <span className="text-muted-foreground">(opsiyonel)</span>
-          </Label>
-          <Input
-            id="pollingIntervalSec"
-            type="number"
-            min={1}
-            value={pollingIntervalSec}
-            onChange={(e) => setPollingIntervalSec(e.target.value)}
-            placeholder="10"
-          />
-        </div>
-
-        <Button type="submit" className="w-full" disabled={saving}>
-          {saving ? 'Kaydediliyor…' : existing ? 'Güncelle' : 'Kur'}
+        <Button
+          type="button"
+          className="w-full"
+          onClick={handleGenerate}
+          disabled={generate.isPending}
+        >
+          {generate.isPending ? 'Oluşturuluyor…' : 'Kurulum Kodu Üret'}
         </Button>
-      </form>
+      </div>
+
+      {/* Üretilen kod */}
+      {generatedCode && (
+        <Card className="mt-6">
+          <CardContent className="flex flex-col items-center gap-4 p-6 text-center">
+            <div className="select-all rounded-xl border bg-muted/40 px-6 py-4 font-mono text-3xl font-bold tracking-[0.3em]">
+              {generatedCode}
+            </div>
+            <Button variant="outline" className="gap-1.5" onClick={copyCode}>
+              <Copy className="h-4 w-4" />
+              Kopyala
+            </Button>
+            <p className="text-sm text-muted-foreground">
+              Bu kodu StokPilot Agent kurulum ekranında kullanın.
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

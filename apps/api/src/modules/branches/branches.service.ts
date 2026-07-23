@@ -5,11 +5,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateBranchDto,
-  CreateIntegrationDto,
-  UpdateIntegrationDto,
+  GenerateSetupCodeDto,
+  ConnectAgentDto,
 } from './dto/branch.dto';
 
 @Injectable()
@@ -90,9 +91,14 @@ export class BranchesService {
     });
   }
 
-  async createIntegration(
+  /**
+   * PATRON şubesi için tek kullanımlık Agent kurulum kodu üretir ve
+   * BranchIntegration kaydını PENDING_INSTALL olarak upsert eder.
+   * apiKey/webserviceUrl bu akışta tutulmaz — Agent yerelde saklar.
+   */
+  async generateSetupToken(
     branchId: string,
-    dto: CreateIntegrationDto,
+    dto: GenerateSetupCodeDto,
     user: { tenantId: string },
   ) {
     return this.prisma.$transaction(async (tx) => {
@@ -103,7 +109,6 @@ export class BranchesService {
         where: { adapterType: dto.adapterType, isActive: true },
         select: { adapterType: true },
       });
-
       if (!adapter) {
         throw new BadRequestException(`'${dto.adapterType}' geçerli bir adaptör değil`);
       }
@@ -112,75 +117,73 @@ export class BranchesService {
         where: { id: branchId },
         select: { id: true, tenantId: true },
       });
-
       if (!branch || branch.tenantId !== user.tenantId) {
         throw new NotFoundException('Şube bulunamadı');
       }
 
-      try {
-        return await tx.branchIntegration.create({
-          data: {
-            tenantId: user.tenantId,
-            branchId,
-            adapterType: dto.adapterType,
-            webserviceUrl: dto.webserviceUrl,
-            apiKeyEncrypted: Buffer.from(dto.apiKey).toString('base64'),
-            pollingIntervalSec: dto.pollingIntervalSec ?? 10,
-            connectionStatus: 'PENDING_INSTALL',
-          },
-        });
-      } catch (e: any) {
-        if (e.code === 'P2002') {
-          throw new ConflictException('Bu şube için zaten bir integration kaydı var');
-        }
-        throw e;
-      }
+      // BranchIntegration'ı adapterType + PENDING_INSTALL ile hazırla.
+      await tx.branchIntegration.upsert({
+        where: { branchId },
+        create: {
+          tenantId: user.tenantId,
+          branchId,
+          adapterType: dto.adapterType,
+          connectionStatus: 'PENDING_INSTALL',
+        },
+        update: {
+          adapterType: dto.adapterType,
+          connectionStatus: 'PENDING_INSTALL',
+        },
+      });
+
+      const setup = await tx.agentSetupToken.create({
+        data: {
+          tenantId: user.tenantId,
+          branchId,
+          token: this.generateToken(),
+          adapterType: dto.adapterType,
+          // status defaults to PENDING
+        },
+      });
+
+      return { token: setup.token };
     });
   }
 
-  async updateIntegration(
-    branchId: string,
-    dto: UpdateIntegrationDto,
-    user: { tenantId: string },
-  ) {
+  /**
+   * PUBLIC — Agent kurulum koduyla kendini şubeye bağlar. Henüz tenant
+   * bağlamı yok; token global olarak aranır (super-admin RLS).
+   */
+  async connectAgent(dto: ConnectAgentDto) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
 
-      const existing = await tx.branchIntegration.findUnique({
-        where: { branchId },
-        select: { id: true, tenantId: true },
+      const setup = await tx.agentSetupToken.findUnique({
+        where: { token: dto.token },
+        select: { id: true, status: true, branchId: true },
       });
 
-      if (!existing || existing.tenantId !== user.tenantId) {
-        throw new NotFoundException('Bu şubeye ait integration bulunamadı');
+      if (!setup || setup.status !== 'PENDING') {
+        throw new BadRequestException('Geçersiz veya kullanılmış kurulum kodu');
       }
 
-      // Yeni bir adaptör tipi geldiyse geçerliliğini doğrula.
-      if (dto.adapterType !== undefined) {
-        const adapter = await tx.integrationAdapter.findUnique({
-          where: { adapterType: dto.adapterType, isActive: true },
-          select: { adapterType: true },
-        });
-        if (!adapter) {
-          throw new BadRequestException(
-            `'${dto.adapterType}' geçerli bir adaptör değil`,
-          );
-        }
-      }
+      const agentId = randomUUID();
 
-      // Sadece gönderilen alanları güncelle (undefined'lar Prisma'da atlanır).
-      return tx.branchIntegration.update({
-        where: { branchId },
+      await tx.branchIntegration.update({
+        where: { branchId: setup.branchId },
         data: {
-          adapterType: dto.adapterType,
-          webserviceUrl: dto.webserviceUrl,
-          pollingIntervalSec: dto.pollingIntervalSec,
-          ...(dto.apiKey !== undefined
-            ? { apiKeyEncrypted: Buffer.from(dto.apiKey).toString('base64') }
-            : {}),
+          connectionStatus: 'CONNECTED',
+          agentId,
+          agentVersion: dto.agentVersion,
         },
       });
+
+      await tx.agentSetupToken.update({
+        where: { id: setup.id },
+        data: { status: 'USED', usedAt: new Date() },
+      });
+
+      return { success: true, agentId };
     });
   }
 
@@ -213,5 +216,13 @@ export class BranchesService {
       },
       orderBy: { adapterType: 'asc' },
     });
+  }
+
+  // staff-registration ile aynı desen: 8 karakterlik okunaklı tek kullanımlık kod.
+  private generateToken(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    return Array.from(randomBytes(8))
+      .map((b) => chars[b % chars.length])
+      .join('');
   }
 }

@@ -237,6 +237,22 @@ model StaffRegistrationToken {
   @@index([tenantId])
 }
 
+/// Agent kurulum kodu — Agent (yerel Windows servisi) tek kullanımlık bu kodla
+/// kendini şubeye bağlar. İlişki alanı yok; tenantId/branchId salt scalar.
+model AgentSetupToken {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @db.Uuid @map("tenant_id")
+  branchId    String    @db.Uuid @map("branch_id")
+  token       String    @unique
+  adapterType String    @map("adapter_type")
+  status      String    @default("PENDING")
+  usedAt      DateTime? @map("used_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("agent_setup_tokens")
+  @@index([branchId, status])
+}
+
 // ============================================
 // PRODUCT CATALOGUE
 // ============================================
