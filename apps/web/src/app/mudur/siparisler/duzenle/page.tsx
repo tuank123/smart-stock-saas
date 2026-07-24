@@ -1,7 +1,6 @@
 'use client';
 
 import { Suspense, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, ArrowLeft, CheckCircle, Trash2 } from 'lucide-react';
 import {
@@ -163,7 +162,7 @@ function OrderEditInner() {
     if (!validate()) return;
     updateOrder.mutate(
       { orderId, data: buildPayload() },
-      { onSuccess: () => router.push('/mudur/siparisler') },
+      { onSuccess: () => router.replace('/mudur/siparisler') },
     );
   }
 
@@ -174,7 +173,7 @@ function OrderEditInner() {
       {
         onSuccess: () => {
           approveOrder.mutate(orderId, {
-            onSuccess: () => router.push('/mudur/siparisler'),
+            onSuccess: () => router.replace('/mudur/siparisler'),
           });
         },
       },
@@ -207,10 +206,8 @@ function OrderEditInner() {
       </AlertDialog>
 
       <div className="mb-6 flex items-center gap-3">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/mudur/siparisler">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
+        <Button variant="ghost" size="icon" onClick={() => router.back()} aria-label="Geri">
+          <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
           <h1 className="text-xl font-semibold">Sipariş Düzenle</h1>
@@ -365,8 +362,13 @@ function OrderEditInner() {
 
                 {/* Actions */}
                 <div className="flex flex-col gap-2 sm:flex-row">
-                  <Button type="button" variant="outline" className="sm:flex-1" asChild>
-                    <Link href="/mudur/siparisler">← Siparişlere Dön</Link>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="sm:flex-1"
+                    onClick={() => router.replace('/mudur/siparisler')}
+                  >
+                    ← Siparişlere Dön
                   </Button>
                   <span
                     className={`contents ${saveDisabled ? 'cursor-not-allowed' : ''}`}

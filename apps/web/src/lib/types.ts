@@ -35,6 +35,7 @@ export interface StockLevel {
     unit: string;
     barcode?: string | null;
     unitsPerCase?: number | null;
+    salePrice?: string | number | null;
   };
 }
 

@@ -17,6 +17,7 @@ import {
   InitializeStockDto,
   MovementQueryDto,
   PriceChangeQueryDto,
+  RecordSaleDto,
   StockBarcodeQueryDto,
   StockQueryDto,
   UpdateThresholdDto,
@@ -39,7 +40,7 @@ export class StockController {
   }
 
   // NOTE: static 'query' segment must be defined before :branchId
-  @Roles(UserRole.KASIYER, UserRole.DEPO)
+  @Roles(UserRole.KASIYER, UserRole.DEPO, UserRole.PATRON)
   @Get('query')
   queryStock(
     @Query() query: StockBarcodeQueryDto,
@@ -98,6 +99,19 @@ export class StockController {
     @CurrentUser() user: { tenantId: string; userId: string },
   ) {
     return this.service.recordWaste(branchId, dto, user);
+  }
+
+  // Geçici Kasa — Tek Şubeli PATRON için sepet bazlı satış.
+  @Roles(UserRole.PATRON)
+  @Post(':branchId/sale')
+  @HttpCode(201)
+  recordSale(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Body() dto: RecordSaleDto,
+    @CurrentUser()
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.service.recordSale(branchId, dto, user);
   }
 
   @Roles(UserRole.SUBE_MUDURU)

@@ -1,7 +1,6 @@
 'use client';
 
 import { Suspense, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, CheckCircle, Trash2 } from 'lucide-react';
 import {
@@ -174,7 +173,7 @@ function OrderEditInner() {
     if (!validate()) return;
     updateOrder.mutate(
       { orderId, data: buildPayload() },
-      { onSuccess: () => router.push('/isletme-app/siparis-onerileri') },
+      { onSuccess: () => router.replace('/isletme-app/siparis-onerileri') },
     );
   }
 
@@ -185,7 +184,7 @@ function OrderEditInner() {
       {
         onSuccess: () => {
           approveOrder.mutate(orderId, {
-            onSuccess: () => router.push('/isletme-app/siparis-onerileri'),
+            onSuccess: () => router.replace('/isletme-app/siparis-onerileri'),
           });
         },
       },
@@ -355,8 +354,13 @@ function OrderEditInner() {
 
                 {/* Actions */}
                 <div className="flex flex-col gap-2 sm:flex-row">
-                  <Button type="button" variant="outline" className="sm:flex-1" asChild>
-                    <Link href="/isletme-app/siparis-onerileri">← Siparişlere Dön</Link>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="sm:flex-1"
+                    onClick={() => router.replace('/isletme-app/siparis-onerileri')}
+                  >
+                    ← Siparişlere Dön
                   </Button>
                   <span
                     className={`contents ${saveDisabled ? 'cursor-not-allowed' : ''}`}

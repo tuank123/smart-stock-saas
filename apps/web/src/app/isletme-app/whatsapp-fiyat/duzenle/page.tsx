@@ -83,7 +83,7 @@ function PriceUploadEditInner() {
 
   function handleApproveAll() {
     handleSave(() => {
-      approveUpload.mutate(uploadId, { onSuccess: () => router.push('/isletme-app/whatsapp-fiyat') });
+      approveUpload.mutate(uploadId, { onSuccess: () => router.replace('/isletme-app/whatsapp-fiyat') });
     });
   }
 

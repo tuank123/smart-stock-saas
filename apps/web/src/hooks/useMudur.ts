@@ -186,15 +186,43 @@ export function useStockDetail(productId: string) {
 // Product-name lookup for the KASIYER station screen — sends `search`, which
 // the backend matches against product.name (case-insensitive contains).
 // Returns [] when nothing matches. Short staleTime so results stay fresh.
-export function useStockQuery(query: string | null) {
+export function useStockQuery(query: string | null, isBarcode: boolean = false) {
   return useQuery<StockLevel[]>({
-    queryKey: ['stock', 'query', query],
+    queryKey: ['stock', 'query', query, isBarcode],
     queryFn: () =>
       api
-        .get<StockLevel[]>('/stock/query', { params: { search: query } })
+        .get<StockLevel[]>('/stock/query', {
+          params: isBarcode ? { barcode: query } : { search: query },
+        })
         .then((r) => r.data),
     enabled: !!query,
     staleTime: 1000 * 2,
+  });
+}
+
+// Geçici Kasa — sepet bazlı satış. Başarıda stok cache'ini tazeler.
+function saleErrorMessage(err: unknown): string {
+  const m = (err as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
+  if (typeof m === 'string') return m;
+  if (Array.isArray(m)) return m.join(', ');
+  return 'Satış kaydedilemedi';
+}
+
+export function useRecordSale() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: {
+      items: { productId: string; quantity: number }[];
+      paymentMethod: string;
+      customerPhone?: string;
+    }) => api.post(`/stock/${branchId}/sale`, dto).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stock'] });
+      toast.success('Satış tamamlandı');
+    },
+    onError: (err: unknown) => toast.error(saleErrorMessage(err)),
   });
 }
 

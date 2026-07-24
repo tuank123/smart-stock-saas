@@ -3,6 +3,7 @@ import {
   IsArray,
   IsBoolean,
   IsDateString,
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -89,6 +90,29 @@ export class WasteStockDto {
   @IsString()
   @IsNotEmpty()
   photoBase64: string = '';
+}
+
+export class SaleItemDto {
+  @IsUUID()
+  productId: string = '';
+
+  @IsNumber()
+  @Min(0.001)
+  quantity: number = 0;
+}
+
+export class RecordSaleDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SaleItemDto)
+  items: SaleItemDto[] = [];
+
+  @IsIn(['CASH', 'CARD'])
+  paymentMethod: string = 'CASH';
+
+  @IsOptional()
+  @IsString()
+  customerPhone?: string;
 }
 
 export class PriceChangeQueryDto {

@@ -3,15 +3,19 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SmsService } from '../sms/sms.service';
 import {
   InitializeStockDto,
   MovementQueryDto,
   PriceChangeQueryDto,
+  RecordSaleDto,
   StockBarcodeQueryDto,
   StockQueryDto,
   UpdateThresholdDto,
@@ -20,9 +24,12 @@ import {
 
 @Injectable()
 export class StockService {
+  private readonly logger = new Logger(StockService.name);
+
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
+    private sms: SmsService,
   ) {}
 
   async initializeStock(dto: InitializeStockDto, user: { tenantId: string }) {
@@ -142,7 +149,7 @@ export class StockService {
           product: { OR },
         },
         include: {
-          product: { select: { id: true, sku: true, name: true, unit: true, barcode: true, unitsPerCase: true } },
+          product: { select: { id: true, sku: true, name: true, unit: true, barcode: true, unitsPerCase: true, salePrice: true } },
         },
       });
     });
@@ -222,6 +229,129 @@ export class StockService {
 
       return movement;
     });
+  }
+
+  /**
+   * Geçici Kasa — sepet bazlı satış. Tüm kalemler tek bir transaction'da
+   * işlenir (referenceId = transactionId ile bağlanır). Bir kalem bile
+   * başarısız olursa ($transaction) hiçbir kalem kalıcı olmaz.
+   */
+  async recordSale(
+    branchId: string,
+    dto: RecordSaleDto,
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
+  ) {
+    type SaleMovement = Prisma.StockMovementGetPayload<{
+      include: { product: { select: { id: true; sku: true; name: true; unit: true } } };
+    }>;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
+
+      // Tüm kalemlerin paylaştığı tek satış referansı.
+      const transactionId = randomUUID();
+      const movements: SaleMovement[] = [];
+
+      for (const item of dto.items) {
+        // a. Ürün (salePrice dahil)
+        const product = await tx.product.findUnique({
+          where: { id: item.productId },
+          select: { id: true, name: true, tenantId: true, salePrice: true },
+        });
+        if (!product || product.tenantId !== user.tenantId) {
+          throw new NotFoundException('Ürün bulunamadı');
+        }
+
+        // b. Satış fiyatı belirlenmemiş
+        if (product.salePrice == null) {
+          throw new BadRequestException(
+            `${product.name} için satış fiyatı belirlenmemiş, önce fiyat girin`,
+          );
+        }
+
+        // c. Stok kaydı + yeterlilik
+        const level = await tx.stockLevel.findUnique({
+          where: { productId_branchId: { productId: item.productId, branchId } },
+          select: { id: true, quantity: true },
+        });
+        if (!level) {
+          throw new NotFoundException(`${product.name} için stok kaydı bulunamadı`);
+        }
+        if (Number(level.quantity) < item.quantity) {
+          throw new BadRequestException(
+            `${product.name} için yetersiz stok (mevcut: ${level.quantity})`,
+          );
+        }
+
+        // d. Satış hareketi (fiyatı o anki salePrice ile dondur)
+        const movement = await tx.stockMovement.create({
+          data: {
+            tenantId: user.tenantId,
+            productId: item.productId,
+            branchId,
+            movementType: 'SALE',
+            quantity: -item.quantity,
+            unitPrice: product.salePrice,
+            paymentMethod: dto.paymentMethod,
+            referenceId: transactionId,
+            referenceType: 'SALE_TRANSACTION',
+            createdBy: user.userId,
+          },
+          include: {
+            product: { select: { id: true, sku: true, name: true, unit: true } },
+          },
+        });
+
+        // e. Stoktan düş
+        await tx.stockLevel.update({
+          where: { id: level.id },
+          data: { quantity: { decrement: item.quantity } },
+        });
+
+        movements.push(movement);
+      }
+
+      const totalAmount = movements.reduce(
+        (sum, m) => sum + Math.abs(Number(m.quantity)) * Number(m.unitPrice),
+        0,
+      );
+
+      return {
+        transactionId,
+        items: movements,
+        totalAmount: Math.round(totalAmount * 100) / 100,
+        paymentMethod: dto.paymentMethod,
+      };
+    });
+
+    // Satış commit edildi. Opsiyonel e-fiş SMS'i — transaction DIŞINDA gönderilir;
+    // hata satışın başarısını etkilemesin (try/catch ile yutulur).
+    let smsSent = false;
+    if (dto.customerPhone) {
+      const receiptLines = result.items
+        .map((m) => {
+          const qty = Math.abs(Number(m.quantity));
+          const lineTotal = Math.round(qty * Number(m.unitPrice) * 100) / 100;
+          return `${m.product.name} x${qty} = ${lineTotal}₺`;
+        })
+        .join('\n');
+      const receiptText = `${receiptLines}\nToplam: ${result.totalAmount}₺, StokPilot'tan teşekkürler`;
+      try {
+        const smsRes = await this.sms.sendSms(dto.customerPhone, receiptText);
+        smsSent = smsRes.success;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`[Sale SMS] Fiş gönderilemedi (${dto.customerPhone}): ${msg}`);
+      }
+    }
+
+    return { ...result, smsSent };
   }
 
   async listPriceChanges(
