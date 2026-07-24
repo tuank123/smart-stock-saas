@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { OcrService, type RawOcrLine } from '../ocr/ocr.service';
 
 export interface WhatsappSendParams {
   poId: string;
@@ -25,6 +26,7 @@ export class WhatsappService {
   constructor(
     private config: ConfigService,
     private prisma: PrismaService,
+    private ocr: OcrService,
   ) {}
 
   buildMessage(
@@ -106,20 +108,63 @@ export class WhatsappService {
       return;
     }
 
-    // Şimdilik yalnız metin mesajları. image/document sonraki adımda ele alınacak.
-    if (type !== 'text') {
-      this.logger.log(
-        `[Webhook] '${type}' tipi mesaj (${from}) — sonraki adımda ele alınacak, şimdilik atlanıyor`,
-      );
+    // ── Metin: "Ürün - Fiyat" satırlarını parse et ──────────────────────────
+    if (type === 'text') {
+      const text = typeof message.text?.body === 'string' ? message.text.body : '';
+      if (!text.trim()) {
+        this.logger.warn(`[Webhook] Boş metin (${from}) — atlanıyor`);
+        return;
+      }
+      const lines: PriceLine[] = [];
+      for (const raw of text.split('\n')) {
+        const parsed = parsePriceLine(raw);
+        if (parsed) lines.push(parsed);
+      }
+      await this.persistPriceUpload(from, lines);
       return;
     }
 
-    const text = typeof message.text?.body === 'string' ? message.text.body : '';
-    if (!text.trim()) {
-      this.logger.warn(`[Webhook] Boş metin (${from}) — atlanıyor`);
+    // ── Görsel / PDF: OCR ile satır çıkar ───────────────────────────────────
+    if (type === 'image' || type === 'document') {
+      const mediaId = extractMediaId(message);
+      if (!mediaId) {
+        this.logger.warn(`[Webhook] '${type}' mesajında media id yok (${from}) — atlanıyor`);
+        return;
+      }
+
+      let rawLines: RawOcrLine[];
+      try {
+        const enabled = this.config.get<string>('WHATSAPP_ENABLED') === 'true';
+        if (!enabled) {
+          this.logger.log(
+            '[Webhook] Mock modda görsel indirme atlandı, OCR mock verisi kullanılıyor',
+          );
+          rawLines = await this.ocr.extractRawLines('');
+        } else {
+          const base64 = await this.downloadMediaBase64(mediaId);
+          rawLines = await this.ocr.extractRawLines(base64);
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`[Webhook] Medya/OCR işlenemedi (${from}): ${msg}`);
+        return; // 200: Meta retry'a girmesin
+      }
+
+      // OCR satırındaki qty, bu akışta fiyat (newPrice) olarak yorumlanır.
+      const lines: PriceLine[] = rawLines.map((l) => ({ name: l.name, price: l.qty }));
+      await this.persistPriceUpload(from, lines);
       return;
     }
 
+    this.logger.log(`[Webhook] '${type}' tipi desteklenmiyor (${from}) — atlanıyor`);
+  }
+
+  /**
+   * Ortak akış (text + image/document): gönderen tedarikçiyi/şubesini bulur,
+   * satırları tenant ürünleriyle eşleştirir, PENDING_REVIEW bir
+   * SupplierPortalUpload (WHATSAPP_PRICE_UPDATE) oluşturur.
+   */
+  private async persistPriceUpload(from: string, lines: PriceLine[]): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       // Tenant bağlamı yok → tüm tedarikçileri süper-admin ile ara.
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
@@ -164,23 +209,20 @@ export class WhatsappService {
       }[] = [];
       const unmatchedLines: string[] = [];
 
-      for (const line of text.split('\n')) {
-        const parsed = parsePriceLine(line);
-        if (!parsed) continue; // ayraç/fiyat yok — satırı yok say
-
+      for (const line of lines) {
         const match = products.find((p) =>
-          p.name.toLowerCase().includes(parsed.name.toLowerCase()),
+          p.name.toLowerCase().includes(line.name.toLowerCase()),
         );
         if (match) {
           parsedItems.push({
             productId: match.id,
             productName: match.name,
             oldPrice: null,
-            newPrice: parsed.price,
+            newPrice: line.price,
             discountPct: null,
           });
         } else {
-          unmatchedLines.push(line.trim());
+          unmatchedLines.push(`${line.name} - ${line.price}`);
         }
       }
 
@@ -211,6 +253,33 @@ export class WhatsappService {
       );
     });
   }
+
+  /**
+   * Meta Graph API'den medyayı iki adımda indirir:
+   * 1) GET {apiUrl}/{mediaId} → geçici, token'lı bir url döner.
+   * 2) GET {url} → ikili veri; base64'e çevrilir.
+   */
+  private async downloadMediaBase64(mediaId: string): Promise<string> {
+    const apiUrl = this.config.get<string>('WHATSAPP_API_URL', 'https://graph.facebook.com/v18.0');
+    const token = this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
+    const authHeaders = { Authorization: `Bearer ${token}` };
+
+    const metaRes = await fetch(`${apiUrl}/${mediaId}`, { headers: authHeaders });
+    if (!metaRes.ok) {
+      throw new Error(`Media metadata alınamadı (HTTP ${metaRes.status})`);
+    }
+    const meta = (await metaRes.json()) as { url?: string };
+    if (!meta.url) {
+      throw new Error('Media metadata içinde url yok');
+    }
+
+    const fileRes = await fetch(meta.url, { headers: authHeaders });
+    if (!fileRes.ok) {
+      throw new Error(`Media indirilemedi (HTTP ${fileRes.status})`);
+    }
+    const buffer = Buffer.from(await fileRes.arrayBuffer());
+    return buffer.toString('base64');
+  }
 }
 
 // ─── Webhook helpers ─────────────────────────────────────────────────────────
@@ -219,6 +288,14 @@ interface IncomingMessage {
   from?: unknown;
   type?: unknown;
   text?: { body?: unknown };
+  image?: { id?: unknown };
+  document?: { id?: unknown };
+}
+
+// Ortak fiyat satırı (text parser + OCR çıktısı buna indirgenir).
+interface PriceLine {
+  name: string;
+  price: number;
 }
 
 /** Meta payload'ından ilk mesajı güvenli şekilde çıkarır. */
@@ -227,6 +304,13 @@ function extractMessage(payload: unknown): IncomingMessage | null {
     entry?: { changes?: { value?: { messages?: IncomingMessage[] } }[] }[];
   };
   return p?.entry?.[0]?.changes?.[0]?.value?.messages?.[0] ?? null;
+}
+
+/** image/document mesajından media id'yi çıkarır. */
+function extractMediaId(message: IncomingMessage): string | null {
+  const imageId = typeof message.image?.id === 'string' ? message.image.id : undefined;
+  const docId = typeof message.document?.id === 'string' ? message.document.id : undefined;
+  return imageId ?? docId ?? null;
 }
 
 /** Numarayı yalnız rakamlara indirger (+, boşluk, tire vb. atılır). */

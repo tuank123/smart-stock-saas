@@ -7,5 +7,6 @@ import { OcrService } from './ocr.service';
   imports: [SyncModule],
   controllers: [OcrController],
   providers: [OcrService],
+  exports: [OcrService],
 })
 export class OcrModule {}

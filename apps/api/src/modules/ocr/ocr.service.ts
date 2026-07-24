@@ -209,6 +209,16 @@ export class OcrService {
     });
   }
 
+  /**
+   * Ham OCR satırlarını döndürür — hiçbir DB işlemi/transaction yok.
+   * WhatsApp görsel/PDF akışı gibi harici modüller yalnız satır çıkarımı için
+   * bunu kullanabilir (mock modda her zaman MOCK_RAW döner).
+   */
+  async extractRawLines(imageBase64: string): Promise<RawOcrLine[]> {
+    const result = await this.callTextract(imageBase64);
+    return result.lines;
+  }
+
   // ── Private helpers ─────────────────────────────────────────────────
 
   private async enqueueSyncAfterConfirm(
