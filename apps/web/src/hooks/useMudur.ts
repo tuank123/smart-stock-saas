@@ -226,6 +226,63 @@ export function useRecordSale() {
   });
 }
 
+// ── Geçici Kasa oturumları ──────────────────────────────────────────────────
+
+export interface CashierReceipt {
+  transactionId: string;
+  createdAt: string;
+  paymentMethod: string;
+  items: { productName: string; quantity: number; unitPrice: number; lineTotal: number }[];
+  total: number;
+}
+
+export interface CashierSessionSummary {
+  id: string;
+  openedAt: string;
+  closedAt: string | null;
+  items: { productName: string; totalQuantity: number; totalAmount: number }[];
+  sessionTotal: number;
+  receipts: CashierReceipt[];
+}
+
+export function useVerifyPassword() {
+  return useMutation({
+    mutationFn: (password: string) =>
+      api.post<{ valid: boolean }>('/auth/verify-password', { password }).then((r) => r.data),
+  });
+}
+
+export function useOpenCashierSession() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useMutation({
+    mutationFn: () =>
+      api.post<{ sessionId: string }>(`/stock/${branchId}/cashier-session/open`).then((r) => r.data),
+  });
+}
+
+export function useCloseCashierSession() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useMutation({
+    mutationFn: (sessionId: string) =>
+      api
+        .patch(`/stock/${branchId}/cashier-session/${sessionId}/close`)
+        .then((r) => r.data),
+  });
+}
+
+export function useCashierSessions() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<CashierSessionSummary[]>({
+    queryKey: ['cashier-sessions', branchId],
+    queryFn: () =>
+      api.get<CashierSessionSummary[]>(`/stock/${branchId}/cashier-sessions`).then((r) => r.data),
+    enabled: false, // yalnız Geçmiş ekranı açıldığında manuel refetch ile çekilir
+  });
+}
+
 export function useStockMovements() {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';

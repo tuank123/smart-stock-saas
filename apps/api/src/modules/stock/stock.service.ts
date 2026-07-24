@@ -299,6 +299,7 @@ export class StockService {
             quantity: -item.quantity,
             unitPrice: product.salePrice,
             paymentMethod: dto.paymentMethod,
+            cashierSessionId: dto.cashierSessionId ?? null,
             referenceId: transactionId,
             referenceType: 'SALE_TRANSACTION',
             createdBy: user.userId,
@@ -352,6 +353,198 @@ export class StockService {
     }
 
     return { ...result, smsSent };
+  }
+
+  // ── Geçici Kasa oturumları ──────────────────────────────────────────────────
+
+  async openCashierSession(
+    branchId: string,
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
+
+      // Tek aktif oturum kuralı: yeni oturum açmadan önce bu şubede açık kalmış
+      // ne varsa otomatik kapat → asla birden fazla açık oturum kalmaz.
+      await tx.cashierSession.updateMany({
+        where: { tenantId: user.tenantId, branchId, closedAt: null },
+        data: { closedAt: new Date() },
+      });
+
+      const session = await tx.cashierSession.create({
+        data: { tenantId: user.tenantId, branchId, openedBy: user.userId },
+        select: { id: true },
+      });
+      return { sessionId: session.id };
+    });
+  }
+
+  async closeCashierSession(
+    branchId: string,
+    sessionId: string,
+    user: { tenantId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
+
+      const session = await tx.cashierSession.findUnique({
+        where: { id: sessionId },
+        select: { id: true, tenantId: true },
+      });
+      if (!session || session.tenantId !== user.tenantId) {
+        throw new NotFoundException('Kasa oturumu bulunamadı');
+      }
+
+      await tx.cashierSession.update({
+        where: { id: sessionId },
+        data: { closedAt: new Date() },
+      });
+      return { closed: true };
+    });
+  }
+
+  async listCashierSessions(
+    branchId: string,
+    user: { tenantId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
+
+      const sessions = await tx.cashierSession.findMany({
+        where: { tenantId: user.tenantId, branchId },
+        orderBy: { openedAt: 'desc' },
+        select: { id: true, openedAt: true, closedAt: true },
+      });
+
+      const sessionIds = sessions.map((s) => s.id);
+      const movements = sessionIds.length
+        ? await tx.stockMovement.findMany({
+            where: { cashierSessionId: { in: sessionIds }, movementType: 'SALE' },
+            orderBy: { createdAt: 'asc' },
+            select: {
+              cashierSessionId: true,
+              productId: true,
+              quantity: true,
+              unitPrice: true,
+              referenceId: true,
+              paymentMethod: true,
+              createdAt: true,
+              product: { select: { name: true } },
+            },
+          })
+        : [];
+
+      // session → product bazında toplam (mevcut).
+      const bySession = new Map<
+        string,
+        Map<string, { productName: string; totalQuantity: number; totalAmount: number }>
+      >();
+      // session → fiş (referenceId/transactionId) bazında döküm (yeni).
+      type Receipt = {
+        transactionId: string;
+        createdAt: Date;
+        paymentMethod: string;
+        items: { productName: string; quantity: number; unitPrice: number; lineTotal: number }[];
+        total: number;
+      };
+      const receiptsBySession = new Map<string, Map<string, Receipt>>();
+
+      for (const m of movements) {
+        if (!m.cashierSessionId) continue;
+        const qty = Math.abs(Number(m.quantity));
+        const unitPrice = Number(m.unitPrice ?? 0);
+        const amount = qty * unitPrice;
+
+        // ── Ürün bazında toplam ──
+        let pmap = bySession.get(m.cashierSessionId);
+        if (!pmap) {
+          pmap = new Map();
+          bySession.set(m.cashierSessionId, pmap);
+        }
+        const existing = pmap.get(m.productId);
+        if (existing) {
+          existing.totalQuantity += qty;
+          existing.totalAmount += amount;
+        } else {
+          pmap.set(m.productId, {
+            productName: m.product.name,
+            totalQuantity: qty,
+            totalAmount: amount,
+          });
+        }
+
+        // ── Fiş bazında döküm ──
+        if (m.referenceId) {
+          let rmap = receiptsBySession.get(m.cashierSessionId);
+          if (!rmap) {
+            rmap = new Map();
+            receiptsBySession.set(m.cashierSessionId, rmap);
+          }
+          let receipt = rmap.get(m.referenceId);
+          if (!receipt) {
+            receipt = {
+              transactionId: m.referenceId,
+              createdAt: m.createdAt,
+              paymentMethod: m.paymentMethod ?? '',
+              items: [],
+              total: 0,
+            };
+            rmap.set(m.referenceId, receipt);
+          }
+          receipt.items.push({
+            productName: m.product.name,
+            quantity: qty,
+            unitPrice,
+            lineTotal: Math.round(amount * 100) / 100,
+          });
+          receipt.total += amount;
+        }
+      }
+
+      return sessions.map((s) => {
+        const pmap = bySession.get(s.id);
+        const items = pmap
+          ? Array.from(pmap.values()).map((i) => ({
+              productName: i.productName,
+              totalQuantity: i.totalQuantity,
+              totalAmount: Math.round(i.totalAmount * 100) / 100,
+            }))
+          : [];
+        const sessionTotal =
+          Math.round(items.reduce((sum, i) => sum + i.totalAmount, 0) * 100) / 100;
+
+        const rmap = receiptsBySession.get(s.id);
+        const receipts = rmap
+          ? Array.from(rmap.values()).map((r) => ({
+              transactionId: r.transactionId,
+              createdAt: r.createdAt,
+              paymentMethod: r.paymentMethod,
+              items: r.items,
+              total: Math.round(r.total * 100) / 100,
+            }))
+          : [];
+
+        return { id: s.id, openedAt: s.openedAt, closedAt: s.closedAt, items, sessionTotal, receipts };
+      });
+    });
   }
 
   async listPriceChanges(

@@ -113,6 +113,10 @@ export class RecordSaleDto {
   @IsOptional()
   @IsString()
   customerPhone?: string;
+
+  @IsOptional()
+  @IsUUID()
+  cashierSessionId?: string;
 }
 
 export class PriceChangeQueryDto {

@@ -80,6 +80,41 @@ export class StockController {
     return this.service.listStock(branchId, query, user);
   }
 
+  // ── Geçici Kasa oturumları ──────────────────────────────────────────────
+  // NOTE: 'cashier-session(s)' statik segmentleri :branchId/:productId'den ÖNCE
+  // tanımlanmalı; aksi halde UUID pipe 'cashier-sessions'ı reddeder.
+  @Roles(UserRole.PATRON)
+  @Post(':branchId/cashier-session/open')
+  @HttpCode(201)
+  openCashierSession(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @CurrentUser()
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.service.openCashierSession(branchId, user);
+  }
+
+  @Roles(UserRole.PATRON)
+  @Patch(':branchId/cashier-session/:sessionId/close')
+  closeCashierSession(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @CurrentUser()
+    user: { tenantId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.service.closeCashierSession(branchId, sessionId, user);
+  }
+
+  @Roles(UserRole.PATRON)
+  @Get(':branchId/cashier-sessions')
+  listCashierSessions(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @CurrentUser()
+    user: { tenantId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.service.listCashierSessions(branchId, user);
+  }
+
   @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU, UserRole.DEPO)
   @Get(':branchId/:productId')
   getOne(

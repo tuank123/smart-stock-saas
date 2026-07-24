@@ -273,6 +273,18 @@ export class AuthService implements OnModuleInit {
   }
 
   /**
+   * Şifre doğrulama (changePassword ile aynı bcrypt.compare deseni).
+   * Yanlış şifrede exception fırlatmaz — { valid: false } döner.
+   */
+  async verifyPassword(userId: string, password: string): Promise<{ valid: boolean }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    return { valid };
+  }
+
+  /**
    * Generate access token (15 minutes)
    */
   private async generateAccessToken(user: any): Promise<string> {

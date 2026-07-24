@@ -74,6 +74,7 @@ model Tenant {
   supplierPortalUploads    SupplierPortalUpload[]
   scheduledReports         ScheduledReport[]
   priceChangeLogs          PriceChangeLog[]
+  cashierSessions          CashierSession[]
 
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -111,6 +112,7 @@ model User {
   syncQueues              SyncQueue[]      @relation("SyncQueueCreator")
   reviewedUploads         SupplierPortalUpload[] @relation("PortalReviewer")
   priceChangeLogs         PriceChangeLog[]
+  openedCashierSessions   CashierSession[]
 
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
@@ -154,6 +156,7 @@ model Branch {
   supplierPortalUploads    SupplierPortalUpload[]
   scheduledReports         ScheduledReport[]
   priceChangeLogs          PriceChangeLog[]
+  cashierSessions          CashierSession[]
 
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -351,19 +354,39 @@ model StockMovement {
   referenceType String?   @map("reference_type")
   notes         String?
   photoUrl      String?   @map("photo_url")
-  unitPrice     Decimal?  @db.Decimal(12, 2) @map("unit_price")
-  paymentMethod String?   @map("payment_method")
-  createdBy     String    @db.Uuid @map("created_by")
-  createdAt     DateTime  @default(now()) @map("created_at")
+  unitPrice        Decimal?  @db.Decimal(12, 2) @map("unit_price")
+  paymentMethod    String?   @map("payment_method")
+  cashierSessionId String?   @db.Uuid @map("cashier_session_id")
+  createdBy        String    @db.Uuid @map("created_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
   product Product @relation(fields: [productId], references: [id])
   branch  Branch  @relation(fields: [branchId], references: [id])
   user    User    @relation(fields: [createdBy], references: [id])
+  session CashierSession? @relation(fields: [cashierSessionId], references: [id])
 
   @@map("stock_movements")
   @@index([branchId, createdAt(sort: Desc)])
   @@index([productId, branchId, createdAt(sort: Desc)])
+}
+
+/// Geçici Kasa açılış/kapanış oturumu — satışları oturuma bağlar.
+model CashierSession {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String    @db.Uuid @map("tenant_id")
+  branchId  String    @db.Uuid @map("branch_id")
+  openedBy  String    @db.Uuid @map("opened_by")
+  openedAt  DateTime  @default(now()) @map("opened_at")
+  closedAt  DateTime? @map("closed_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  branch         Branch          @relation(fields: [branchId], references: [id])
+  opener         User            @relation(fields: [openedBy], references: [id])
+  stockMovements StockMovement[]
+
+  @@index([branchId, openedAt(sort: Desc)])
+  @@map("cashier_sessions")
 }
 
 // ============================================

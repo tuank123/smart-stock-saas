@@ -4,6 +4,7 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { VerifyPasswordDto } from './dto/verify-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { setRefreshTokenCookie, buildAuthData } from './auth-http.util';
 import { Public } from '../../common/decorators/public.decorator';
@@ -104,6 +105,20 @@ export class AuthController {
     @CurrentUser() user: { userId: string },
   ) {
     return this.authService.changePassword(user.userId, dto);
+  }
+
+  /**
+   * POST /api/v1/auth/verify-password
+   * Giriş yapmış herhangi bir kullanıcı; şifresini doğrular. Yanlışsa exception
+   * fırlatmaz, { valid: false } döner (frontend kendi mesajını gösterir).
+   */
+  @Post('verify-password')
+  @HttpCode(200)
+  verifyPassword(
+    @Body() dto: VerifyPasswordDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.authService.verifyPassword(user.userId, dto.password);
   }
 
   /**

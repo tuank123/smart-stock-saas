@@ -1,11 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import {
   AlertTriangle,
   Check,
+  History,
   Loader2,
+  Lock,
   Minus,
   PackageX,
   Plus,
@@ -17,7 +20,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BarcodeScanner } from '@/components/shared/BarcodeScanner';
-import { useStockQuery, useRecordSale } from '@/hooks/useMudur';
+import {
+  useStockQuery,
+  useRecordSale,
+  useVerifyPassword,
+  useOpenCashierSession,
+  useCloseCashierSession,
+} from '@/hooks/useMudur';
+import { useCashierSessionStore } from '@/store/cashierSession.store';
 import { cn } from '@/lib/utils';
 import type { StockLevel } from '@/lib/types';
 
@@ -50,6 +60,47 @@ export default function GeciciKasaPage() {
   const [lastSmsPhone, setLastSmsPhone] = useState<string | null>(null);
 
   const sale = useRecordSale();
+  const router = useRouter();
+
+  // ── Kasa oturumu kilidi (persist edilmeyen store — route değişiminde hayatta kalır) ──
+  const { sessionId, unlocked, setSession, clear } = useCashierSessionStore();
+  const [pwInput, setPwInput] = useState('');
+  const [pwError, setPwError] = useState('');
+
+  const verifyPw = useVerifyPassword();
+  const openSession = useOpenCashierSession();
+  const closeSession = useCloseCashierSession();
+
+  // Oturum yalnızca kullanıcı Geçici Kasa'nın geri okuyla ana menüye çıkarken kapanır.
+  // (Component unmount cleanup'ı YOK → İşlem Geçmişi'ne gidip gelmek oturumu kapatmaz.)
+  function handleExitCashier() {
+    if (sessionId) {
+      closeSession.mutate(sessionId);
+    }
+    clear();
+    router.replace('/isletme-app/dashboard');
+  }
+
+  function handleUnlock(e: React.FormEvent) {
+    e.preventDefault();
+    setPwError('');
+    verifyPw.mutate(pwInput, {
+      onSuccess: (data) => {
+        if (data?.valid) {
+          openSession.mutate(undefined, {
+            onSuccess: (s) => {
+              if (s?.sessionId) setSession(s.sessionId);
+              setPwInput('');
+            },
+            onError: () => setPwError('Kasa oturumu açılamadı'),
+          });
+        } else {
+          setPwError('Şifre hatalı');
+        }
+      },
+      onError: () => setPwError('Doğrulama başarısız'),
+    });
+  }
 
   // Barkod bazlı sorgu (isim araması yok).
   const barcodeQuery = useStockQuery(barcodeTerm, true);
@@ -119,6 +170,7 @@ export default function GeciciKasaPage() {
         items: cart.map((c) => ({ productId: c.productId, quantity: c.quantity })),
         paymentMethod,
         ...(phone ? { customerPhone: phone } : {}),
+        ...(sessionId ? { cashierSessionId: sessionId } : {}),
       },
       {
         onSuccess: (data) => {
@@ -142,9 +194,64 @@ export default function GeciciKasaPage() {
     setBarcodeTerm(value); // barkod bazlı sorguyu tetikle
   }
 
+  // Kilitli/açık iki ekranda AYNI buton — tek yerde tanımla (kopya tutarsızlığını önle).
+  const historyButton = (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => router.push('/isletme-app/gecici-kasa/gecmis')}
+      className="gap-1.5 text-xs text-muted-foreground"
+    >
+      <History className="h-4 w-4" />
+      İşlem Geçmişi
+    </Button>
+  );
+
+  // Kilitli: yalnızca şifre onay formu göster.
+  if (!unlocked) {
+    return (
+      <div className="mx-auto w-full max-w-lg">
+        <StationPageHeader
+          title="Geçici Kasa"
+          right={historyButton}
+          onBack={handleExitCashier}
+        />
+
+        <form onSubmit={handleUnlock} className="mx-auto mt-6 max-w-sm space-y-4">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+              <Lock className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <h2 className="text-base font-medium">Bu ekrana girmek için şifrenizi girin</h2>
+          </div>
+          <Input
+            type="password"
+            value={pwInput}
+            onChange={(e) => setPwInput(e.target.value)}
+            placeholder="Şifreniz"
+            autoFocus
+            autoComplete="current-password"
+          />
+          {pwError && <p className="text-center text-sm text-red-500">{pwError}</p>}
+          <Button
+            type="submit"
+            className="h-11 w-full"
+            disabled={!pwInput || verifyPw.isPending || openSession.isPending}
+          >
+            {verifyPw.isPending || openSession.isPending ? 'Doğrulanıyor…' : 'Onayla'}
+          </Button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto w-full max-w-lg">
-      <StationPageHeader title="Geçici Kasa" />
+      <StationPageHeader
+        title="Geçici Kasa"
+        right={historyButton}
+        onBack={handleExitCashier}
+      />
 
       {/* Barkod okut — ana giriş */}
       <Button
