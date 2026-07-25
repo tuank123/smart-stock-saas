@@ -38,6 +38,17 @@ export class PortalController {
     };
   }
 
+  // Idempotent: portal yoksa oluşturur, varsa döndürür (409 vermez).
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
+  @Get('branches/:branchId/portal')
+  getPortal(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @CurrentUser()
+    user: { tenantId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.service.getOrCreatePortal(branchId, user);
+  }
+
   @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Get('portal/uploads/:branchId')
   listUploads(

@@ -544,6 +544,23 @@ export function useUpdateSupplier() {
   });
 }
 
+export interface SupplierPortalLink {
+  subdomain: string;
+  url: string;
+}
+
+// Tedarikçi portalı linki — idempotent GET (yoksa oluşturur). enabled:false → manuel refetch.
+export function useSupplierPortalLink() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<SupplierPortalLink>({
+    queryKey: ['supplier-portal-link', branchId],
+    queryFn: () =>
+      api.get<SupplierPortalLink>(`/branches/${branchId}/portal`).then((r) => r.data),
+    enabled: false,
+  });
+}
+
 export function useOrderDetail(orderId: string) {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';

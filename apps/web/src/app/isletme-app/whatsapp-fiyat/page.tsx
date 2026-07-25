@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { CheckCircle, Pencil, XCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { CheckCircle, Pencil, Users, XCircle } from 'lucide-react';
 import { StationPageHeader } from '@/components/layout/StationPageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -44,6 +45,7 @@ function UploadCardSkeleton() {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function WhatsappFiyatPage() {
+  const router = useRouter();
   const { data: uploads, isPending, isError } = usePendingPriceUploads();
   const approveMutation = useApprovePriceUpload();
   const rejectMutation = useRejectPriceUpload();
@@ -51,7 +53,20 @@ export default function WhatsappFiyatPage() {
 
   return (
     <div>
-      <StationPageHeader title="WhatsApp Fiyat Güncelleme" />
+      <StationPageHeader
+        title="WhatsApp Fiyat Güncelleme"
+        right={
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => router.push('/isletme-app/whatsapp-fiyat/tedarikciler')}
+            className="gap-1.5 text-xs text-muted-foreground"
+          >
+            <Users className="h-4 w-4" />
+            Tedarikçi Bilgileri
+          </Button>
+        }
+      />
 
       {isError && (
         <div className="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">

@@ -66,6 +66,44 @@ export class PortalService implements OnModuleInit {
     });
   }
 
+  /**
+   * Idempotent portal getir/oluştur. Portal yoksa branch.slug ile oluşturur,
+   * varsa mevcut olanı döner — 409 vermez.
+   */
+  async getOrCreatePortal(
+    branchId: string,
+    user: { tenantId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
+
+      let portal = await tx.branchSupplierPortal.findUnique({ where: { branchId } });
+      if (!portal) {
+        const branch = await tx.branch.findUnique({
+          where: { id: branchId },
+          select: { id: true, tenantId: true, slug: true },
+        });
+        if (!branch || branch.tenantId !== user.tenantId) {
+          throw new NotFoundException('Şube bulunamadı');
+        }
+        portal = await tx.branchSupplierPortal.create({
+          data: { tenantId: user.tenantId, branchId, subdomain: branch.slug },
+        });
+      }
+
+      return {
+        subdomain: portal.subdomain,
+        url: `https://${portal.subdomain}.stokpilot.com`,
+      };
+    });
+  }
+
   async getPortalBySubdomain(subdomain: string) {
     // Public — no RLS context needed (subdomain is a global unique lookup)
     const portal = await this.prisma.branchSupplierPortal.findUnique({
