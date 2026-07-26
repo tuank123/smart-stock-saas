@@ -27,4 +27,23 @@ export class ConfirmScanDto {
   @ValidateNested({ each: true })
   @Type(() => ConfirmLineDto)
   lines: ConfirmLineDto[] = [];
+
+  // Faturanın hangi tedarikçiden geldiği (borç kaydı için zorunlu).
+  @IsUUID()
+  supplierId: string = '';
+
+  // Fatura tutarı (manuel giriş).
+  @IsOptional()
+  @IsNumber()
+  invoiceTotal?: number;
+
+  // Ödenen tutar (manuel giriş).
+  @IsOptional()
+  @IsNumber()
+  paidAmount?: number;
+
+  // Eksik ürün notu — doluysa "eksik var" demektir.
+  @IsOptional()
+  @IsString()
+  missingItemsNote?: string;
 }

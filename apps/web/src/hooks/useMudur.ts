@@ -606,11 +606,24 @@ export function useOcrConfirm() {
     mutationFn: (vars: {
       scanId: string;
       lines: Array<{ productId: string; qty: number; unit: string }>;
+      supplierId: string;
+      invoiceTotal?: number;
+      paidAmount?: number;
+      missingItemsNote?: string;
     }) =>
-      api.post(`/ocr/scan/${vars.scanId}/confirm`, { lines: vars.lines }).then((r) => r.data),
+      api
+        .post(`/ocr/scan/${vars.scanId}/confirm`, {
+          lines: vars.lines,
+          supplierId: vars.supplierId,
+          invoiceTotal: vars.invoiceTotal,
+          paidAmount: vars.paidAmount,
+          missingItemsNote: vars.missingItemsNote,
+        })
+        .then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stock', branchId] });
       qc.invalidateQueries({ queryKey: ['stock', 'movements', branchId] });
+      qc.invalidateQueries({ queryKey: ['debts'] });
       toast.success('Fatura stoka işlendi');
     },
     onError: () => toast.error('Fatura onaylanamadı'),
@@ -781,5 +794,101 @@ export function useUpdateOrder() {
       qc.invalidateQueries({ queryKey: ['orders', branchId] });
     },
     onError: () => toast.error('Sipariş güncellenemedi'),
+  });
+}
+
+// ── Borç / Alacak (Debt) ──────────────────────────────────────────────────────
+
+export interface Debt {
+  id: string;
+  supplierId: string;
+  direction: 'PAYABLE' | 'RECEIVABLE';
+  debtType: 'CASH' | 'PRODUCT';
+  amount: string | null; // Prisma Decimal → string; ürün borcunda null
+  productDescription: string | null;
+  dueDate: string | null;
+  status: 'OPEN' | 'PAID';
+  notes: string | null;
+  supplier: { id: string; name: string };
+}
+
+export interface DebtReminders {
+  showVisitReminder: boolean;
+  receivableReminders: Array<{
+    debtId: string;
+    supplierName: string;
+    amount: string;
+    dueDate: string | null;
+  }>;
+}
+
+export function useDebts() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<Debt[]>({
+    queryKey: ['debts', branchId],
+    queryFn: () => api.get<Debt[]>(`/debts/${branchId}`).then((r) => r.data),
+    enabled: !!branchId,
+  });
+}
+
+export function useCreateDebt() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: {
+      supplierId: string;
+      direction: 'PAYABLE' | 'RECEIVABLE';
+      debtType: 'CASH' | 'PRODUCT';
+      amount?: number;
+      productDescription?: string;
+      dueDate?: string;
+      notes?: string;
+    }) => api.post(`/debts/${branchId}`, dto).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['debts'] });
+      toast.success('Kayıt eklendi');
+    },
+    onError: () => toast.error('Kayıt eklenemedi'),
+  });
+}
+
+export function useUpdateDebt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      debtId: string;
+      data: { status?: 'OPEN' | 'PAID'; amount?: number; dueDate?: string; notes?: string };
+    }) => api.patch(`/debts/${vars.debtId}`, vars.data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['debts'] });
+      toast.success('Kayıt güncellendi');
+    },
+    onError: () => toast.error('Kayıt güncellenemedi'),
+  });
+}
+
+export function useMarkDebtsViewed() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.patch(`/debts/${branchId}/mark-viewed`, {}).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['debts', 'reminders', branchId] });
+    },
+  });
+}
+
+export function useDebtReminders() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<DebtReminders>({
+    queryKey: ['debts', 'reminders', branchId],
+    queryFn: () =>
+      api.get<DebtReminders>(`/debts/${branchId}/reminders`).then((r) => r.data),
+    enabled: !!branchId,
+    staleTime: 30 * 1000,
   });
 }

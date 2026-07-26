@@ -50,5 +50,11 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Fatura fotoğrafı çekmek için kameraya erişim gerekiyor.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Fatura fotoğrafı seçmek için galeriye erişim gerekiyor.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Fatura fotoğrafını kaydetmek için galeriye erişim gerekiyor.</string>
 </dict>
 </plist>

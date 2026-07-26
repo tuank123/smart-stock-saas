@@ -20,6 +20,7 @@ import { OcrModule } from './modules/ocr/ocr.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { DebtsModule } from './modules/debts/debts.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -72,6 +73,7 @@ import { validateEnv } from './config/env.validation';
     SyncModule,
     PortalModule,
     ReportsModule,
+    DebtsModule,
   ],
 
   // ============================================

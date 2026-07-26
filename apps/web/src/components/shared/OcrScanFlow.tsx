@@ -1,7 +1,8 @@
 'use client';
 
-import { Fragment, useRef, useState } from 'react';
-import { AlertTriangle, Camera, CheckCircle, RefreshCw, RotateCcw } from 'lucide-react';
+import { Fragment, useState } from 'react';
+import { AlertTriangle, Camera as CameraIcon, CheckCircle, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import toast from 'react-hot-toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,10 +15,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { useAuthStore } from '@/store/auth.store';
-import { useOcrConfirm, useOcrScan, useStockList } from '@/hooks/useMudur';
+import { useOcrConfirm, useOcrScan, useStockList, useSuppliers } from '@/hooks/useMudur';
 import type { OcrParsedLine } from '@/hooks/useMudur';
-import type { StockLevel } from '@/lib/types';
+import type { StockLevel, Supplier } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -33,7 +35,6 @@ interface ReviewRow {
   qty: number;
   mode: QtyMode;
   manualUnitsPerCase: number | null;
-  excluded: boolean;
 }
 
 // ── Step indicator ────────────────────────────────────────────────────────────
@@ -85,15 +86,22 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
 export function OcrScanFlow() {
   const { user } = useAuthStore();
   const { data: stock } = useStockList();
+  const { data: suppliers } = useSuppliers();
   const ocrScan = useOcrScan();
   const ocrConfirm = useOcrConfirm();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  // preview = seçilen görselin data URL'i (hem önizleme hem tarama kaynağı).
   const [preview, setPreview] = useState<string | null>(null);
-  const [file, setFile] = useState<File | null>(null);
   const [scanId, setScanId] = useState('');
   const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fatura meta bilgileri (Adım 2 — borç kayıtları için).
+  const [supplierId, setSupplierId] = useState('');
+  const [invoiceTotal, setInvoiceTotal] = useState('');
+  const [paidAmount, setPaidAmount] = useState('');
+  const [allItemsReceived, setAllItemsReceived] = useState(true);
+  const [missingItemsNote, setMissingItemsNote] = useState('');
 
   // Map productId → { name, unit, unitsPerCase } from stock list for display
   const productMap = new Map<string, { name: string; unit: string; unitsPerCase: number | null }>(
@@ -121,17 +129,33 @@ export function OcrScanFlow() {
 
   // ── Step 1 helpers ────────────────────────────────────────────────────
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
+  // Capacitor Camera — kullanıcıya "Fotoğraf Çek" / "Galeriden Seç" menüsü sunar
+  // (native'de plugin, web'de otomatik dosya seçici fallback'i devreye girer).
+  async function handlePickImage() {
+    try {
+      const photo = await Camera.getPhoto({
+        quality: 80,
+        resultType: CameraResultType.DataUrl,
+        source: CameraSource.Prompt,
+        promptLabelHeader: 'Fatura Fotoğrafı',
+        promptLabelPhoto: 'Galeriden Seç',
+        promptLabelPicture: 'Fotoğraf Çek',
+      });
+      if (photo.dataUrl) {
+        setPreview(photo.dataUrl);
+      }
+    } catch (err) {
+      // Kullanıcı iptal ettiyse sessizce çık, hata gösterme.
+      if (!String(err).toLowerCase().includes('cancel')) {
+        toast.error('Fotoğraf alınamadı');
+      }
+    }
   }
 
-  function resizeAndEncode(f: File): Promise<string> {
+  // Verilen data URL'i canvas üzerinde küçültüp base64 (prefix'siz) döndürür.
+  function resizeAndEncode(src: string): Promise<string> {
     return new Promise((resolve) => {
       const img = new Image();
-      const url = URL.createObjectURL(f);
       img.onload = () => {
         const MAX = 1200;
         let w = img.width, h = img.height;
@@ -142,17 +166,16 @@ export function OcrScanFlow() {
         const canvas = document.createElement('canvas');
         canvas.width = w; canvas.height = h;
         canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
-        URL.revokeObjectURL(url);
         resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]);
       };
-      img.src = url;
+      img.src = src;
     });
   }
 
   async function handleScan() {
-    if (!file || !user?.branchId) return;
+    if (!preview || !user?.branchId) return;
 
-    const base64 = await resizeAndEncode(file);
+    const base64 = await resizeAndEncode(preview);
 
     ocrScan.mutate(
       { branchId: user.branchId, imageBase64: base64 },
@@ -169,10 +192,15 @@ export function OcrScanFlow() {
               qty: line.qty,
               mode: 'ADET' as const,
               manualUnitsPerCase: null,
-              excluded: false,
             })),
           );
           setStep(2);
+        },
+        // GEÇİCİ TEŞHİS: taramada oluşan hatanın tam mesajını göster.
+        onError: (err: unknown) => {
+          const responseData = (err as { response?: { data?: unknown } })?.response?.data;
+          const detail = responseData ? ` | data: ${JSON.stringify(responseData)}` : '';
+          toast.error(`TARAMA HATASI: ${String(err)}${detail}`);
         },
       },
     );
@@ -184,24 +212,49 @@ export function OcrScanFlow() {
     setReviewRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   }
 
+  // Satırı listeden kalıcı olarak çıkarır (geri getirilemez).
+  function handleDeleteRow(index: number) {
+    setReviewRows((prev) => prev.filter((_, i) => i !== index));
+  }
+
   function handleConfirm() {
-    const active = reviewRows.filter((r) => !r.excluded);
-    if (active.some((r) => !r.productId)) {
+    if (reviewRows.some((r) => !r.productId)) {
       toast.error('Eşleştirilmemiş ürünler var');
       return;
     }
-    if (active.some((r) => resolveTotalQty(r) == null)) {
+    if (reviewRows.some((r) => resolveTotalQty(r) == null)) {
       toast.error('Koli/adet bilgisi eksik olan ürünler var');
       return;
     }
+    if (!supplierId) {
+      toast.error('Tedarikçi seçin');
+      return;
+    }
+    if (!allItemsReceived && !missingItemsNote.trim()) {
+      toast.error('Eksik ürün notunu yazın');
+      return;
+    }
+
+    const invoiceTotalNum = invoiceTotal.trim()
+      ? Number(invoiceTotal.replace(',', '.'))
+      : undefined;
+    const paidAmountNum = paidAmount.trim()
+      ? Number(paidAmount.replace(',', '.'))
+      : undefined;
+
     ocrConfirm.mutate(
       {
         scanId,
-        lines: active.map((r) => ({
+        lines: reviewRows.map((r) => ({
           productId: r.productId!,
           qty: resolveTotalQty(r)!,
           unit: r.unit,
         })),
+        supplierId,
+        invoiceTotal: invoiceTotalNum,
+        paidAmount: paidAmountNum,
+        missingItemsNote:
+          !allItemsReceived && missingItemsNote.trim() ? missingItemsNote.trim() : undefined,
       },
       { onSuccess: () => setStep(3) },
     );
@@ -209,11 +262,14 @@ export function OcrScanFlow() {
 
   function reset() {
     setStep(1);
-    setFile(null);
     setPreview(null);
     setScanId('');
     setReviewRows([]);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    setSupplierId('');
+    setInvoiceTotal('');
+    setPaidAmount('');
+    setAllItemsReceived(true);
+    setMissingItemsNote('');
   }
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -230,26 +286,18 @@ export function OcrScanFlow() {
               Fatura Fotoğrafı
             </p>
 
-            {/* Upload area */}
+            {/* Upload area — Capacitor Camera (Çek / Galeriden Seç menüsü) */}
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={handlePickImage}
               className="mb-4 flex w-full flex-col items-center gap-3 rounded-xl border-2 border-dashed border-border py-10 transition-colors hover:border-foreground/30 hover:bg-muted/30"
             >
-              <Camera className="h-10 w-10 text-muted-foreground/50" />
+              <CameraIcon className="h-10 w-10 text-muted-foreground/50" />
               <div className="text-center">
                 <p className="text-sm font-medium">Fatura fotoğrafı çek veya yükle</p>
                 <p className="text-xs text-muted-foreground">JPG, PNG, HEIC</p>
               </div>
             </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={handleFileChange}
-            />
 
             {/* Preview */}
             {preview && (
@@ -265,7 +313,7 @@ export function OcrScanFlow() {
 
             <Button
               className="w-full gap-2"
-              disabled={!file || ocrScan.isPending}
+              disabled={!preview || ocrScan.isPending}
               onClick={handleScan}
             >
               {ocrScan.isPending ? (
@@ -301,23 +349,18 @@ export function OcrScanFlow() {
                 const isAutoMatched = row.matchStatus === 'AUTO_MATCHED' && row.productId;
 
                 return (
-                  <div
-                    key={i}
-                    className={`rounded-lg border p-3 transition-opacity ${
-                      row.excluded ? 'opacity-40' : ''
-                    }`}
-                  >
+                  <div key={i} className="rounded-lg border p-3">
                     <div className="mb-2 flex items-start justify-between gap-2">
                       <p className="text-xs text-muted-foreground">{row.ocrName}</p>
-                      <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-                        <input
-                          type="checkbox"
-                          checked={row.excluded}
-                          onChange={(e) => updateRow(i, { excluded: e.target.checked })}
-                          className="h-3.5 w-3.5 rounded border-input"
-                        />
-                        Hariç tut
-                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRow(i)}
+                        aria-label="Satırı sil"
+                        className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Sil
+                      </button>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -350,7 +393,6 @@ export function OcrScanFlow() {
                           <Select
                             value={row.productId ?? ''}
                             onValueChange={(v) => updateRow(i, { productId: v || null })}
-                            disabled={row.excluded}
                           >
                             <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
                               <SelectValue placeholder="Ürün seçin…" />
@@ -375,7 +417,6 @@ export function OcrScanFlow() {
                           <button
                             key={m}
                             type="button"
-                            disabled={row.excluded}
                             onClick={() => updateRow(i, { mode: m })}
                             className={cn(
                               'px-2 py-1 text-xs font-medium transition-colors',
@@ -400,7 +441,6 @@ export function OcrScanFlow() {
                             const v = parseFloat(e.target.value);
                             if (!isNaN(v) && v > 0) updateRow(i, { qty: v });
                           }}
-                          disabled={row.excluded}
                           className="h-8 w-20 text-right text-sm"
                         />
                         <span className="text-xs text-muted-foreground">
@@ -434,7 +474,6 @@ export function OcrScanFlow() {
                               const v = parseInt(e.target.value, 10);
                               updateRow(i, { manualUnitsPerCase: !isNaN(v) && v >= 1 ? v : null });
                             }}
-                            disabled={row.excluded}
                             className="h-8 w-20 text-right text-sm"
                           />
                         </div>
@@ -451,9 +490,101 @@ export function OcrScanFlow() {
               </p>
             )}
 
+            {/* ── Fatura Bilgileri (borç kayıtları için) ─────────────── */}
+            <div className="mt-6 space-y-4 border-t pt-6">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Fatura Bilgileri
+              </p>
+
+              {/* Tedarikçi */}
+              <div className="space-y-1.5">
+                <Label htmlFor="ocr-supplier">Tedarikçi *</Label>
+                <Select value={supplierId} onValueChange={setSupplierId}>
+                  <SelectTrigger id="ocr-supplier">
+                    <SelectValue placeholder="Tedarikçi seçin…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(suppliers ?? []).map((s: Supplier) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Fatura + Ödenen tutar */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="ocr-invoice-total">Fatura Tutarı (₺)</Label>
+                  <Input
+                    id="ocr-invoice-total"
+                    type="text"
+                    inputMode="decimal"
+                    value={invoiceTotal}
+                    onChange={(e) => setInvoiceTotal(e.target.value)}
+                    placeholder="0,00"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ocr-paid-amount">Ödenen Tutar (₺)</Label>
+                  <Input
+                    id="ocr-paid-amount"
+                    type="text"
+                    inputMode="decimal"
+                    value={paidAmount}
+                    onChange={(e) => setPaidAmount(e.target.value)}
+                    placeholder="0,00"
+                  />
+                </div>
+              </div>
+
+              {invoiceTotal.trim() && !paidAmount.trim() && (
+                <p className="flex items-center gap-1.5 text-xs text-amber-600">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  Fatura tutarı girdiniz — ödenen tutarı da girmezseniz borç kaydı oluşmaz.
+                </p>
+              )}
+
+              {/* Tüm ürünler teslim alındı mı? */}
+              <div className="space-y-1.5">
+                <Label>Faturadaki tüm ürünler teslim alındı mı?</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={allItemsReceived ? 'default' : 'outline'}
+                    onClick={() => setAllItemsReceived(true)}
+                  >
+                    Evet
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={!allItemsReceived ? 'default' : 'outline'}
+                    onClick={() => setAllItemsReceived(false)}
+                  >
+                    Hayır
+                  </Button>
+                </div>
+              </div>
+
+              {!allItemsReceived && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="ocr-missing-note">Eksik ürün(ler) ve miktarını yazın *</Label>
+                  <textarea
+                    id="ocr-missing-note"
+                    value={missingItemsNote}
+                    onChange={(e) => setMissingItemsNote(e.target.value)}
+                    rows={3}
+                    placeholder="Örn. Coca-Cola 33cl - 5 adet eksik"
+                    className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  />
+                </div>
+              )}
+            </div>
+
             <Button
               className="mt-6 w-full gap-2"
-              disabled={ocrConfirm.isPending || reviewRows.every((r) => r.excluded)}
+              disabled={ocrConfirm.isPending || reviewRows.length === 0}
               onClick={handleConfirm}
             >
               {ocrConfirm.isPending ? (
@@ -469,14 +600,14 @@ export function OcrScanFlow() {
               )}
             </Button>
 
-            {reviewRows.filter((r) => !r.excluded).some((r) => !r.productId) && (
+            {reviewRows.some((r) => !r.productId) && (
               <p className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
                 <AlertTriangle className="h-3 w-3 shrink-0" />
-                Eşleştirilmemiş satırlar var — hariç tut ya da ürün seç.
+                Eşleştirilmemiş satırlar var — ürün seçin ya da satırı silin.
               </p>
             )}
 
-            {reviewRows.filter((r) => !r.excluded).some((r) => resolveTotalQty(r) == null) && (
+            {reviewRows.some((r) => resolveTotalQty(r) == null) && (
               <p className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
                 <AlertTriangle className="h-3 w-3 shrink-0" />
                 Koli/adet bilgisi eksik satırlar var.

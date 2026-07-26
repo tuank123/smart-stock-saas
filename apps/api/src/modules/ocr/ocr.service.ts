@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -47,13 +48,18 @@ export class OcrService {
 
   async scan(
     dto: ScanDto,
-    user: { tenantId: string; userId: string },
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
   ) {
     const enabled = this.config.get<string>('OCR_ENABLED') === 'true';
 
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca yetkili roller veya tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
 
       // Create PENDING scan record
       const scan = await tx.ocrScan.create({
@@ -107,11 +113,16 @@ export class OcrService {
   async confirmScan(
     scanId: string,
     dto: ConfirmScanDto,
-    user: { tenantId: string; userId: string },
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
   ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca yetkili roller veya tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
 
       const scan = await tx.ocrScan.findUnique({
         where: { id: scanId },
@@ -175,9 +186,54 @@ export class OcrService {
         },
       });
 
+      // ── Otomatik borç kayıtları (aynı transaction içinde) ──────────────
+      const debtsCreated: string[] = [];
+
+      // 1) Nakit borç: fatura tutarı > ödenen tutar ise fark kadar PAYABLE.
+      if (dto.invoiceTotal != null && dto.paidAmount != null) {
+        const diff = dto.invoiceTotal - dto.paidAmount;
+        if (diff > 0) {
+          const cashDebt = await tx.debt.create({
+            data: {
+              tenantId: user.tenantId,
+              branchId: scan.branchId,
+              supplierId: dto.supplierId,
+              direction: 'PAYABLE',
+              debtType: 'CASH',
+              amount: diff,
+              status: 'OPEN',
+              createdBy: user.userId,
+              notes: 'Fatura onayı sırasında otomatik oluşturuldu',
+            },
+            select: { id: true },
+          });
+          debtsCreated.push(cashDebt.id);
+        }
+      }
+
+      // 2) Ürün borcu: eksik ürün notu doluysa RECEIVABLE (tedarikçi borçlu).
+      if (dto.missingItemsNote && dto.missingItemsNote.trim()) {
+        const productDebt = await tx.debt.create({
+          data: {
+            tenantId: user.tenantId,
+            branchId: scan.branchId,
+            supplierId: dto.supplierId,
+            direction: 'RECEIVABLE',
+            debtType: 'PRODUCT',
+            productDescription: dto.missingItemsNote,
+            status: 'OPEN',
+            createdBy: user.userId,
+            notes: 'Fatura onayı sırasında otomatik oluşturuldu',
+          },
+          select: { id: true },
+        });
+        debtsCreated.push(productDebt.id);
+      }
+
       const result = {
         confirmedCount: dto.lines.length,
         stockUpdates,
+        debtsCreated,
       };
 
       // Enqueue sync after transaction commits (fire-and-forget)
