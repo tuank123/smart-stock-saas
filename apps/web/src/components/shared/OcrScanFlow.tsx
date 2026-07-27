@@ -17,7 +17,13 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { useAuthStore } from '@/store/auth.store';
-import { useOcrConfirm, useOcrScan, useStockList, useSuppliers } from '@/hooks/useMudur';
+import {
+  useOcrConfirm,
+  useOcrConfirmReturn,
+  useOcrScan,
+  useStockList,
+  useSuppliers,
+} from '@/hooks/useMudur';
 import type { OcrParsedLine } from '@/hooks/useMudur';
 import type { StockLevel, Supplier } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -89,6 +95,10 @@ export function OcrScanFlow() {
   const { data: suppliers } = useSuppliers();
   const ocrScan = useOcrScan();
   const ocrConfirm = useOcrConfirm();
+  const ocrConfirmReturn = useOcrConfirmReturn();
+
+  // Satış faturası (stoka girer) mi, iade faturası (stoktan çıkar) mı?
+  const [invoiceMode, setInvoiceMode] = useState<'SALE' | 'RETURN'>('SALE');
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   // preview = seçilen görselin data URL'i (hem önizleme hem tarama kaynağı).
@@ -102,6 +112,11 @@ export function OcrScanFlow() {
   const [paidAmount, setPaidAmount] = useState('');
   const [allItemsReceived, setAllItemsReceived] = useState(true);
   const [missingItemsNote, setMissingItemsNote] = useState('');
+
+  // İade faturası bilgileri.
+  const [invoiceDate, setInvoiceDate] = useState('');
+  const [returnTotal, setReturnTotal] = useState('');
+  const [settlementType, setSettlementType] = useState<'PRODUCT' | 'CASH'>('PRODUCT');
 
   // Map productId → { name, unit, unitsPerCase } from stock list for display
   const productMap = new Map<string, { name: string; unit: string; unitsPerCase: number | null }>(
@@ -194,6 +209,15 @@ export function OcrScanFlow() {
               manualUnitsPerCase: null,
             })),
           );
+          // OCR fatura başlığını form alanlarına ön-doldur (kullanıcı düzenleyebilir).
+          const header = data.header;
+          if (header) {
+            setSupplierId(header.matchedSupplierId ?? '');
+            setInvoiceDate(header.invoiceDate ?? '');
+            const totalStr = header.invoiceTotal != null ? String(header.invoiceTotal) : '';
+            setInvoiceTotal(totalStr);
+            setReturnTotal(totalStr);
+          }
           setStep(2);
         },
         // GEÇİCİ TEŞHİS: taramada oluşan hatanın tam mesajını göster.
@@ -260,6 +284,46 @@ export function OcrScanFlow() {
     );
   }
 
+  function handleConfirmReturn() {
+    if (reviewRows.some((r) => !r.productId)) {
+      toast.error('Eşleştirilmemiş ürünler var');
+      return;
+    }
+    if (reviewRows.some((r) => resolveTotalQty(r) == null)) {
+      toast.error('Koli/adet bilgisi eksik olan ürünler var');
+      return;
+    }
+    if (!supplierId) {
+      toast.error('Tedarikçi seçin');
+      return;
+    }
+    if (!invoiceDate) {
+      toast.error('Fatura tarihi girin');
+      return;
+    }
+    const returnTotalNum = Number(returnTotal.replace(',', '.'));
+    if (!returnTotalNum || returnTotalNum <= 0) {
+      toast.error('Geçerli bir iade tutarı girin');
+      return;
+    }
+
+    ocrConfirmReturn.mutate(
+      {
+        scanId,
+        supplierId,
+        invoiceDate,
+        returnTotal: returnTotalNum,
+        settlementType,
+        lines: reviewRows.map((r) => ({
+          productId: r.productId!,
+          qty: resolveTotalQty(r)!,
+          unit: r.unit,
+        })),
+      },
+      { onSuccess: () => setStep(3) },
+    );
+  }
+
   function reset() {
     setStep(1);
     setPreview(null);
@@ -270,12 +334,31 @@ export function OcrScanFlow() {
     setPaidAmount('');
     setAllItemsReceived(true);
     setMissingItemsNote('');
+    setInvoiceDate('');
+    setReturnTotal('');
+    setSettlementType('PRODUCT');
   }
 
   // ── Render ────────────────────────────────────────────────────────────
 
   return (
     <div className="mx-auto max-w-2xl">
+      {/* ── Fatura Türü Seçici ───────────────────────────────────── */}
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <Button
+          variant={invoiceMode === 'SALE' ? 'default' : 'outline'}
+          onClick={() => setInvoiceMode('SALE')}
+        >
+          Satış Faturası
+        </Button>
+        <Button
+          variant={invoiceMode === 'RETURN' ? 'default' : 'outline'}
+          onClick={() => setInvoiceMode('RETURN')}
+        >
+          İade Faturası
+        </Button>
+      </div>
+
       <StepIndicator current={step} />
 
       {/* ── Adım 1 — Fotoğraf Yükle ─────────────────────────────── */}
@@ -490,7 +573,7 @@ export function OcrScanFlow() {
               </p>
             )}
 
-            {/* ── Fatura Bilgileri (borç kayıtları için) ─────────────── */}
+            {/* ── Fatura Bilgileri (ortak — OCR'dan ön-dolu, düzenlenebilir) ── */}
             <div className="mt-6 space-y-4 border-t pt-6">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Fatura Bilgileri
@@ -513,19 +596,40 @@ export function OcrScanFlow() {
                 </Select>
               </div>
 
-              {/* Fatura + Ödenen tutar */}
+              {/* Fatura tarihi + tutar (moda göre etiket/bağlanan state) */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="ocr-invoice-total">Fatura Tutarı (₺)</Label>
+                  <Label htmlFor="ocr-invoice-date">Fatura Tarihi *</Label>
                   <Input
-                    id="ocr-invoice-total"
+                    id="ocr-invoice-date"
+                    type="date"
+                    value={invoiceDate}
+                    onChange={(e) => setInvoiceDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ocr-total">
+                    {invoiceMode === 'SALE' ? 'Fatura Tutarı (₺)' : 'İade Tutarı (₺) *'}
+                  </Label>
+                  <Input
+                    id="ocr-total"
                     type="text"
                     inputMode="decimal"
-                    value={invoiceTotal}
-                    onChange={(e) => setInvoiceTotal(e.target.value)}
+                    value={invoiceMode === 'SALE' ? invoiceTotal : returnTotal}
+                    onChange={(e) =>
+                      invoiceMode === 'SALE'
+                        ? setInvoiceTotal(e.target.value)
+                        : setReturnTotal(e.target.value)
+                    }
                     placeholder="0,00"
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* ── SALE: Ödenen Tutar + Teslim Alındı mı ──────────────── */}
+            {invoiceMode === 'SALE' && (
+              <div className="mt-4 space-y-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="ocr-paid-amount">Ödenen Tutar (₺)</Label>
                   <Input
@@ -537,57 +641,97 @@ export function OcrScanFlow() {
                     placeholder="0,00"
                   />
                 </div>
-              </div>
 
-              {invoiceTotal.trim() && !paidAmount.trim() && (
-                <p className="flex items-center gap-1.5 text-xs text-amber-600">
-                  <AlertTriangle className="h-3 w-3 shrink-0" />
-                  Fatura tutarı girdiniz — ödenen tutarı da girmezseniz borç kaydı oluşmaz.
-                </p>
-              )}
+                {invoiceTotal.trim() && !paidAmount.trim() && (
+                  <p className="flex items-center gap-1.5 text-xs text-amber-600">
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                    Fatura tutarı girdiniz — ödenen tutarı da girmezseniz borç kaydı oluşmaz.
+                  </p>
+                )}
 
-              {/* Tüm ürünler teslim alındı mı? */}
-              <div className="space-y-1.5">
-                <Label>Faturadaki tüm ürünler teslim alındı mı?</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    variant={allItemsReceived ? 'default' : 'outline'}
-                    onClick={() => setAllItemsReceived(true)}
-                  >
-                    Evet
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={!allItemsReceived ? 'default' : 'outline'}
-                    onClick={() => setAllItemsReceived(false)}
-                  >
-                    Hayır
-                  </Button>
-                </div>
-              </div>
-
-              {!allItemsReceived && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="ocr-missing-note">Eksik ürün(ler) ve miktarını yazın *</Label>
-                  <textarea
-                    id="ocr-missing-note"
-                    value={missingItemsNote}
-                    onChange={(e) => setMissingItemsNote(e.target.value)}
-                    rows={3}
-                    placeholder="Örn. Coca-Cola 33cl - 5 adet eksik"
-                    className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  />
+                  <Label>Faturadaki tüm ürünler teslim alındı mı?</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={allItemsReceived ? 'default' : 'outline'}
+                      onClick={() => setAllItemsReceived(true)}
+                    >
+                      Evet
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={!allItemsReceived ? 'default' : 'outline'}
+                      onClick={() => setAllItemsReceived(false)}
+                    >
+                      Hayır
+                    </Button>
+                  </div>
                 </div>
-              )}
-            </div>
+
+                {!allItemsReceived && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ocr-missing-note">Eksik ürün(ler) ve miktarını yazın *</Label>
+                    <textarea
+                      id="ocr-missing-note"
+                      value={missingItemsNote}
+                      onChange={(e) => setMissingItemsNote(e.target.value)}
+                      rows={3}
+                      placeholder="Örn. Coca-Cola 33cl - 5 adet eksik"
+                      className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── RETURN: İade Nasıl Gerçekleşecek ───────────────────── */}
+            {invoiceMode === 'RETURN' && (
+              <div className="mt-4 space-y-4">
+                <div className="space-y-1.5">
+                  <Label>İade Nasıl Gerçekleşecek?</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={settlementType === 'PRODUCT' ? 'default' : 'outline'}
+                      onClick={() => setSettlementType('PRODUCT')}
+                    >
+                      Ürünle
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={settlementType === 'CASH' ? 'default' : 'outline'}
+                      onClick={() => setSettlementType('CASH')}
+                    >
+                      Parayla
+                    </Button>
+                  </div>
+                </div>
+
+                {settlementType === 'CASH' && (
+                  <p className="text-xs text-muted-foreground">
+                    İade tutarı ({returnTotal || '0'}₺) nakit olarak alacak kaydına eklenecek.
+                  </p>
+                )}
+
+                {settlementType === 'PRODUCT' && (
+                  <p className="text-xs text-muted-foreground">
+                    Faturadaki ürün ve miktarlar otomatik kullanılacak; kayıt "Ödendi"
+                    yapıldığında ürünler stoğa geri eklenir.
+                  </p>
+                )}
+              </div>
+            )}
 
             <Button
               className="mt-6 w-full gap-2"
-              disabled={ocrConfirm.isPending || reviewRows.length === 0}
-              onClick={handleConfirm}
+              disabled={
+                (invoiceMode === 'SALE' ? ocrConfirm.isPending : ocrConfirmReturn.isPending) ||
+                reviewRows.length === 0
+              }
+              onClick={invoiceMode === 'SALE' ? handleConfirm : handleConfirmReturn}
             >
-              {ocrConfirm.isPending ? (
+              {(invoiceMode === 'SALE' ? ocrConfirm.isPending : ocrConfirmReturn.isPending) ? (
                 <>
                   <RefreshCw className="h-4 w-4 animate-spin" />
                   İşleniyor…
@@ -595,7 +739,7 @@ export function OcrScanFlow() {
               ) : (
                 <>
                   <CheckCircle className="h-4 w-4" />
-                  Onayla ve Stoka İşle
+                  {invoiceMode === 'SALE' ? 'Onayla ve Stoka İşle' : 'İade Faturasını Onayla'}
                 </>
               )}
             </Button>
@@ -625,7 +769,11 @@ export function OcrScanFlow() {
               <CheckCircle className="h-8 w-8 text-green-600" />
             </div>
             <div>
-              <p className="text-lg font-semibold">Fatura başarıyla stoka işlendi</p>
+              <p className="text-lg font-semibold">
+                {invoiceMode === 'SALE'
+                  ? 'Fatura başarıyla stoka işlendi'
+                  : 'İade faturası başarıyla kaydedildi'}
+              </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 Stok hareketleri güncellendi.
               </p>

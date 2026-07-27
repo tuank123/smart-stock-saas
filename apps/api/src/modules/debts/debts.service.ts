@@ -66,6 +66,7 @@ export class DebtsService {
           supplierId: dto.supplierId,
           direction: dto.direction,
           debtType: dto.debtType,
+          source: 'MANUAL',
           amount: dto.debtType === 'CASH' ? dto.amount : null,
           productDescription: dto.debtType === 'PRODUCT' ? dto.productDescription : null,
           dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
@@ -86,6 +87,41 @@ export class DebtsService {
       const existing = await tx.debt.findFirst({ where: { id } });
       if (!existing) {
         throw new NotFoundException('Borç kaydı bulunamadı');
+      }
+
+      // OPEN → PAID geçişinde, iade-ürün kaydıysa ürünler stoka geri eklenir.
+      // Yalnızca bir kez (zaten PAID ise tekrarlanmaz).
+      const transitioningToPaid =
+        dto.status === 'PAID' && existing.status !== 'PAID';
+      if (transitioningToPaid && existing.affectsStock && existing.productLines) {
+        const lines = existing.productLines as unknown as Array<{
+          productId: string;
+          productName: string;
+          quantity: number;
+          unit: string;
+        }>;
+        for (const line of lines) {
+          await tx.stockLevel.updateMany({
+            where: { productId: line.productId, branchId: existing.branchId },
+            data: {
+              quantity: { increment: line.quantity },
+              version: { increment: 1 },
+            },
+          });
+          await tx.stockMovement.create({
+            data: {
+              tenantId: existing.tenantId,
+              productId: line.productId,
+              branchId: existing.branchId,
+              movementType: 'RETURN_RESOLVED',
+              quantity: line.quantity,
+              referenceId: existing.id,
+              referenceType: 'RETURN_INVOICE',
+              notes: 'İade süreci tamamlandı, ürün stoka eklendi',
+              createdBy: user.userId,
+            },
+          });
+        }
       }
 
       return tx.debt.update({

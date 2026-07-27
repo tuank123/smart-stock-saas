@@ -27,9 +27,17 @@ export interface OcrParsedLine {
   matchedProductId?: string | null;
 }
 
+export interface OcrHeader {
+  supplierName: string;
+  invoiceDate: string;
+  invoiceTotal: number;
+  matchedSupplierId: string | null;
+}
+
 export interface OcrScanResult {
   scanId: string;
   parsedLines: OcrParsedLine[];
+  header: OcrHeader;
 }
 
 // ── API types ─────────────────────────────────────────────────────────────────
@@ -630,6 +638,32 @@ export function useOcrConfirm() {
   });
 }
 
+export function useOcrConfirmReturn() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      scanId: string;
+      supplierId: string;
+      invoiceDate: string;
+      returnTotal: number;
+      settlementType: 'PRODUCT' | 'CASH';
+      lines: Array<{ productId: string; qty: number; unit: string }>;
+    }) => {
+      const { scanId, ...dto } = vars;
+      return api.post(`/ocr/scan/${scanId}/confirm-return`, dto).then((r) => r.data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stock', branchId] });
+      qc.invalidateQueries({ queryKey: ['stock', 'movements', branchId] });
+      qc.invalidateQueries({ queryKey: ['debts'] });
+      toast.success('İade faturası kaydedildi');
+    },
+    onError: () => toast.error('İade faturası kaydedilemedi'),
+  });
+}
+
 // ── Personnel hooks ───────────────────────────────────────────────────────────
 
 function fetchBranchUsers(branchId: string): Promise<BranchUser[]> {
@@ -804,6 +838,7 @@ export interface Debt {
   supplierId: string;
   direction: 'PAYABLE' | 'RECEIVABLE';
   debtType: 'CASH' | 'PRODUCT';
+  source: 'MANUAL' | 'OCR';
   amount: string | null; // Prisma Decimal → string; ürün borcunda null
   productDescription: string | null;
   dueDate: string | null;

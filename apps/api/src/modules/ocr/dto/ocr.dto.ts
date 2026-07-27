@@ -1,4 +1,14 @@
-import { IsArray, IsNumber, IsOptional, IsString, IsUUID, Min, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class ScanDto {
@@ -46,4 +56,39 @@ export class ConfirmScanDto {
   @IsOptional()
   @IsString()
   missingItemsNote?: string;
+}
+
+// ── İade Faturası ───────────────────────────────────────────────────────────
+
+export class ReturnLineDto {
+  @IsUUID()
+  productId: string = '';
+
+  @IsNumber()
+  @Min(0.001)
+  qty: number = 0;
+
+  @IsString()
+  unit: string = '';
+}
+
+export class ConfirmReturnDto {
+  @IsUUID()
+  supplierId: string = '';
+
+  @IsDateString()
+  invoiceDate: string = '';
+
+  @IsNumber()
+  @Min(0.01)
+  returnTotal: number = 0;
+
+  // 'CASH' = nakit iade | 'PRODUCT' = ürünle iade.
+  @IsIn(['CASH', 'PRODUCT'])
+  settlementType: 'CASH' | 'PRODUCT' = 'CASH';
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReturnLineDto)
+  lines: ReturnLineDto[] = [];
 }

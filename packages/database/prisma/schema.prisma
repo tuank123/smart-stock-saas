@@ -401,8 +401,12 @@ model Debt {
   supplierId          String    @map("supplier_id") @db.Uuid
   direction           String    // 'PAYABLE' (işletme borçlu) | 'RECEIVABLE' (tedarikçi borçlu)
   debtType            String    @default("CASH") @map("debt_type") // 'CASH' | 'PRODUCT'
+  source              String    @default("MANUAL") @map("source") // 'MANUAL' | 'OCR'
   amount              Decimal?  @db.Decimal(12, 2) // nakit borçlarda dolu, ürün borçlarında null
   productDescription  String?   @map("product_description") // ürün borcunda serbest metin
+  productLines        Json?     @map("product_lines") // [{ productId, productName, quantity, unit }] — yalnız iade-ürün akışında dolu
+  affectsStock        Boolean   @default(false) @map("affects_stock") // true ise status='PAID' olunca productLines stoka geri eklenir
+  invoiceDate         DateTime? @map("invoice_date")
   dueDate             DateTime? @map("due_date")
   status              String    @default("OPEN") // OPEN | PAID
   notes               String?

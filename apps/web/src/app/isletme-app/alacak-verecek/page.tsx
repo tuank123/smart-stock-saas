@@ -141,6 +141,14 @@ export default function AlacakVerecekPage() {
                         Ürün
                       </Badge>
                     )}
+                    {debt.source === 'OCR' && (
+                      <Badge
+                        variant="outline"
+                        className="border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-100"
+                      >
+                        OCR
+                      </Badge>
+                    )}
                   </div>
                 </div>
 

@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SyncService } from '../sync/sync.service';
-import { ConfirmScanDto, ScanDto } from './dto/ocr.dto';
+import { ConfirmReturnDto, ConfirmScanDto, ScanDto } from './dto/ocr.dto';
 
 export interface RawOcrLine {
   name: string;
@@ -33,6 +33,13 @@ const MOCK_RAW: RawOcrLine[] = [
   { name: 'Su 0.5L',        qty: 48, unit: 'adet', confidence: 0.92 },
   { name: 'Bilinmeyen Ürün XYZ', qty: 12, unit: 'adet', confidence: 0.45 },
 ];
+
+// Mock fatura başlığı (gerçek OCR gelene kadar).
+const MOCK_HEADER = {
+  supplierName: 'Test Toptancı',
+  invoiceDate: '2026-07-20',
+  invoiceTotal: 450.75,
+};
 
 const AUTO_MATCH_THRESHOLD = 0.85;
 
@@ -75,15 +82,18 @@ export class OcrService {
       // Run OCR (mock or real)
       let rawLines: RawOcrLine[];
       let rawOcrResult: object;
+      let header: typeof MOCK_HEADER;
 
       if (!enabled) {
         this.logger.log(`📄 [MOCK] OCR tarama — scanId=${scan.id}`);
         rawLines = MOCK_RAW;
-        rawOcrResult = { source: 'mock', lines: MOCK_RAW };
+        rawOcrResult = { source: 'mock', lines: MOCK_RAW, header: MOCK_HEADER };
+        header = MOCK_HEADER;
       } else {
         const result = await this.callTextract(dto.imageBase64 ?? '');
         rawLines = result.lines;
         rawOcrResult = result.raw;
+        header = result.header;
       }
 
       // Load tenant products for fuzzy matching
@@ -93,6 +103,16 @@ export class OcrService {
       });
 
       const parsedLines = this.fuzzyMatch(rawLines, products);
+
+      // Fatura başlığındaki tedarikçi adını gerçek bir tedarikçiyle eşleştir
+      // (case-insensitive contains — WhatsApp eşleştirmesiyle tutarlı basit yöntem).
+      const matchedSupplier = await tx.supplier.findFirst({
+        where: {
+          tenantId: user.tenantId,
+          name: { contains: header.supplierName, mode: 'insensitive' },
+        },
+        select: { id: true },
+      });
 
       await tx.ocrScan.update({
         where: { id: scan.id },
@@ -106,6 +126,12 @@ export class OcrService {
       return {
         scanId: scan.id,
         parsedLines,
+        header: {
+          supplierName: header.supplierName,
+          invoiceDate: header.invoiceDate,
+          invoiceTotal: header.invoiceTotal,
+          matchedSupplierId: matchedSupplier?.id ?? null,
+        },
       };
     });
   }
@@ -200,6 +226,7 @@ export class OcrService {
               supplierId: dto.supplierId,
               direction: 'PAYABLE',
               debtType: 'CASH',
+              source: 'OCR',
               amount: diff,
               status: 'OPEN',
               createdBy: user.userId,
@@ -220,6 +247,7 @@ export class OcrService {
             supplierId: dto.supplierId,
             direction: 'RECEIVABLE',
             debtType: 'PRODUCT',
+            source: 'OCR',
             productDescription: dto.missingItemsNote,
             status: 'OPEN',
             createdBy: user.userId,
@@ -240,6 +268,132 @@ export class OcrService {
       void this.enqueueSyncAfterConfirm(scan.branchId, user, dto.lines, scanId);
 
       return result;
+    });
+  }
+
+  async confirmReturn(
+    scanId: string,
+    dto: ConfirmReturnDto,
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca yetkili roller veya tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
+
+      const scan = await tx.ocrScan.findUnique({
+        where: { id: scanId },
+        select: { id: true, tenantId: true, status: true, branchId: true },
+      });
+      if (!scan || scan.tenantId !== user.tenantId) {
+        throw new NotFoundException('Tarama bulunamadı');
+      }
+      if (scan.status !== 'PROCESSED') {
+        throw new BadRequestException(
+          `Yalnızca PROCESSED taramalar onaylanabilir (mevcut: ${scan.status})`,
+        );
+      }
+
+      // İade edilen ürünler fiziksel olarak stoktan çıkar.
+      for (const line of dto.lines) {
+        await tx.stockLevel.updateMany({
+          where: { productId: line.productId, branchId: scan.branchId },
+          data: {
+            quantity: { decrement: line.qty },
+            version: { increment: 1 },
+          },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            tenantId: user.tenantId,
+            productId: line.productId,
+            branchId: scan.branchId,
+            movementType: 'RETURN_OUT',
+            quantity: -line.qty,
+            referenceId: scan.id,
+            referenceType: 'RETURN_INVOICE',
+            notes: 'İade faturası',
+            createdBy: user.userId,
+          },
+        });
+      }
+
+      // Ürün adlarını çekip productLines dizisini kur.
+      const products = await tx.product.findMany({
+        where: { id: { in: dto.lines.map((l) => l.productId) } },
+        select: { id: true, name: true },
+      });
+      const nameById = new Map(products.map((p) => [p.id, p.name]));
+      const productLines = dto.lines.map((l) => ({
+        productId: l.productId,
+        productName: nameById.get(l.productId) ?? l.productId,
+        quantity: l.qty,
+        unit: l.unit,
+      }));
+
+      let debtId: string;
+
+      if (dto.settlementType === 'CASH') {
+        const debt = await tx.debt.create({
+          data: {
+            tenantId: user.tenantId,
+            branchId: scan.branchId,
+            supplierId: dto.supplierId,
+            direction: 'RECEIVABLE',
+            debtType: 'CASH',
+            source: 'OCR',
+            amount: dto.returnTotal,
+            status: 'OPEN',
+            invoiceDate: new Date(dto.invoiceDate),
+            affectsStock: false,
+            createdBy: user.userId,
+            notes: 'İade faturası (nakit iade)',
+          },
+          select: { id: true },
+        });
+        debtId = debt.id;
+      } else {
+        // Ürünle iade: aynı ürün/miktarlarla ürün alacağı; çözüldüğünde stoka geri eklenir.
+        const productDescription = productLines
+          .map((pl) => `${pl.productName} x${pl.quantity}`)
+          .join(', ');
+
+        const debt = await tx.debt.create({
+          data: {
+            tenantId: user.tenantId,
+            branchId: scan.branchId,
+            supplierId: dto.supplierId,
+            direction: 'RECEIVABLE',
+            debtType: 'PRODUCT',
+            source: 'OCR',
+            productDescription,
+            productLines,
+            status: 'OPEN',
+            invoiceDate: new Date(dto.invoiceDate),
+            affectsStock: true,
+            createdBy: user.userId,
+            notes: 'İade faturası (ürünle iade)',
+          },
+          select: { id: true },
+        });
+        debtId = debt.id;
+      }
+
+      await tx.ocrScan.update({
+        where: { id: scanId },
+        data: {
+          status: 'CONFIRMED',
+          confirmedBy: user.userId,
+          confirmedAt: new Date(),
+        },
+      });
+
+      return { debtId, message: 'İade faturası kaydedildi' };
     });
   }
 
@@ -341,13 +495,13 @@ export class OcrService {
 
   private async callTextract(
     imageBase64: string,
-  ): Promise<{ lines: RawOcrLine[]; raw: object }> {
+  ): Promise<{ lines: RawOcrLine[]; raw: object; header: typeof MOCK_HEADER }> {
     // Real AWS Textract integration placeholder
     // In production: use @aws-sdk/client-textract
     const region   = this.config.get<string>('AWS_REGION', 'eu-central-1');
     const bucket   = this.config.get<string>('AWS_S3_BUCKET', 'stokpilot-media');
     this.logger.log(`[Textract] region=${region} bucket=${bucket} (not implemented)`);
     void imageBase64;
-    return { lines: MOCK_RAW, raw: { source: 'textract-stub' } };
+    return { lines: MOCK_RAW, raw: { source: 'textract-stub' }, header: MOCK_HEADER };
   }
 }

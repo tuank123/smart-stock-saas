@@ -10,7 +10,7 @@ import {
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { ConfirmScanDto, ScanDto } from './dto/ocr.dto';
+import { ConfirmReturnDto, ConfirmScanDto, ScanDto } from './dto/ocr.dto';
 import { OcrService } from './ocr.service';
 
 @Controller('ocr')
@@ -38,6 +38,18 @@ export class OcrController {
     user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
   ) {
     return this.service.confirmScan(scanId, dto, user);
+  }
+
+  @Roles(UserRole.SUBE_MUDURU, UserRole.KASIYER, UserRole.DEPO, UserRole.PATRON)
+  @Post('scan/:scanId/confirm-return')
+  @HttpCode(200)
+  confirmReturn(
+    @Param('scanId', ParseUUIDPipe) scanId: string,
+    @Body() dto: ConfirmReturnDto,
+    @CurrentUser()
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.service.confirmReturn(scanId, dto, user);
   }
 
   @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
