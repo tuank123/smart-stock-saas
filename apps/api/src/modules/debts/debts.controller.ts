@@ -11,7 +11,12 @@ import {
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { CreateDebtDto, UpdateDebtDto } from './dto/debt.dto';
+import {
+  CreateDebtDto,
+  RecordCashPaymentDto,
+  RecordProductReceiptDto,
+  UpdateDebtDto,
+} from './dto/debt.dto';
 import { DebtsService } from './debts.service';
 
 type DebtUser = {
@@ -63,6 +68,27 @@ export class DebtsController {
     @CurrentUser() user: DebtUser,
   ) {
     return this.service.markViewed(branchId, user);
+  }
+
+  // Statik ikinci segmentli route'lar `:id`'den önce tanımlanır.
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
+  @Patch(':id/cash-payment')
+  recordCashPayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RecordCashPaymentDto,
+    @CurrentUser() user: DebtUser,
+  ) {
+    return this.service.recordCashPayment(id, dto, user);
+  }
+
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
+  @Patch(':id/product-receipt')
+  recordProductReceipt(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RecordProductReceiptDto,
+    @CurrentUser() user: DebtUser,
+  ) {
+    return this.service.recordProductReceipt(id, dto, user);
   }
 
   @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)

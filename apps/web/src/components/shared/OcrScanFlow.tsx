@@ -111,7 +111,8 @@ export function OcrScanFlow() {
   const [invoiceTotal, setInvoiceTotal] = useState('');
   const [paidAmount, setPaidAmount] = useState('');
   const [allItemsReceived, setAllItemsReceived] = useState(true);
-  const [missingItemsNote, setMissingItemsNote] = useState('');
+  // productId → gerçekten teslim alınan miktar (ham metin).
+  const [deliveredQuantities, setDeliveredQuantities] = useState<Record<string, string>>({});
 
   // İade faturası bilgileri.
   const [invoiceDate, setInvoiceDate] = useState('');
@@ -254,10 +255,6 @@ export function OcrScanFlow() {
       toast.error('Tedarikçi seçin');
       return;
     }
-    if (!allItemsReceived && !missingItemsNote.trim()) {
-      toast.error('Eksik ürün notunu yazın');
-      return;
-    }
 
     const invoiceTotalNum = invoiceTotal.trim()
       ? Number(invoiceTotal.replace(',', '.'))
@@ -277,8 +274,15 @@ export function OcrScanFlow() {
         supplierId,
         invoiceTotal: invoiceTotalNum,
         paidAmount: paidAmountNum,
-        missingItemsNote:
-          !allItemsReceived && missingItemsNote.trim() ? missingItemsNote.trim() : undefined,
+        allItemsReceived,
+        deliveredLines: allItemsReceived
+          ? undefined
+          : reviewRows.map((r) => ({
+              productId: r.productId!,
+              receivedQty: Number(
+                (deliveredQuantities[r.productId!] ?? String(r.qty)).replace(',', '.'),
+              ),
+            })),
       },
       { onSuccess: () => setStep(3) },
     );
@@ -333,7 +337,7 @@ export function OcrScanFlow() {
     setInvoiceTotal('');
     setPaidAmount('');
     setAllItemsReceived(true);
-    setMissingItemsNote('');
+    setDeliveredQuantities({});
     setInvoiceDate('');
     setReturnTotal('');
     setSettlementType('PRODUCT');
@@ -670,16 +674,34 @@ export function OcrScanFlow() {
                 </div>
 
                 {!allItemsReceived && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="ocr-missing-note">Eksik ürün(ler) ve miktarını yazın *</Label>
-                    <textarea
-                      id="ocr-missing-note"
-                      value={missingItemsNote}
-                      onChange={(e) => setMissingItemsNote(e.target.value)}
-                      rows={3}
-                      placeholder="Örn. Coca-Cola 33cl - 5 adet eksik"
-                      className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    />
+                  <div className="space-y-2">
+                    <Label>Her ürün için gerçekten teslim alınan miktarı girin</Label>
+                    {reviewRows.map((r, i) => (
+                      <div key={r.productId ?? i} className="space-y-1.5 rounded-lg border p-3">
+                        <p className="text-sm font-medium">
+                          {r.productId ? productMap.get(r.productId)?.name ?? r.ocrName : r.ocrName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Faturadaki Miktar: {r.qty} {r.unit}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="text"
+                            inputMode="decimal"
+                            value={deliveredQuantities[r.productId!] ?? String(r.qty)}
+                            onChange={(e) =>
+                              setDeliveredQuantities((prev) => ({
+                                ...prev,
+                                [r.productId!]: e.target.value,
+                              }))
+                            }
+                            placeholder="Teslim alınan"
+                            className="h-9 flex-1"
+                          />
+                          <span className="text-xs text-muted-foreground">{r.unit}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

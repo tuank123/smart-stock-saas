@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsIn,
   IsNumber,
@@ -32,6 +33,15 @@ export class ConfirmLineDto {
   unit: string = '';
 }
 
+export class DeliveredLineDto {
+  @IsUUID()
+  productId: string = '';
+
+  @IsNumber()
+  @Min(0)
+  receivedQty: number = 0;
+}
+
 export class ConfirmScanDto {
   @IsArray()
   @ValidateNested({ each: true })
@@ -52,10 +62,16 @@ export class ConfirmScanDto {
   @IsNumber()
   paidAmount?: number;
 
-  // Eksik ürün notu — doluysa "eksik var" demektir.
+  // Faturadaki tüm ürünler teslim alındı mı?
+  @IsBoolean()
+  allItemsReceived = true;
+
+  // allItemsReceived===false iken her ürün için gerçekten teslim alınan miktar.
   @IsOptional()
-  @IsString()
-  missingItemsNote?: string;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DeliveredLineDto)
+  deliveredLines?: DeliveredLineDto[];
 }
 
 // ── İade Faturası ───────────────────────────────────────────────────────────

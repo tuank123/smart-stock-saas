@@ -166,12 +166,22 @@ export class OcrService {
 
       const stockUpdates: { productId: string; newQuantity: string }[] = [];
 
+      // Eksik teslimat durumunda gerçekten teslim alınan miktar haritası.
+      const receivedByProduct = new Map<string, number>(
+        (dto.deliveredLines ?? []).map((d) => [d.productId, d.receivedQty]),
+      );
+
       for (const line of dto.lines) {
+        // allItemsReceived=true → fatura miktarı; false → teslim alınan miktar (yoksa 0).
+        const addQty = dto.allItemsReceived
+          ? line.qty
+          : receivedByProduct.get(line.productId) ?? 0;
+
         // Optimistic lock: version+1 with increment
         await tx.stockLevel.updateMany({
           where: { productId: line.productId, branchId: scan.branchId },
           data: {
-            quantity: { increment: line.qty },
+            quantity: { increment: addQty },
             version: { increment: 1 },
           },
         });
@@ -182,7 +192,7 @@ export class OcrService {
             productId: line.productId,
             branchId: scan.branchId,
             movementType: 'OCR_IMPORT',
-            quantity: line.qty,
+            quantity: addQty,
             referenceId: scan.id,
             referenceType: 'OCR_SCAN',
             createdBy: user.userId,
@@ -235,27 +245,68 @@ export class OcrService {
             select: { id: true },
           });
           debtsCreated.push(cashDebt.id);
+
+          // Fatura anında yapılan ilk ödemeyi de geçmişe kaydet.
+          if (dto.paidAmount > 0) {
+            await tx.debtPayment.create({
+              data: {
+                debtId: cashDebt.id,
+                amount: dto.paidAmount,
+                createdBy: user.userId,
+              },
+            });
+          }
         }
       }
 
-      // 2) Ürün borcu: eksik ürün notu doluysa RECEIVABLE (tedarikçi borçlu).
-      if (dto.missingItemsNote && dto.missingItemsNote.trim()) {
-        const productDebt = await tx.debt.create({
-          data: {
-            tenantId: user.tenantId,
-            branchId: scan.branchId,
-            supplierId: dto.supplierId,
-            direction: 'RECEIVABLE',
-            debtType: 'PRODUCT',
-            source: 'OCR',
-            productDescription: dto.missingItemsNote,
-            status: 'OPEN',
-            createdBy: user.userId,
-            notes: 'Fatura onayı sırasında otomatik oluşturuldu',
-          },
-          select: { id: true },
-        });
-        debtsCreated.push(productDebt.id);
+      // 2) Ürün borcu: eksik teslimat varsa (fatura miktarı - teslim alınan) kadar
+      //    yapılandırılmış RECEIVABLE ürün borcu (tedarikçi borçlu).
+      if (!dto.allItemsReceived) {
+        const missingLines = dto.lines
+          .map((line) => {
+            const received = receivedByProduct.get(line.productId) ?? 0;
+            return { productId: line.productId, missing: line.qty - received, unit: line.unit };
+          })
+          .filter((l) => l.missing > 0);
+
+        if (missingLines.length > 0) {
+          const products = await tx.product.findMany({
+            where: { id: { in: missingLines.map((l) => l.productId) } },
+            select: { id: true, name: true },
+          });
+          const nameById = new Map(products.map((p) => [p.id, p.name]));
+
+          const productLines = missingLines.map((l) => ({
+            productId: l.productId,
+            productName: nameById.get(l.productId) ?? l.productId,
+            quantity: l.missing,
+            unit: l.unit,
+            receivedQuantity: 0,
+          }));
+
+          const productDescription = productLines
+            .map((pl) => `${pl.productName} x${pl.quantity}`)
+            .join(', ');
+
+          const productDebt = await tx.debt.create({
+            data: {
+              tenantId: user.tenantId,
+              branchId: scan.branchId,
+              supplierId: dto.supplierId,
+              direction: 'RECEIVABLE',
+              debtType: 'PRODUCT',
+              source: 'OCR',
+              productLines,
+              productDescription,
+              affectsStock: true,
+              status: 'OPEN',
+              createdBy: user.userId,
+              notes: 'Fatura onayı - eksik ürün teslimatı',
+            },
+            select: { id: true },
+          });
+          debtsCreated.push(productDebt.id);
+        }
       }
 
       const result = {
@@ -334,6 +385,7 @@ export class OcrService {
         productName: nameById.get(l.productId) ?? l.productId,
         quantity: l.qty,
         unit: l.unit,
+        receivedQuantity: 0,
       }));
 
       let debtId: string;

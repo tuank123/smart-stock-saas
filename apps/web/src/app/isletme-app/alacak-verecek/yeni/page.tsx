@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import { StationPageHeader } from '@/components/layout/StationPageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,25 +15,68 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useSuppliers, useCreateDebt } from '@/hooks/useMudur';
-import type { Supplier } from '@/lib/types';
+import { useSuppliers, useCreateDebt, useStockList } from '@/hooks/useMudur';
+import type { Supplier, StockLevel } from '@/lib/types';
 
 type Direction = 'PAYABLE' | 'RECEIVABLE';
 type DebtType = 'CASH' | 'PRODUCT';
 
+interface BasketLine {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unit: string;
+}
+
 export default function YeniBorcAlacakPage() {
   const router = useRouter();
   const { data: suppliers, isPending: suppliersLoading } = useSuppliers();
+  const { data: stock } = useStockList();
   const createDebt = useCreateDebt();
 
   const [supplierId, setSupplierId] = useState('');
   const [direction, setDirection] = useState<Direction>('PAYABLE');
   const [debtType, setDebtType] = useState<DebtType>('CASH');
   const [amount, setAmount] = useState('');
-  const [productDescription, setProductDescription] = useState('');
+  const [productLines, setProductLines] = useState<BasketLine[]>([]);
+  const [itemProductId, setItemProductId] = useState('');
+  const [itemQty, setItemQty] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
+
+  function addLine() {
+    setError('');
+    if (!itemProductId) {
+      setError('Ürün seçin.');
+      return;
+    }
+    const qty = Number(itemQty.replace(',', '.'));
+    if (!qty || qty <= 0) {
+      setError('Geçerli bir miktar girin.');
+      return;
+    }
+    if (productLines.some((l) => l.productId === itemProductId)) {
+      setError('Bu ürün zaten eklendi.');
+      return;
+    }
+    const s = (stock ?? []).find((x: StockLevel) => x.productId === itemProductId);
+    setProductLines((prev) => [
+      ...prev,
+      {
+        productId: itemProductId,
+        productName: s?.product.name ?? itemProductId,
+        quantity: qty,
+        unit: s?.product.unit ?? 'adet',
+      },
+    ]);
+    setItemProductId('');
+    setItemQty('');
+  }
+
+  function removeLine(productId: string) {
+    setProductLines((prev) => prev.filter((l) => l.productId !== productId));
+  }
 
   function validate(): boolean {
     setError('');
@@ -48,8 +91,8 @@ export default function YeniBorcAlacakPage() {
         return false;
       }
     } else {
-      if (!productDescription.trim()) {
-        setError('Ürün açıklaması zorunludur.');
+      if (productLines.length === 0) {
+        setError('En az bir ürün ekleyin.');
         return false;
       }
     }
@@ -66,7 +109,10 @@ export default function YeniBorcAlacakPage() {
         direction,
         debtType,
         amount: debtType === 'CASH' ? Number(amount.replace(',', '.')) : undefined,
-        productDescription: debtType === 'PRODUCT' ? productDescription.trim() : undefined,
+        productLines:
+          debtType === 'PRODUCT'
+            ? productLines.map((l) => ({ productId: l.productId, quantity: l.quantity }))
+            : undefined,
         dueDate: dueDate || undefined,
         notes: notes.trim() || undefined,
       },
@@ -141,10 +187,8 @@ export default function YeniBorcAlacakPage() {
             <Label htmlFor="amount">Tutar (₺) *</Label>
             <Input
               id="amount"
-              type="number"
+              type="text"
               inputMode="decimal"
-              step="0.01"
-              min="0"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0,00"
@@ -153,18 +197,68 @@ export default function YeniBorcAlacakPage() {
           </div>
         )}
 
-        {/* Ürün Açıklaması (yalnız Ürün) */}
+        {/* Ürün sepeti (yalnız Ürün) */}
         {debtType === 'PRODUCT' && (
-          <div className="space-y-1.5">
-            <Label htmlFor="productDescription">Ürün Açıklaması *</Label>
-            <textarea
-              id="productDescription"
-              value={productDescription}
-              onChange={(e) => setProductDescription(e.target.value)}
-              rows={3}
-              placeholder="Örn. Coca-Cola 33cl - 5 adet eksik"
-              className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            />
+          <div className="space-y-3 rounded-lg border p-3">
+            <Label>Ürünler *</Label>
+
+            {/* Ürün ekleme satırı */}
+            <div className="flex items-end gap-2">
+              <div className="min-w-0 flex-1 space-y-1">
+                <Select value={itemProductId} onValueChange={setItemProductId}>
+                  <SelectTrigger className="min-w-0">
+                    <SelectValue placeholder="Ürün seçin…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(stock ?? []).map((s: StockLevel) => (
+                      <SelectItem key={s.productId} value={s.productId}>
+                        {s.product.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={itemQty}
+                onChange={(e) => setItemQty(e.target.value)}
+                placeholder="Miktar"
+                className="w-24"
+              />
+              <Button type="button" variant="outline" size="icon" onClick={addLine}>
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* Eklenen ürünler */}
+            {productLines.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Henüz ürün eklenmedi.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {productLines.map((l) => (
+                  <div
+                    key={l.productId}
+                    className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 truncate">
+                      {l.productName}
+                      <span className="ml-1 text-muted-foreground">
+                        × {l.quantity} {l.unit}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeLine(l.productId)}
+                      aria-label="Ürünü çıkar"
+                      className="shrink-0 rounded-md px-1.5 py-1 text-destructive transition-colors hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

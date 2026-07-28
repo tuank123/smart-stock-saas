@@ -5,7 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateDebtDto, UpdateDebtDto } from './dto/debt.dto';
+import {
+  CreateDebtDto,
+  RecordCashPaymentDto,
+  RecordProductReceiptDto,
+  UpdateDebtDto,
+} from './dto/debt.dto';
 
 type DebtUser = {
   tenantId: string;
@@ -14,9 +19,19 @@ type DebtUser = {
   planId?: string | null;
 };
 
+// productLines JSON eleman şekli.
+type ProductLine = {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unit: string;
+  receivedQuantity: number;
+};
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const VISIT_REMINDER_DAYS = 2;
 const RECEIVABLE_REMINDER_DAYS = 15;
+const PAID_VISIBLE_DAYS = 3;
 
 @Injectable()
 export class DebtsService {
@@ -37,9 +52,23 @@ export class DebtsService {
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
       this.assertAllowed(user);
 
+      // OPEN kayıtlar + son 3 gün içinde tam kapanmış (PAID) kayıtlar gösterilir.
+      const paidVisibleThreshold = new Date(Date.now() - PAID_VISIBLE_DAYS * DAY_MS);
       return tx.debt.findMany({
-        where: { branchId },
-        include: { supplier: { select: { id: true, name: true } } },
+        where: {
+          branchId,
+          OR: [
+            { status: 'OPEN' },
+            { status: 'PAID', paidAt: { gte: paidVisibleThreshold } },
+          ],
+        },
+        include: {
+          supplier: { select: { id: true, name: true } },
+          payments: {
+            select: { amount: true, paidAt: true },
+            orderBy: { paidAt: 'asc' },
+          },
+        },
         orderBy: { createdAt: 'desc' },
       });
     });
@@ -50,14 +79,39 @@ export class DebtsService {
     if (dto.debtType === 'CASH' && !dto.amount) {
       throw new BadRequestException('Nakit kayıtlar için tutar zorunludur');
     }
-    if (dto.debtType === 'PRODUCT' && !dto.productDescription) {
-      throw new BadRequestException('Ürün kayıtları için açıklama zorunludur');
+    if (dto.debtType === 'PRODUCT' && (!dto.productLines || dto.productLines.length === 0)) {
+      throw new BadRequestException('Ürün kayıtları için en az bir ürün satırı zorunludur');
     }
 
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
       this.assertAllowed(user);
+
+      // PRODUCT ise: ürün adlarını çekip yapılandırılmış productLines + özet metin kur.
+      let productLines: ProductLine[] | null = null;
+      let productDescription: string | null = null;
+      if (dto.debtType === 'PRODUCT' && dto.productLines) {
+        const ids = dto.productLines.map((l) => l.productId);
+        const products = await tx.product.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, name: true, unit: true },
+        });
+        const byId = new Map(products.map((p) => [p.id, p]));
+        productLines = dto.productLines.map((l) => {
+          const p = byId.get(l.productId);
+          return {
+            productId: l.productId,
+            productName: p?.name ?? l.productId,
+            quantity: l.quantity,
+            unit: p?.unit ?? 'adet',
+            receivedQuantity: 0,
+          };
+        });
+        productDescription = productLines
+          .map((pl) => `${pl.productName} x${pl.quantity}`)
+          .join(', ');
+      }
 
       return tx.debt.create({
         data: {
@@ -68,7 +122,9 @@ export class DebtsService {
           debtType: dto.debtType,
           source: 'MANUAL',
           amount: dto.debtType === 'CASH' ? dto.amount : null,
-          productDescription: dto.debtType === 'PRODUCT' ? dto.productDescription : null,
+          remainingAmount: dto.debtType === 'CASH' ? dto.amount : null,
+          productDescription,
+          productLines: productLines ?? undefined,
           dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
           notes: dto.notes ?? null,
           createdBy: user.userId,
@@ -78,6 +134,8 @@ export class DebtsService {
     });
   }
 
+  // Sade alan güncelleyici — durum/ödeme değişiklikleri artık
+  // recordCashPayment / recordProductReceipt üzerinden yapılır.
   async updateDebt(id: string, dto: UpdateDebtDto, user: DebtUser) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
@@ -89,22 +147,99 @@ export class DebtsService {
         throw new NotFoundException('Borç kaydı bulunamadı');
       }
 
-      // OPEN → PAID geçişinde, iade-ürün kaydıysa ürünler stoka geri eklenir.
-      // Yalnızca bir kez (zaten PAID ise tekrarlanmaz).
-      const transitioningToPaid =
-        dto.status === 'PAID' && existing.status !== 'PAID';
-      if (transitioningToPaid && existing.affectsStock && existing.productLines) {
-        const lines = existing.productLines as unknown as Array<{
-          productId: string;
-          productName: string;
-          quantity: number;
-          unit: string;
-        }>;
-        for (const line of lines) {
+      return tx.debt.update({
+        where: { id },
+        data: {
+          ...(dto.dueDate !== undefined
+            ? { dueDate: dto.dueDate ? new Date(dto.dueDate) : null }
+            : {}),
+          ...(dto.notes !== undefined ? { notes: dto.notes || null } : {}),
+        },
+        include: { supplier: { select: { id: true, name: true } } },
+      });
+    });
+  }
+
+  // Nakit borca kısmi/tam ödeme kaydeder.
+  async recordCashPayment(id: string, dto: RecordCashPaymentDto, user: DebtUser) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      this.assertAllowed(user);
+
+      const existing = await tx.debt.findFirst({ where: { id } });
+      if (!existing) {
+        throw new NotFoundException('Borç kaydı bulunamadı');
+      }
+      if (existing.debtType !== 'CASH') {
+        throw new BadRequestException('Bu kayıt nakit türünde değil');
+      }
+
+      const current = existing.remainingAmount ?? existing.amount ?? 0;
+      const newRemaining = Math.max(0, Number(current) - dto.amount);
+      const now = new Date();
+      const fullyPaid = newRemaining <= 0;
+
+      // Ödeme hareketini geçmişe kaydet.
+      await tx.debtPayment.create({
+        data: { debtId: id, amount: dto.amount, createdBy: user.userId },
+      });
+
+      return tx.debt.update({
+        where: { id },
+        data: {
+          remainingAmount: newRemaining,
+          lastPaymentAmount: dto.amount,
+          lastPaymentDate: now,
+          ...(fullyPaid ? { status: 'PAID', paidAt: now } : {}),
+        },
+        include: { supplier: { select: { id: true, name: true } } },
+      });
+    });
+  }
+
+  // Ürün borcuna kısmi/tam teslim alma kaydeder; affectsStock ise farkı stoka ekler.
+  async recordProductReceipt(id: string, dto: RecordProductReceiptDto, user: DebtUser) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      this.assertAllowed(user);
+
+      const existing = await tx.debt.findFirst({ where: { id } });
+      if (!existing) {
+        throw new NotFoundException('Borç kaydı bulunamadı');
+      }
+      if (existing.debtType !== 'PRODUCT') {
+        throw new BadRequestException('Bu kayıt ürün türünde değil');
+      }
+
+      const lines = (existing.productLines as unknown as ProductLine[]) ?? [];
+      const receivedById = new Map(
+        dto.lines.map((l) => [l.productId, l.receivedQuantity]),
+      );
+
+      const updatedLines = lines.map((line) => {
+        const incoming = receivedById.get(line.productId);
+        if (incoming == null) return line;
+        // Eski kayıtlarda receivedQuantity olmayabilir → 0 varsay (NaN'ı önle).
+        const currentReceived = line.receivedQuantity ?? 0;
+        // Aşırı girişi sınırla: toplam quantity'yi geçmesin.
+        const capped = Math.min(line.quantity, currentReceived + incoming);
+        const delta = capped - currentReceived; // bu turda gerçekten eklenen
+        return { ...line, receivedQuantity: capped, __delta: delta } as ProductLine & {
+          __delta: number;
+        };
+      }) as Array<ProductLine & { __delta?: number }>;
+
+      // affectsStock ise, yalnız bu turda eklenen fark kadar stoğa geri ekle.
+      if (existing.affectsStock) {
+        for (const line of updatedLines) {
+          const delta = line.__delta ?? 0;
+          if (delta <= 0) continue;
           await tx.stockLevel.updateMany({
             where: { productId: line.productId, branchId: existing.branchId },
             data: {
-              quantity: { increment: line.quantity },
+              quantity: { increment: delta },
               version: { increment: 1 },
             },
           });
@@ -114,25 +249,36 @@ export class DebtsService {
               productId: line.productId,
               branchId: existing.branchId,
               movementType: 'RETURN_RESOLVED',
-              quantity: line.quantity,
+              quantity: delta,
               referenceId: existing.id,
               referenceType: 'RETURN_INVOICE',
-              notes: 'İade süreci tamamlandı, ürün stoka eklendi',
+              notes: 'İade süreci — teslim alınan ürün stoka eklendi',
               createdBy: user.userId,
             },
           });
         }
       }
 
+      // Geçici __delta'yı temizleyip kalıcı satırları oluştur.
+      const persistedLines: ProductLine[] = updatedLines.map((l) => ({
+        productId: l.productId,
+        productName: l.productName,
+        quantity: l.quantity,
+        unit: l.unit,
+        receivedQuantity: l.receivedQuantity ?? 0,
+      }));
+
+      const allReceived = persistedLines.every(
+        (l) => l.receivedQuantity >= l.quantity,
+      );
+      const now = new Date();
+
       return tx.debt.update({
         where: { id },
         data: {
-          ...(dto.status !== undefined ? { status: dto.status } : {}),
-          ...(dto.amount !== undefined ? { amount: dto.amount } : {}),
-          ...(dto.dueDate !== undefined
-            ? { dueDate: dto.dueDate ? new Date(dto.dueDate) : null }
-            : {}),
-          ...(dto.notes !== undefined ? { notes: dto.notes || null } : {}),
+          productLines: persistedLines,
+          lastPaymentDate: now,
+          ...(allReceived ? { status: 'PAID', paidAt: now } : {}),
         },
         include: { supplier: { select: { id: true, name: true } } },
       });

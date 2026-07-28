@@ -617,7 +617,8 @@ export function useOcrConfirm() {
       supplierId: string;
       invoiceTotal?: number;
       paidAmount?: number;
-      missingItemsNote?: string;
+      allItemsReceived: boolean;
+      deliveredLines?: Array<{ productId: string; receivedQty: number }>;
     }) =>
       api
         .post(`/ocr/scan/${vars.scanId}/confirm`, {
@@ -625,7 +626,8 @@ export function useOcrConfirm() {
           supplierId: vars.supplierId,
           invoiceTotal: vars.invoiceTotal,
           paidAmount: vars.paidAmount,
-          missingItemsNote: vars.missingItemsNote,
+          allItemsReceived: vars.allItemsReceived,
+          deliveredLines: vars.deliveredLines,
         })
         .then((r) => r.data),
     onSuccess: () => {
@@ -833,17 +835,32 @@ export function useUpdateOrder() {
 
 // ── Borç / Alacak (Debt) ──────────────────────────────────────────────────────
 
+export interface DebtProductLine {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unit: string;
+  receivedQuantity: number;
+}
+
 export interface Debt {
   id: string;
   supplierId: string;
   direction: 'PAYABLE' | 'RECEIVABLE';
   debtType: 'CASH' | 'PRODUCT';
   source: 'MANUAL' | 'OCR';
-  amount: string | null; // Prisma Decimal → string; ürün borcunda null
-  productDescription: string | null;
+  amount: string | null; // orijinal/ilk tutar (Prisma Decimal → string)
+  remainingAmount: string | null; // CASH için kalan tutar
+  lastPaymentAmount: string | null;
+  lastPaymentDate: string | null;
+  paidAt: string | null;
+  productDescription: string | null; // backend otomatik özet metin (salt-okunur)
+  productLines: DebtProductLine[] | null;
   dueDate: string | null;
   status: 'OPEN' | 'PAID';
   notes: string | null;
+  createdAt: string;
+  payments: Array<{ amount: string; paidAt: string }>;
   supplier: { id: string; name: string };
 }
 
@@ -877,7 +894,7 @@ export function useCreateDebt() {
       direction: 'PAYABLE' | 'RECEIVABLE';
       debtType: 'CASH' | 'PRODUCT';
       amount?: number;
-      productDescription?: string;
+      productLines?: Array<{ productId: string; quantity: number }>;
       dueDate?: string;
       notes?: string;
     }) => api.post(`/debts/${branchId}`, dto).then((r) => r.data),
@@ -889,18 +906,34 @@ export function useCreateDebt() {
   });
 }
 
-export function useUpdateDebt() {
+export function useRecordCashPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: string; amount: number }) =>
+      api.patch(`/debts/${vars.id}/cash-payment`, { amount: vars.amount }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['debts'] });
+      toast.success('Ödeme kaydedildi');
+    },
+    onError: () => toast.error('Ödeme kaydedilemedi'),
+  });
+}
+
+export function useRecordProductReceipt() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (vars: {
-      debtId: string;
-      data: { status?: 'OPEN' | 'PAID'; amount?: number; dueDate?: string; notes?: string };
-    }) => api.patch(`/debts/${vars.debtId}`, vars.data).then((r) => r.data),
+      id: string;
+      lines: Array<{ productId: string; receivedQuantity: number }>;
+    }) => api.patch(`/debts/${vars.id}/product-receipt`, { lines: vars.lines }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['debts'] });
-      toast.success('Kayıt güncellendi');
+      qc.invalidateQueries({ queryKey: ['stock', branchId] });
+      toast.success('Teslim alma kaydedildi');
     },
-    onError: () => toast.error('Kayıt güncellenemedi'),
+    onError: () => toast.error('Teslim alma kaydedilemedi'),
   });
 }
 

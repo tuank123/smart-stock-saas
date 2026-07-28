@@ -115,6 +115,7 @@ model User {
   priceChangeLogs         PriceChangeLog[]
   openedCashierSessions   CashierSession[]
   createdDebts            Debt[]
+  debtPayments            DebtPayment[]
 
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
@@ -403,9 +404,13 @@ model Debt {
   debtType            String    @default("CASH") @map("debt_type") // 'CASH' | 'PRODUCT'
   source              String    @default("MANUAL") @map("source") // 'MANUAL' | 'OCR'
   amount              Decimal?  @db.Decimal(12, 2) // nakit borçlarda dolu, ürün borçlarında null
-  productDescription  String?   @map("product_description") // ürün borcunda serbest metin
-  productLines        Json?     @map("product_lines") // [{ productId, productName, quantity, unit }] — yalnız iade-ürün akışında dolu
-  affectsStock        Boolean   @default(false) @map("affects_stock") // true ise status='PAID' olunca productLines stoka geri eklenir
+  remainingAmount     Decimal?  @db.Decimal(12, 2) @map("remaining_amount") // CASH için, oluşturulunca amount'a eşitlenir
+  lastPaymentAmount   Decimal?  @db.Decimal(12, 2) @map("last_payment_amount")
+  lastPaymentDate     DateTime? @map("last_payment_date")
+  paidAt              DateTime? @map("paid_at") // tam kapandığı an, 3-gün gösterim için
+  productDescription  String?   @map("product_description") // backend otomatik özet metin
+  productLines        Json?     @map("product_lines") // [{ productId, productName, quantity, unit, receivedQuantity }]
+  affectsStock        Boolean   @default(false) @map("affects_stock") // true ise teslim alındıkça productLines stoka geri eklenir
   invoiceDate         DateTime? @map("invoice_date")
   dueDate             DateTime? @map("due_date")
   status              String    @default("OPEN") // OPEN | PAID
@@ -419,9 +424,25 @@ model Debt {
   branch   Branch   @relation(fields: [branchId], references: [id])
   supplier Supplier @relation(fields: [supplierId], references: [id])
   creator  User     @relation(fields: [createdBy], references: [id])
+  payments DebtPayment[]
 
   @@index([branchId, status])
   @@map("debts")
+}
+
+/// Bir borç kaydına ait tekil ödeme hareketi (ilk fatura ödemesi dahil).
+model DebtPayment {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  debtId    String   @map("debt_id") @db.Uuid
+  amount    Decimal  @db.Decimal(12, 2)
+  paidAt    DateTime @default(now()) @map("paid_at")
+  createdBy String   @map("created_by") @db.Uuid
+
+  debt    Debt @relation(fields: [debtId], references: [id])
+  creator User @relation(fields: [createdBy], references: [id])
+
+  @@index([debtId, paidAt])
+  @@map("debt_payments")
 }
 
 // ============================================
