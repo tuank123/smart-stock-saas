@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, Plus, Wallet } from 'lucide-react';
 import { StationPageHeader } from '@/components/layout/StationPageHeader';
 import { Button } from '@/components/ui/button';
@@ -22,13 +22,21 @@ function fmtDate(dateStr: string) {
   return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium' }).format(new Date(dateStr));
 }
 
-export default function AlacakVerecekPage() {
+function AlacakVerecekInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: debts, isPending, isError } = useDebts();
   const markViewed = useMarkDebtsViewed();
 
-  const [tab, setTab] = useState<Tab>('PAYABLE');
+  // Aktif sekme URL query param'ıyla senkron (?tab=PAYABLE | RECEIVABLE).
+  const initialTab: Tab = searchParams.get('tab') === 'RECEIVABLE' ? 'RECEIVABLE' : 'PAYABLE';
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [search, setSearch] = useState('');
+
+  function selectTab(next: Tab) {
+    setTab(next);
+    router.replace(`/isletme-app/alacak-verecek?tab=${next}`);
+  }
 
   // Bu bölüme girildiğinde "görüldü" işaretle → 2 gün ziyaret sayacı sıfırlanır.
   useEffect(() => {
@@ -63,13 +71,13 @@ export default function AlacakVerecekPage() {
       <div className="mb-4 grid grid-cols-2 gap-2">
         <Button
           variant={tab === 'PAYABLE' ? 'default' : 'outline'}
-          onClick={() => setTab('PAYABLE')}
+          onClick={() => selectTab('PAYABLE')}
         >
           Verecekler
         </Button>
         <Button
           variant={tab === 'RECEIVABLE' ? 'default' : 'outline'}
-          onClick={() => setTab('RECEIVABLE')}
+          onClick={() => selectTab('RECEIVABLE')}
         >
           Alacaklar
         </Button>
@@ -194,5 +202,13 @@ export default function AlacakVerecekPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function AlacakVerecekPage() {
+  return (
+    <Suspense>
+      <AlacakVerecekInner />
+    </Suspense>
   );
 }

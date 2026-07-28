@@ -38,9 +38,11 @@ interface ReviewRow {
   confidence: number;
   matchStatus: OcrParsedLine['matchStatus'];
   productId: string | null;
-  qty: number;
+  qty: number; // son geçerli sayısal değer (hesap/payload için)
+  qtyText: string; // input'un ham metni (görsel/düzenleme katmanı)
   mode: QtyMode;
   manualUnitsPerCase: number | null;
+  manualUnitsPerCaseText: string; // koli/adet input'unun ham metni
 }
 
 // ── Step indicator ────────────────────────────────────────────────────────────
@@ -206,8 +208,10 @@ export function OcrScanFlow() {
               matchStatus: line.matchStatus,
               productId: line.matchedProductId ?? null,
               qty: line.qty,
+              qtyText: String(line.qty),
               mode: 'ADET' as const,
               manualUnitsPerCase: null,
+              manualUnitsPerCaseText: '',
             })),
           );
           // OCR fatura başlığını form alanlarına ön-doldur (kullanıcı düzenleyebilir).
@@ -520,13 +524,19 @@ export function OcrScanFlow() {
                       {/* Quantity */}
                       <div className="flex shrink-0 items-center gap-1">
                         <Input
-                          type="number"
-                          min="0.001"
-                          step="0.001"
-                          value={row.qty}
+                          type="text"
+                          inputMode="decimal"
+                          value={row.qtyText}
                           onChange={(e) => {
-                            const v = parseFloat(e.target.value);
-                            if (!isNaN(v) && v > 0) updateRow(i, { qty: v });
+                            const text = e.target.value;
+                            const v = Number(text.replace(',', '.'));
+                            // Geçerli pozitif sayı ise qty'yi de güncelle; değilse
+                            // yalnız ham metni değiştir (son geçerli qty korunur).
+                            if (!isNaN(v) && v > 0) {
+                              updateRow(i, { qtyText: text, qty: v });
+                            } else {
+                              updateRow(i, { qtyText: text });
+                            }
                           }}
                           className="h-8 w-20 text-right text-sm"
                         />
@@ -553,13 +563,19 @@ export function OcrScanFlow() {
                             Bu ürün için koli/adet bilgisi giriniz
                           </span>
                           <Input
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={row.manualUnitsPerCase ?? ''}
+                            type="text"
+                            inputMode="numeric"
+                            value={row.manualUnitsPerCaseText}
                             onChange={(e) => {
-                              const v = parseInt(e.target.value, 10);
-                              updateRow(i, { manualUnitsPerCase: !isNaN(v) && v >= 1 ? v : null });
+                              const text = e.target.value;
+                              const v = parseInt(text, 10);
+                              // Geçerli (>=1) ise değeri de güncelle; değilse yalnız
+                              // ham metni değiştir ve manualUnitsPerCase'i null yap.
+                              if (!isNaN(v) && v >= 1) {
+                                updateRow(i, { manualUnitsPerCaseText: text, manualUnitsPerCase: v });
+                              } else {
+                                updateRow(i, { manualUnitsPerCaseText: text, manualUnitsPerCase: null });
+                              }
                             }}
                             className="h-8 w-20 text-right text-sm"
                           />
