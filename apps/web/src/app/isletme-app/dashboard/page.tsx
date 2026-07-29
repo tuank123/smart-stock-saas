@@ -7,6 +7,7 @@ import {
   ShoppingCart,
   Store,
   Wallet,
+  Search,
   AlertTriangle,
   type LucideIcon,
 } from 'lucide-react';
@@ -25,6 +26,7 @@ const actions: StationAction[] = [
   { href: '/isletme-app/siparis-onerileri', label: 'Sipariş Önerileri', icon: ShoppingCart },
   { href: '/isletme-app/gecici-kasa', label: 'Geçici Kasa', icon: Store },
   { href: '/isletme-app/alacak-verecek', label: 'Alacak Verecek Listeleri', icon: Wallet },
+  { href: '/isletme-app/stok-sorgu', label: 'Stok Sorgulama', icon: Search },
 ];
 
 export default function IsletmeAppDashboardPage() {
