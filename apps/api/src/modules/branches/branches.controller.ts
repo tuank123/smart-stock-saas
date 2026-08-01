@@ -5,6 +5,7 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
 } from '@nestjs/common';
 
@@ -17,6 +18,7 @@ import {
   CreateBranchDto,
   GenerateSetupCodeDto,
   ConnectAgentDto,
+  UpdateBranchDto,
 } from './dto/branch.dto';
 import { BranchesService } from './branches.service';
 
@@ -47,6 +49,16 @@ export class BranchesController {
     @CurrentUser() user: { tenantId: string; branchId?: string | null; role?: string | null },
   ) {
     return this.service.getBranch(branchId, user);
+  }
+
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
+  @Patch(':branchId')
+  updateBranch(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Body() dto: UpdateBranchDto,
+    @CurrentUser() user: { tenantId: string; branchId?: string | null; role?: string | null },
+  ) {
+    return this.service.updateBranch(branchId, dto, user);
   }
 
   // Agent kurulum kodu üret (BranchIntegration'ı PENDING_INSTALL olarak hazırlar).

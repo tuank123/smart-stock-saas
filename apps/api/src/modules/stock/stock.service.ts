@@ -12,6 +12,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SmsService } from '../sms/sms.service';
 import {
+  DailyReportQueryDto,
   InitializeStockDto,
   MovementQueryDto,
   PriceChangeQueryDto,
@@ -21,6 +22,14 @@ import {
   UpdateThresholdDto,
   WasteStockDto,
 } from './dto/stock.dto';
+
+// Verilen takvim gününü closingTime (HH:mm) saatinde yerel Date olarak kurar.
+// Bir "iş günü" D, [D@closingTime, (D+1)@closingTime) aralığıdır.
+// closingTime='00:00' iken bu, normal gece yarısı sınırıyla birebir aynı sonucu verir.
+function atClosing(year: number, month: number, day: number, closingTime: string): Date {
+  const [h, m] = closingTime.split(':').map(Number);
+  return new Date(year, month, day, h || 0, m || 0, 0, 0);
+}
 
 @Injectable()
 export class StockService {
@@ -544,6 +553,198 @@ export class StockService {
 
         return { id: s.id, openedAt: s.openedAt, closedAt: s.closedAt, items, sessionTotal, receipts };
       });
+    });
+  }
+
+  async getDailyReport(
+    branchId: string,
+    dto: DailyReportQueryDto,
+    user: { tenantId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
+
+      // Şubenin kapanış saatine göre iş günü sınırları.
+      const branch = await tx.branch.findUnique({
+        where: { id: branchId },
+        select: { closingTime: true },
+      });
+      const closingTime = branch?.closingTime ?? '00:00';
+
+      // Hedef gün: dto.date ?? bugün. İş günü = [D@closingTime, (D+1)@closingTime).
+      const base = dto.date ? new Date(dto.date) : new Date();
+      const y = base.getFullYear();
+      const mo = base.getMonth();
+      const da = base.getDate();
+      const dayStart = atClosing(y, mo, da, closingTime);
+      const dayEnd = new Date(atClosing(y, mo, da + 1, closingTime).getTime() - 1);
+      const dateStr = `${y}-${String(mo + 1).padStart(2, '0')}-${String(da).padStart(2, '0')}`;
+
+      // O günün SALE hareketleri.
+      const movements = await tx.stockMovement.findMany({
+        where: {
+          tenantId: user.tenantId,
+          branchId,
+          movementType: 'SALE',
+          createdAt: { gte: dayStart, lte: dayEnd },
+        },
+        select: {
+          productId: true,
+          quantity: true,
+          unitPrice: true,
+          cashierSessionId: true,
+          product: { select: { id: true, name: true } },
+        },
+      });
+
+      // Ürün bazında toplam miktar + ciro.
+      const byProduct = new Map<
+        string,
+        { productId: string; productName: string; totalQty: number; totalRevenue: number }
+      >();
+      // Oturum bazında toplam satış tutarı.
+      const revenueBySession = new Map<string, number>();
+      let grossRevenue = 0;
+
+      for (const m of movements) {
+        const qty = Math.abs(Number(m.quantity));
+        const revenue = qty * Number(m.unitPrice ?? 0);
+        grossRevenue += revenue;
+
+        const existing = byProduct.get(m.productId);
+        if (existing) {
+          existing.totalQty += qty;
+          existing.totalRevenue += revenue;
+        } else {
+          byProduct.set(m.productId, {
+            productId: m.productId,
+            productName: m.product.name,
+            totalQty: qty,
+            totalRevenue: revenue,
+          });
+        }
+
+        if (m.cashierSessionId) {
+          revenueBySession.set(
+            m.cashierSessionId,
+            (revenueBySession.get(m.cashierSessionId) ?? 0) + revenue,
+          );
+        }
+      }
+
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+      const productList = Array.from(byProduct.values()).map((p) => ({
+        productId: p.productId,
+        productName: p.productName,
+        totalQty: p.totalQty,
+        totalRevenue: round2(p.totalRevenue),
+      }));
+
+      const topSellers = [...productList].sort((a, b) => b.totalQty - a.totalQty).slice(0, 10);
+      const bottomSellers = [...productList].sort((a, b) => a.totalQty - b.totalQty).slice(0, 10);
+
+      // O gün açılan kasa oturumları + oturum toplam satışı.
+      const sessions = await tx.cashierSession.findMany({
+        where: {
+          tenantId: user.tenantId,
+          branchId,
+          openedAt: { gte: dayStart, lte: dayEnd },
+        },
+        orderBy: { openedAt: 'desc' },
+        select: { id: true, openedAt: true, closedAt: true },
+      });
+
+      const cashierSessions = sessions.map((s) => ({
+        id: s.id,
+        openedAt: s.openedAt,
+        closedAt: s.closedAt,
+        sessionTotal: round2(revenueBySession.get(s.id) ?? 0),
+      }));
+
+      return {
+        date: dateStr,
+        grossRevenue: round2(grossRevenue),
+        topSellers,
+        bottomSellers,
+        cashierSessions,
+      };
+    });
+  }
+
+  // Son `days` günün (bugün dahil) tarih + toplam ciro özeti.
+  async getDailyReportHistory(
+    branchId: string,
+    days: number,
+    user: { tenantId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+        throw new ForbiddenException(
+          'Bu işlem yalnızca tek şubeli işletme sahipleri tarafından yapılabilir',
+        );
+      }
+
+      // Şubenin kapanış saatine göre iş günü sınırları.
+      const branch = await tx.branch.findUnique({
+        where: { id: branchId },
+        select: { closingTime: true },
+      });
+      const closingTime = branch?.closingTime ?? '00:00';
+      const [ch, cm] = closingTime.split(':').map(Number);
+      const closingMs = ((ch || 0) * 60 + (cm || 0)) * 60_000;
+
+      const span = Math.max(1, Math.floor(days) || 10);
+      const now = new Date();
+      const y = now.getFullYear();
+      const mo = now.getMonth();
+      const da = now.getDate();
+      // İş günü D = [D@closingTime, (D+1)@closingTime). En eski gün: da-(span-1),
+      // en yeni gün: bugün. Aralık: [en-eski@closing, (bugün+1)@closing).
+      const rangeStart = atClosing(y, mo, da - (span - 1), closingTime);
+      const rangeEnd = new Date(atClosing(y, mo, da + 1, closingTime).getTime() - 1);
+
+      const movements = await tx.stockMovement.findMany({
+        where: {
+          tenantId: user.tenantId,
+          branchId,
+          movementType: 'SALE',
+          createdAt: { gte: rangeStart, lte: rangeEnd },
+        },
+        select: { quantity: true, unitPrice: true, createdAt: true },
+      });
+
+      const fmtDay = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+      // Bir hareketin iş günü etiketi: zaman kapanış saati kadar geri kaydırılıp
+      // takvim günü alınır (closingTime='00:00' iken normal takvim gününe eşit).
+      const businessDayKey = (x: Date) => fmtDay(new Date(x.getTime() - closingMs));
+
+      const revenueByDay = new Map<string, number>();
+      for (const m of movements) {
+        const key = businessDayKey(new Date(m.createdAt));
+        const revenue = Math.abs(Number(m.quantity)) * Number(m.unitPrice ?? 0);
+        revenueByDay.set(key, (revenueByDay.get(key) ?? 0) + revenue);
+      }
+
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+      // Her iş günü için (satış olmasa bile) kayıt üret; en yeni en üstte.
+      const list: { date: string; grossRevenue: number }[] = [];
+      for (let i = 0; i < span; i++) {
+        const d = new Date(y, mo, da - i);
+        const key = fmtDay(d);
+        list.push({ date: key, grossRevenue: round2(revenueByDay.get(key) ?? 0) });
+      }
+
+      return { days: list };
     });
   }
 

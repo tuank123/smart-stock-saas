@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator';
 
 export class CreateBranchDto {
   @IsNotEmpty()
@@ -20,6 +20,27 @@ export class CreateBranchDto {
   @IsOptional()
   @IsString()
   timezone?: string;
+}
+
+export class UpdateBranchDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  // HH:mm formatı (00:00 – 23:59).
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    message: 'Kapanış saati HH:mm formatında olmalıdır',
+  })
+  closingTime?: string;
 }
 
 // Agent kurulum kodu üretimi — adapterType whitelist'i service'te DB'ye karşı doğrulanır.

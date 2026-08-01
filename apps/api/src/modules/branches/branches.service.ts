@@ -11,6 +11,7 @@ import {
   CreateBranchDto,
   GenerateSetupCodeDto,
   ConnectAgentDto,
+  UpdateBranchDto,
 } from './dto/branch.dto';
 
 @Injectable()
@@ -86,6 +87,8 @@ export class BranchesService {
         slug: branch.slug,
         isActive: branch.isActive,
         address: branch.address,
+        phone: branch.phone,
+        closingTime: branch.closingTime,
         integrationStatus: integration?.connectionStatus ?? null,
       };
     });
@@ -215,6 +218,49 @@ export class BranchesService {
         supportedVersions: true,
       },
       orderBy: { adapterType: 'asc' },
+    });
+  }
+
+  // Şube temel bilgilerini (ad, adres, telefon) günceller.
+  async updateBranch(
+    branchId: string,
+    dto: UpdateBranchDto,
+    user: { tenantId: string; branchId?: string | null; role?: string | null },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      // SUBE_MUDURU yalnızca kendi şubesini güncelleyebilir.
+      if (user.role === 'SUBE_MUDURU' && user.branchId !== branchId) {
+        throw new ForbiddenException('Bu şubeye erişim yetkiniz yok');
+      }
+
+      const existing = await tx.branch.findUnique({ where: { id: branchId } });
+      if (!existing || existing.tenantId !== user.tenantId) {
+        throw new NotFoundException('Şube bulunamadı');
+      }
+
+      const branch = await tx.branch.update({
+        where: { id: branchId },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name } : {}),
+          ...(dto.address !== undefined ? { address: dto.address } : {}),
+          ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+          ...(dto.closingTime !== undefined ? { closingTime: dto.closingTime } : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          address: true,
+          phone: true,
+          closingTime: true,
+          isActive: true,
+        },
+      });
+
+      return branch;
     });
   }
 

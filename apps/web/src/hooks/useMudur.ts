@@ -48,6 +48,8 @@ export interface BranchDetail {
   slug: string;
   isActive: boolean;
   address: string | null;
+  phone: string | null;
+  closingTime: string;
   integrationStatus: string | null;
 }
 
@@ -958,5 +960,100 @@ export function useDebtReminders() {
       api.get<DebtReminders>(`/debts/${branchId}/reminders`).then((r) => r.data),
     enabled: !!branchId,
     staleTime: 30 * 1000,
+  });
+}
+
+// ── Ayarlar (Tenant / Branch güncelleme) ──────────────────────────────────────
+
+export function useUpdateTenant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: { companyName?: string; taxNumber?: string }) =>
+      api.patch('/tenants/me', dto).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['me'] });
+      toast.success('İşletme bilgileri güncellendi');
+    },
+    onError: () => toast.error('İşletme bilgileri güncellenemedi'),
+  });
+}
+
+export function useUpdateBranch() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: {
+      name?: string;
+      address?: string;
+      phone?: string;
+      closingTime?: string;
+    }) =>
+      api.patch(`/branches/${branchId}`, dto).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['me'] });
+      qc.invalidateQueries({ queryKey: ['branch', branchId] });
+      toast.success('Şube bilgileri güncellendi');
+    },
+    onError: () => toast.error('Şube bilgileri güncellenemedi'),
+  });
+}
+
+// ── Günlük Rapor ──────────────────────────────────────────────────────────────
+
+export interface DailyReportProduct {
+  productId: string;
+  productName: string;
+  totalQty: number;
+  totalRevenue: number;
+}
+
+export interface DailyReportSession {
+  id: string;
+  openedAt: string;
+  closedAt: string | null;
+  sessionTotal: number;
+}
+
+export interface DailyReport {
+  date: string;
+  grossRevenue: number;
+  topSellers: DailyReportProduct[];
+  bottomSellers: DailyReportProduct[];
+  cashierSessions: DailyReportSession[];
+}
+
+export function useDailyReport(date?: string) {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<DailyReport>({
+    queryKey: ['daily-report', branchId, date ?? null],
+    queryFn: () =>
+      api
+        .get<DailyReport>(`/stock/${branchId}/daily-report`, {
+          params: date ? { date } : {},
+        })
+        .then((r) => r.data),
+    enabled: !!branchId,
+  });
+}
+
+export interface DailyReportHistoryDay {
+  date: string;
+  grossRevenue: number;
+}
+
+export function useDailyReportHistory(days = 10) {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<{ days: DailyReportHistoryDay[] }>({
+    queryKey: ['daily-report-history', branchId, days],
+    queryFn: () =>
+      api
+        .get<{ days: DailyReportHistoryDay[] }>(`/stock/${branchId}/daily-report/history`, {
+          params: { days },
+        })
+        .then((r) => r.data),
+    enabled: !!branchId,
   });
 }

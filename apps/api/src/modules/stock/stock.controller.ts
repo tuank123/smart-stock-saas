@@ -14,6 +14,7 @@ import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import {
+  DailyReportQueryDto,
   InitializeStockDto,
   MovementQueryDto,
   PriceChangeQueryDto,
@@ -113,6 +114,30 @@ export class StockController {
     user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
     return this.service.listCashierSessions(branchId, user);
+  }
+
+  // Statik 'daily-report' segmenti :branchId/:productId'den ÖNCE tanımlanmalı.
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
+  @Get(':branchId/daily-report')
+  getDailyReport(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Query() query: DailyReportQueryDto,
+    @CurrentUser()
+    user: { tenantId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.service.getDailyReport(branchId, query, user);
+  }
+
+  // Statik 'daily-report/history' segmenti :branchId/:productId'den ÖNCE tanımlanmalı.
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
+  @Get(':branchId/daily-report/history')
+  getDailyReportHistory(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Query('days') days: string | undefined,
+    @CurrentUser()
+    user: { tenantId: string; role?: string | null; planId?: string | null },
+  ) {
+    return this.service.getDailyReportHistory(branchId, Number(days) || 10, user);
   }
 
   @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU, UserRole.DEPO)

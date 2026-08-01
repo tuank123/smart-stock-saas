@@ -8,6 +8,8 @@ import {
   Store,
   Wallet,
   Search,
+  BarChart3,
+  Settings,
   AlertTriangle,
   type LucideIcon,
 } from 'lucide-react';
@@ -27,6 +29,8 @@ const actions: StationAction[] = [
   { href: '/isletme-app/gecici-kasa', label: 'Geçici Kasa', icon: Store },
   { href: '/isletme-app/alacak-verecek', label: 'Alacak Verecek Listeleri', icon: Wallet },
   { href: '/isletme-app/stok-sorgu', label: 'Stok Sorgulama', icon: Search },
+  { href: '/isletme-app/gunluk-rapor', label: 'Günlük Rapor', icon: BarChart3 },
+  { href: '/isletme-app/ayarlar', label: 'Ayarlar', icon: Settings },
 ];
 
 export default function IsletmeAppDashboardPage() {

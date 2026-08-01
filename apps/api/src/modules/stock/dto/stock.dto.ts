@@ -75,6 +75,13 @@ export class MovementQueryDto {
   since?: string;
 }
 
+export class DailyReportQueryDto {
+  // Verilmezse bugünün tarihi kullanılır (YYYY-MM-DD).
+  @IsOptional()
+  @IsDateString()
+  date?: string;
+}
+
 export class WasteStockDto {
   @IsUUID()
   productId: string = '';

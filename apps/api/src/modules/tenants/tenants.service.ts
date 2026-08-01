@@ -4,7 +4,7 @@ import { TenantPlan } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { AuthResponse } from '../auth/dto/auth-response.dto';
-import { SignupDto } from './dto/tenant.dto';
+import { SignupDto, UpdateTenantDto } from './dto/tenant.dto';
 
 // Türkçe karakterleri sadeleştirip URL-güvenli slug üretir.
 function slugify(input: string): string {
@@ -125,5 +125,30 @@ export class TenantsService {
         planId,
       },
     };
+  }
+
+  // Oturum açan PATRON'un kendi işletme bilgilerini günceller (plan farkı yok).
+  async updateMyTenant(dto: UpdateTenantDto, user: { tenantId: string }) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      const tenant = await tx.tenant.update({
+        where: { id: user.tenantId },
+        data: {
+          ...(dto.companyName !== undefined ? { companyName: dto.companyName } : {}),
+          ...(dto.taxNumber !== undefined ? { taxNumber: dto.taxNumber } : {}),
+        },
+        select: {
+          id: true,
+          companyName: true,
+          taxNumber: true,
+          status: true,
+          planId: true,
+        },
+      });
+
+      return tenant;
+    });
   }
 }

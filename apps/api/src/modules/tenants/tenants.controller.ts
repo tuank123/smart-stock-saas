@@ -1,8 +1,11 @@
-import { Body, Controller, Headers, HttpCode, Post, Res } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, Patch, Post, Res } from '@nestjs/common';
 import { Response } from 'express';
+import { UserRole } from '@prisma/client';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { setRefreshTokenCookie, buildAuthData } from '../auth/auth-http.util';
-import { SignupDto } from './dto/tenant.dto';
+import { SignupDto, UpdateTenantDto } from './dto/tenant.dto';
 import { TenantsService } from './tenants.service';
 
 @Controller('tenants')
@@ -32,5 +35,18 @@ export class TenantsController {
       message: 'İşletme kaydı başarılı',
       data: buildAuthData(accessToken, refreshToken, user, clientPlatform),
     };
+  }
+
+  /**
+   * PATCH /api/v1/tenants/me
+   * Oturum açan PATRON'un kendi işletme bilgilerini (ticari unvan, vergi no) günceller.
+   */
+  @Roles(UserRole.PATRON)
+  @Patch('me')
+  updateMyTenant(
+    @Body() dto: UpdateTenantDto,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.updateMyTenant(dto, user);
   }
 }
