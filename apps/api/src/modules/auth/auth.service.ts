@@ -92,6 +92,11 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Tenant sonlandırılmışsa (DELETED/SUSPENDED) girişi engelle.
+    if (user.tenant?.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Bu hesap kapatılmış. Giriş yapılamıyor.');
+    }
+
     // Update last login
     await this.prisma.user.update({
       where: { id: user.id },
@@ -164,6 +169,11 @@ export class AuthService implements OnModuleInit {
 
       if (!user || !user.isActive) {
         throw new UnauthorizedException('User not found or inactive');
+      }
+
+      // Tenant sonlandırılmışsa yenilemeyi de engelle.
+      if (user.tenant?.status !== 'ACTIVE') {
+        throw new UnauthorizedException('Bu hesap kapatılmış. Giriş yapılamıyor.');
       }
 
       // Generate new tokens

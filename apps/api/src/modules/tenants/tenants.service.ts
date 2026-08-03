@@ -151,4 +151,24 @@ export class TenantsService {
       return tenant;
     });
   }
+
+  // Üyeliği sonlandırır (soft-close): tenant DELETED + tüm kullanıcılar pasif.
+  async closeMyMembership(user: { tenantId: string }) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      await tx.tenant.update({
+        where: { id: user.tenantId },
+        data: { status: 'DELETED' },
+      });
+
+      await tx.user.updateMany({
+        where: { tenantId: user.tenantId },
+        data: { isActive: false },
+      });
+
+      return { message: 'Üyelik sonlandırıldı' };
+    });
+  }
 }

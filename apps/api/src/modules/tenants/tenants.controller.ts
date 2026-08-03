@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, Patch, Post, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Headers, HttpCode, Patch, Post, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -48,5 +48,15 @@ export class TenantsController {
     @CurrentUser() user: { tenantId: string },
   ) {
     return this.service.updateMyTenant(dto, user);
+  }
+
+  /**
+   * DELETE /api/v1/tenants/me
+   * Üyeliği sonlandırır (soft-close): tenant DELETED + tüm kullanıcılar pasif.
+   */
+  @Roles(UserRole.PATRON)
+  @Delete('me')
+  closeMyMembership(@CurrentUser() user: { tenantId: string }) {
+    return this.service.closeMyMembership(user);
   }
 }
