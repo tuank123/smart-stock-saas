@@ -22,16 +22,18 @@ function extractError(err: unknown): string {
   return 'Kayıt tamamlanamadı. Lütfen tekrar deneyin.';
 }
 
-const PLANS: { value: Plan; title: string; desc: string }[] = [
+const PLANS: { value: Plan; title: string; desc: string; price: string }[] = [
   {
     value: 'TEK_SUBE',
     title: 'Tek Şubeli',
     desc: 'Tek şubeniz için OCR fatura okuma, WhatsApp fiyat güncelleme, otomatik sipariş önerisi ve acil durum kasası.',
+    price: '₺1.750',
   },
   {
     value: 'COK_SUBE',
     title: 'Çok Şubeli',
     desc: 'Birden fazla şubenizi tek merkezden yönetin; stok, sipariş ve transfer takibi.',
+    price: '₺2.000',
   },
 ];
 
@@ -116,7 +118,13 @@ export default function IsletmeKaydiPage() {
                     selected && 'border-primary ring-2 ring-primary/40',
                   )}
                 >
-                  <p className="text-base font-semibold">{p.title}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-base font-semibold">{p.title}</p>
+                    <div className="shrink-0 text-right leading-none">
+                      <span className="text-2xl font-bold text-primary">{p.price}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">/ay</span>
+                    </div>
+                  </div>
                   <p className="mt-1.5 text-sm text-muted-foreground">{p.desc}</p>
                 </button>
               );
