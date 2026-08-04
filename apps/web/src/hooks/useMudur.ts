@@ -51,6 +51,7 @@ export interface BranchDetail {
   address: string | null;
   phone: string | null;
   closingTime: string;
+  debtRemindersEnabled: boolean;
   integrationStatus: string | null;
 }
 
@@ -989,11 +990,14 @@ export function useUpdateBranch() {
       address?: string;
       phone?: string;
       closingTime?: string;
+      debtRemindersEnabled?: boolean;
     }) =>
       api.patch(`/branches/${branchId}`, dto).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['me'] });
       qc.invalidateQueries({ queryKey: ['branch', branchId] });
+      // Hatırlatma toggle'ı değişince dashboard uyarı sorgusu hemen tazelensin.
+      qc.invalidateQueries({ queryKey: ['debts', 'reminders'] });
       toast.success('Şube bilgileri güncellendi');
     },
     onError: () => toast.error('Şube bilgileri güncellenemedi'),

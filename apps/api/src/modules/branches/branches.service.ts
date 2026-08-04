@@ -89,6 +89,7 @@ export class BranchesService {
         address: branch.address,
         phone: branch.phone,
         closingTime: branch.closingTime,
+        debtRemindersEnabled: branch.debtRemindersEnabled,
         integrationStatus: integration?.connectionStatus ?? null,
       };
     });
@@ -248,6 +249,9 @@ export class BranchesService {
           ...(dto.address !== undefined ? { address: dto.address } : {}),
           ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
           ...(dto.closingTime !== undefined ? { closingTime: dto.closingTime } : {}),
+          ...(dto.debtRemindersEnabled !== undefined
+            ? { debtRemindersEnabled: dto.debtRemindersEnabled }
+            : {}),
         },
         select: {
           id: true,
@@ -256,6 +260,7 @@ export class BranchesService {
           address: true,
           phone: true,
           closingTime: true,
+          debtRemindersEnabled: true,
           isActive: true,
         },
       });

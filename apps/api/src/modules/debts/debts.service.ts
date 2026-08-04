@@ -318,6 +318,11 @@ export class DebtsService {
         throw new NotFoundException('Şube bulunamadı');
       }
 
+      // Hatırlatmalar kapalıysa hiçbir hesaplama yapmadan erken çık.
+      if (branch.debtRemindersEnabled === false) {
+        return { showVisitReminder: false, receivableReminders: [] };
+      }
+
       // Ziyaret hatırlatması: hiç görüntülenmemiş ya da ≥2 gün önce görüntülenmiş.
       const visitThreshold = new Date(now.getTime() - VISIT_REMINDER_DAYS * DAY_MS);
       const showVisitReminder =

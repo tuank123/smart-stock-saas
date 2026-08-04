@@ -142,6 +142,7 @@ model Branch {
   closingTime String @default("00:00") @map("closing_time") // HH:mm — günlük raporun gün sınırı
   isActive  Boolean  @default(true) @map("is_active")
   debtsLastViewedAt DateTime? @map("debts_last_viewed_at")
+  debtRemindersEnabled Boolean @default(true) @map("debt_reminders_enabled")
 
   // Relations
   tenant                   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)

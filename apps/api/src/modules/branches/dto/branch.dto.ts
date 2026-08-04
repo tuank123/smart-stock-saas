@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator';
 
 export class CreateBranchDto {
   @IsNotEmpty()
@@ -41,6 +41,10 @@ export class UpdateBranchDto {
     message: 'Kapanış saati HH:mm formatında olmalıdır',
   })
   closingTime?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  debtRemindersEnabled?: boolean;
 }
 
 // Agent kurulum kodu üretimi — adapterType whitelist'i service'te DB'ye karşı doğrulanır.
