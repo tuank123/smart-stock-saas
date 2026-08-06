@@ -10,6 +10,11 @@ declare global {
         role: string;
       };
       tenantId?: string;
+      agentContext?: {
+        branchId: string;
+        tenantId: string;
+        adapterType: string;
+      };
     }
   }
 }

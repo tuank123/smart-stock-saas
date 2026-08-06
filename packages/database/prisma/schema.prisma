@@ -185,6 +185,7 @@ model BranchIntegration {
   adapterType         String    @map("adapter_type")
   agentId             String?   @map("agent_id")
   agentVersion        String?   @map("agent_version")
+  apiKeyHash          String?   @map("api_key_hash") // bcrypt hash; ham anahtar yalnız üretim anında Agent'a gösterilir
   webserviceUrl       String?   @map("webservice_url")
   apiKeyEncrypted     String?   @map("api_key_encrypted")
   apiSecretEncrypted  String?   @map("api_secret_encrypted")

@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateBranchDto,
@@ -172,6 +173,9 @@ export class BranchesService {
       }
 
       const agentId = randomUUID();
+      // Ham API anahtarı yalnız bu yanıtta döner; DB'ye sadece bcrypt hash'i yazılır.
+      const apiKey = randomBytes(32).toString('hex');
+      const apiKeyHash = await bcrypt.hash(apiKey, 10);
 
       await tx.branchIntegration.update({
         where: { branchId: setup.branchId },
@@ -179,6 +183,7 @@ export class BranchesService {
           connectionStatus: 'CONNECTED',
           agentId,
           agentVersion: dto.agentVersion,
+          apiKeyHash,
         },
       });
 
@@ -187,7 +192,7 @@ export class BranchesService {
         data: { status: 'USED', usedAt: new Date() },
       });
 
-      return { success: true, agentId };
+      return { success: true, agentId, apiKey };
     });
   }
 
