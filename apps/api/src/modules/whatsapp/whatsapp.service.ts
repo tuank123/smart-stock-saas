@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService, type RawOcrLine } from '../ocr/ocr.service';
+import { findBestFuzzyMatch } from '../../common/utils/fuzzyMatch';
 
 export interface WhatsappSendParams {
   poId: string;
@@ -210,9 +211,7 @@ export class WhatsappService {
       const unmatchedLines: string[] = [];
 
       for (const line of lines) {
-        const match = products.find((p) =>
-          p.name.toLowerCase().includes(line.name.toLowerCase()),
-        );
+        const match = findBestFuzzyMatch(line.name, products, 70);
         if (match) {
           parsedItems.push({
             productId: match.id,

@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SyncService } from '../sync/sync.service';
+import { findBestFuzzyMatch } from '../../common/utils/fuzzyMatch';
 import { ConfirmReturnDto, ConfirmScanDto, ScanDto } from './dto/ocr.dto';
 
 export interface RawOcrLine {
@@ -104,15 +105,13 @@ export class OcrService {
 
       const parsedLines = this.fuzzyMatch(rawLines, products);
 
-      // Fatura başlığındaki tedarikçi adını gerçek bir tedarikçiyle eşleştir
-      // (case-insensitive contains — WhatsApp eşleştirmesiyle tutarlı basit yöntem).
-      const matchedSupplier = await tx.supplier.findFirst({
-        where: {
-          tenantId: user.tenantId,
-          name: { contains: header.supplierName, mode: 'insensitive' },
-        },
-        select: { id: true },
+      // Fatura başlığındaki tedarikçi adını gerçek bir tedarikçiyle fuzzy eşleştir.
+      // Tenant'ın tedarikçi sayısı küçük olacağından bellekte skorlama uygun.
+      const suppliers = await tx.supplier.findMany({
+        where: { tenantId: user.tenantId },
+        select: { id: true, name: true },
       });
+      const matchedSupplier = findBestFuzzyMatch(header.supplierName, suppliers, 70);
 
       await tx.ocrScan.update({
         where: { id: scan.id },
@@ -513,26 +512,15 @@ export class OcrService {
   }
 
   private fuzzyMatch(rawLines: RawOcrLine[], products: Product[]): ParsedLine[] {
+    const candidates = products.map((p) => ({ id: p.id, name: p.name }));
+
     return rawLines.map((line) => {
+      // AUTO_MATCHED için hem OCR güveni ≥0.85 HEM fuzzy skor ≥70 gerekir.
       if (line.confidence < AUTO_MATCH_THRESHOLD) {
         return { ...line, matchStatus: 'UNMATCHED' as const };
       }
 
-      const nameLower = line.name.toLowerCase();
-      const match = products.find((p) => {
-        const pName = p.name.toLowerCase();
-        const pSku  = p.sku.toLowerCase();
-        return (
-          pName.includes(nameLower) ||
-          nameLower.includes(pName) ||
-          pSku === nameLower ||
-          // word overlap: at least one meaningful token matches
-          nameLower.split(/\s+/).some(
-            (tok) => tok.length > 1 && pName.includes(tok),
-          )
-        );
-      });
-
+      const match = findBestFuzzyMatch(line.name, candidates, 70);
       if (match) {
         return {
           ...line,
