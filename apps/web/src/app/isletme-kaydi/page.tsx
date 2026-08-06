@@ -6,10 +6,28 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { LegalMarkdown } from '@/components/shared/LegalDocument';
 import { useTenantSignup } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
+import { KVKK_CONTENT } from '@/content/legal/kvkk';
+import { GIZLILIK_CONTENT } from '@/content/legal/gizlilik';
+import { KULLANIM_KOSULLARI_CONTENT } from '@/content/legal/kullanim-kosullari';
 
 type Plan = 'TEK_SUBE' | 'COK_SUBE';
+
+// Kayıt ekranı login'siz olduğundan yasal metinler ayrı route yerine dialog'da gösterilir.
+type LegalKey = 'kvkk' | 'gizlilik' | 'kullanim';
+const LEGAL_DOCS: Record<LegalKey, { title: string; content: string }> = {
+  kvkk: { title: 'KVKK Aydınlatma Metni', content: KVKK_CONTENT },
+  gizlilik: { title: 'Gizlilik Politikası', content: GIZLILIK_CONTENT },
+  kullanim: { title: 'Kullanım Koşulları', content: KULLANIM_KOSULLARI_CONTENT },
+};
 
 // kayit-ol/page.tsx ile aynı hata çıkarma deseni.
 function extractError(err: unknown): string {
@@ -41,6 +59,8 @@ export default function IsletmeKaydiPage() {
   const signup = useTenantSignup();
   const [step, setStep] = useState<1 | 2>(1);
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [agreed, setAgreed] = useState(false);
+  const [legalDoc, setLegalDoc] = useState<LegalKey | null>(null);
   const [form, setForm] = useState({
     companyName: '',
     taxNumber: '',
@@ -63,6 +83,10 @@ export default function IsletmeKaydiPage() {
     e.preventDefault();
     if (!plan) return;
 
+    if (!agreed) {
+      toast.error('Devam etmek için yasal metinleri kabul etmelisiniz');
+      return;
+    }
     if (form.password.length < 8) {
       toast.error('Şifre en az 8 karakter olmalıdır');
       return;
@@ -247,12 +271,62 @@ export default function IsletmeKaydiPage() {
               />
             </div>
 
-            <Button type="submit" className="h-12 w-full py-3 text-base" disabled={signup.isPending}>
+            {/* Yasal onay */}
+            <label className="flex items-start gap-2.5 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-input"
+              />
+              <span>
+                <button
+                  type="button"
+                  onClick={() => setLegalDoc('kvkk')}
+                  className="font-medium text-primary underline underline-offset-2"
+                >
+                  KVKK Aydınlatma Metni
+                </button>
+                ,{' '}
+                <button
+                  type="button"
+                  onClick={() => setLegalDoc('gizlilik')}
+                  className="font-medium text-primary underline underline-offset-2"
+                >
+                  Gizlilik Politikası
+                </button>{' '}
+                ve{' '}
+                <button
+                  type="button"
+                  onClick={() => setLegalDoc('kullanim')}
+                  className="font-medium text-primary underline underline-offset-2"
+                >
+                  Kullanım Koşulları
+                </button>
+                nı okudum, kabul ediyorum.
+              </span>
+            </label>
+
+            <Button
+              type="submit"
+              className="h-12 w-full py-3 text-base"
+              disabled={signup.isPending || !agreed}
+            >
               {signup.isPending ? 'Kaydediliyor...' : 'Kaydol'}
             </Button>
           </form>
         )}
       </div>
+
+      {/* Yasal metin dialog'u */}
+      <Dialog open={legalDoc !== null} onOpenChange={(o) => !o && setLegalDoc(null)}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{legalDoc ? LEGAL_DOCS[legalDoc].title : ''}</DialogTitle>
+          </DialogHeader>
+          {legalDoc && <LegalMarkdown content={LEGAL_DOCS[legalDoc].content} />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   User,
   BarChart3,
   Bell,
+  FileText,
   ChevronRight,
   LogOut,
   Trash2,
@@ -39,6 +40,7 @@ const links: SettingsLink[] = [
   { href: '/isletme-app/ayarlar/hesap', label: 'Hesap Bilgileri', icon: User },
   { href: '/isletme-app/ayarlar/rapor', label: 'Rapor Ayarları', icon: BarChart3 },
   { href: '/isletme-app/ayarlar/bildirimler', label: 'Bildirim Tercihleri', icon: Bell },
+  { href: '/isletme-app/ayarlar/yasal', label: 'Yasal', icon: FileText },
 ];
 
 export default function AyarlarPage() {
