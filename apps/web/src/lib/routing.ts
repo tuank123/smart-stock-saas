@@ -12,6 +12,7 @@ export function dashboardFor(
   role: string | null | undefined,
   planId?: string | null,
 ): string {
+  if (role === 'SUPER_ADMIN') return '/admin/dashboard';
   if (role === 'SUBE_MUDURU') return '/mudur/dashboard';
   if (role === 'KASIYER') return '/gorevli/dashboard';
   if (role === 'DEPO') return '/depo/dashboard';

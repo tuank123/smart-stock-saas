@@ -91,10 +91,29 @@ export class OcrService {
         rawOcrResult = { source: 'mock', lines: MOCK_RAW, header: MOCK_HEADER };
         header = MOCK_HEADER;
       } else {
-        const result = await this.callTextract(dto.imageBase64 ?? '');
-        rawLines = result.lines;
-        rawOcrResult = result.raw;
-        header = result.header;
+        try {
+          const result = await this.callTextract(dto.imageBase64 ?? '');
+          rawLines = result.lines;
+          rawOcrResult = result.raw;
+          header = result.header;
+        } catch (err) {
+          // Gerçek OCR (Textract) başarısız → merkezi hata kaydına yaz, sonra fırlat.
+          const e = err as Error;
+          await this.prisma.errorLog
+            .create({
+              data: {
+                source: 'OCR_SCAN',
+                severity: 'ERROR',
+                message: `OCR tarama başarısız: ${e.message}`,
+                stackTrace: e.stack ?? null,
+                tenantId: user.tenantId,
+                branchId: dto.branchId,
+                context: { scanId: scan.id },
+              },
+            })
+            .catch(() => undefined);
+          throw err;
+        }
       }
 
       // Load tenant products for fuzzy matching

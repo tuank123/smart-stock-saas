@@ -122,6 +122,28 @@ export class SyncService {
           });
         });
 
+        // İş kalıcı olarak FAILED'e düştüyse merkezi hata kaydına yaz.
+        if (!success && maxed) {
+          try {
+            await this.prisma.errorLog.create({
+              data: {
+                source: 'SYNC_JOB',
+                severity: 'ERROR',
+                message: errorDetail || 'Senkronizasyon işi başarısız',
+                tenantId: job.tenantId,
+                branchId: job.branchId,
+                context: {
+                  queueId: job.id,
+                  adapterType: job.adapterType,
+                  operationType: job.operationType,
+                },
+              },
+            });
+          } catch (logErr) {
+            this.logger.error('[SyncQueue] ErrorLog kaydı başarısız', logErr as Error);
+          }
+        }
+
         if (success) processed++;
       } catch (err: unknown) {
         const e = err as Error;

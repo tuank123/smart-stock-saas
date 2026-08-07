@@ -96,6 +96,7 @@ export class WhatsappService {
    * SupplierPortalUpload (uploadType: WHATSAPP_PRICE_UPDATE) oluşturur.
    */
   async handleIncomingMessage(payload: unknown): Promise<void> {
+    try {
     const message = extractMessage(payload);
     if (!message) {
       this.logger.log('[Webhook] Mesaj içermeyen payload (status/callback olabilir) — atlanıyor');
@@ -158,6 +159,22 @@ export class WhatsappService {
     }
 
     this.logger.log(`[Webhook] '${type}' tipi desteklenmiyor (${from}) — atlanıyor`);
+    } catch (err) {
+      // Beklenmeyen webhook hatası → merkezi hata kaydı (Meta'yı retry'a sokma).
+      const e = err as Error;
+      this.logger.error(`[Webhook] beklenmeyen hata: ${e.message}`);
+      await this.prisma.errorLog
+        .create({
+          data: {
+            source: 'WHATSAPP_WEBHOOK',
+            severity: 'ERROR',
+            message: `WhatsApp webhook hatası: ${e.message}`,
+            stackTrace: e.stack ?? null,
+            context: {},
+          },
+        })
+        .catch(() => undefined);
+    }
   }
 
   /**

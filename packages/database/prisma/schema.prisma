@@ -81,6 +81,8 @@ model Tenant {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at") // soft delete
+  closedAt  DateTime? @map("closed_at") // üyeliğin sonlandırıldığı (SUSPENDED/DELETED) an
+  isTest    Boolean   @default(false) @map("is_test") // test/demo hesabı → admin listesinde varsayılan gizli
 
   @@map("tenants")
   @@index([status])
@@ -777,4 +779,23 @@ model PriceChangeLog {
   @@map("price_change_logs")
   @@index([tenantId])
   @@index([tenantId, anomalyFlag])
+}
+
+/// Platform geneli hata/başarısız işlem toplama (super-admin sistem tablosu, RLS'siz).
+model ErrorLog {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  source      String    // 'API_EXCEPTION' | 'SYNC_JOB' | 'LOGIN_FAILED' | 'OCR_SCAN' | 'WHATSAPP_WEBHOOK'
+  severity    String    @default("ERROR") // 'ERROR' | 'WARNING'
+  message     String
+  stackTrace  String?   @map("stack_trace")
+  tenantId    String?   @map("tenant_id") @db.Uuid
+  branchId    String?   @map("branch_id") @db.Uuid
+  context     Json?
+  resolved    Boolean   @default(false)
+  resolvedAt  DateTime? @map("resolved_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([resolved, createdAt])
+  @@index([source])
+  @@map("error_logs")
 }

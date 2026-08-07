@@ -160,7 +160,7 @@ export class TenantsService {
 
       await tx.tenant.update({
         where: { id: user.tenantId },
-        data: { status: 'DELETED' },
+        data: { status: 'DELETED', closedAt: new Date() },
       });
 
       await tx.user.updateMany({
