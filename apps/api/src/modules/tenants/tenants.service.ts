@@ -31,7 +31,8 @@ export class TenantsService {
   ) {}
 
   async signup(dto: SignupDto): Promise<AuthResponse> {
-    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const rounds = process.env.BCRYPT_ROUNDS ? parseInt(process.env.BCRYPT_ROUNDS, 10) : 12;
+    const passwordHash = await bcrypt.hash(dto.password, rounds);
     const planId: TenantPlan =
       dto.businessType === 'COK_SUBE' ? 'PROFESSIONAL' : 'STARTER';
     const slug = slugify(dto.branchName);

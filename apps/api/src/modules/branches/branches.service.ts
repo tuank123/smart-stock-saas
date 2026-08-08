@@ -175,7 +175,8 @@ export class BranchesService {
       const agentId = randomUUID();
       // Ham API anahtarı yalnız bu yanıtta döner; DB'ye sadece bcrypt hash'i yazılır.
       const apiKey = randomBytes(32).toString('hex');
-      const apiKeyHash = await bcrypt.hash(apiKey, 10);
+      const rounds = process.env.BCRYPT_ROUNDS ? parseInt(process.env.BCRYPT_ROUNDS, 10) : 12;
+      const apiKeyHash = await bcrypt.hash(apiKey, rounds);
 
       await tx.branchIntegration.update({
         where: { branchId: setup.branchId },

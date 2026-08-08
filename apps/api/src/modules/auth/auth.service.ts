@@ -273,7 +273,8 @@ export class AuthService implements OnModuleInit {
     const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
     if (!valid) throw new BadRequestException('Mevcut şifre hatalı');
 
-    const hash = await bcrypt.hash(dto.newPassword, 10);
+    const rounds = process.env.BCRYPT_ROUNDS ? parseInt(process.env.BCRYPT_ROUNDS, 10) : 12;
+    const hash = await bcrypt.hash(dto.newPassword, rounds);
     await this.prisma.user.update({
       where: { id: userId },
       data: { passwordHash: hash },

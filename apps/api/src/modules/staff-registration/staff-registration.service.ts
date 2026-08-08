@@ -50,7 +50,8 @@ export class StaffRegistrationService {
 
   // ─── STEP 2: applicant completes registration with the code ──────────────
   async completeRegistration(dto: CompleteRegistrationDto) {
-    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const rounds = process.env.BCRYPT_ROUNDS ? parseInt(process.env.BCRYPT_ROUNDS, 10) : 12;
+    const passwordHash = await bcrypt.hash(dto.password, rounds);
 
     return this.prisma.$transaction(async (tx) => {
       // Look the token up globally (no tenant context yet)

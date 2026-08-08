@@ -106,6 +106,9 @@ export default function HesapBilgileriPage() {
             <div className="grid gap-1.5">
               <Label htmlFor="new-password">Yeni Şifre</Label>
               <PasswordInput id="new-password" value={newPassword} onChange={setNewPassword} />
+              <p className="text-xs text-muted-foreground">
+                En az 8 karakter, 1 büyük harf ve 1 rakam.
+              </p>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="confirm-password">Yeni Şifre Tekrar</Label>

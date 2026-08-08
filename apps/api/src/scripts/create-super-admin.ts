@@ -34,7 +34,8 @@ async function main() {
   }
 
   const prisma = new PrismaClient();
-  const passwordHash = await bcrypt.hash(password, 10);
+  const rounds = process.env.BCRYPT_ROUNDS ? parseInt(process.env.BCRYPT_ROUNDS, 10) : 12;
+  const passwordHash = await bcrypt.hash(password, rounds);
 
   try {
     const result = await prisma.$transaction(async (tx) => {

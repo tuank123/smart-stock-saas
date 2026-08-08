@@ -32,23 +32,12 @@ async function bootstrap() {
   // ============================================
   // CORS
   // ============================================
+  // İzinli origin'ler ALLOWED_ORIGINS ortam değişkeninden (virgülle ayrılmış).
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',')
+    .map((o) => o.trim())
+    .filter(Boolean) ?? ['http://localhost:3001'];
   app.enableCors({
-    origin: (origin, callback) => {
-      const allowed = [
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'http://localhost:3002',
-        'http://192.168.1.165:3001',
-        'capacitor://localhost',
-        'ionic://localhost',
-        'http://localhost',
-      ];
-      if (!origin || allowed.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(null, true); // dev'de hepsine izin ver
-      }
-    },
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Platform'],

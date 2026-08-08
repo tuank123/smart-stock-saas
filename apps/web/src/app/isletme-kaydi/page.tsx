@@ -254,7 +254,9 @@ export default function IsletmeKaydiPage() {
                 placeholder="••••••••"
                 className="w-full rounded-md border bg-background px-4 py-3 text-base outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2"
               />
-              <p className="text-xs text-muted-foreground">En az 8 karakter.</p>
+              <p className="text-xs text-muted-foreground">
+                En az 8 karakter, 1 büyük harf ve 1 rakam.
+              </p>
             </div>
 
             <div className="space-y-1.5">
