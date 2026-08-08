@@ -99,6 +99,7 @@ model User {
   passwordHash    String   @map("password_hash")
   role            UserRole?
   isActive        Boolean  @default(true) @map("is_active")
+  emailVerified   Boolean  @default(false) @map("email_verified")
   lastLoginAt     DateTime? @map("last_login_at")
   
   // Relations
@@ -798,4 +799,30 @@ model ErrorLog {
   @@index([resolved, createdAt])
   @@index([source])
   @@map("error_logs")
+}
+
+/// Şifre sıfırlama token'ları (tek kullanımlık, 1 saat geçerli; RLS'siz sistem tablosu —
+/// sahibi oturum açmamış kullanıcıdır, tenant bağlamı yoktur).
+model PasswordResetToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([token])
+  @@map("password_reset_tokens")
+}
+
+/// E-posta doğrulama token'ları (tek kullanımlık, 24 saat geçerli; RLS'siz sistem tablosu).
+model EmailVerificationToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([token])
+  @@map("email_verification_tokens")
 }

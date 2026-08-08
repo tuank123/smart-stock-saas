@@ -1,52 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { AlertTriangle, BadgeCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { StationPageHeader } from '@/components/layout/StationPageHeader';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMe, useChangePassword } from '@/hooks/useSettings';
-
-// ── Şifre input'u ─────────────────────────────────────────────────────────────
-
-interface PasswordInputProps {
-  id: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}
-
-function PasswordInput({ id, value, onChange, placeholder }: PasswordInputProps) {
-  const [show, setShow] = useState(false);
-  return (
-    <div className="relative">
-      <Input
-        id={id}
-        type={show ? 'text' : 'password'}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="pr-9"
-      />
-      <button
-        type="button"
-        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-        onClick={() => setShow((s) => !s)}
-        tabIndex={-1}
-        aria-label={show ? 'Şifreyi gizle' : 'Şifreyi göster'}
-      >
-        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-      </button>
-    </div>
-  );
-}
+import { useResendVerification } from '@/hooks/useAuth';
 
 export default function HesapBilgileriPage() {
   const { data: me, isPending } = useMe();
   const changePwd = useChangePassword();
+  const resendVerification = useResendVerification();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -88,7 +56,36 @@ export default function HesapBilgileriPage() {
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label>E-posta</Label>
-            <p className="text-sm font-medium">{me?.user.email}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-medium">{me?.user.email}</p>
+              {me?.user.emailVerified && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+                  <BadgeCheck className="h-3.5 w-3.5" />
+                  Doğrulandı
+                </span>
+              )}
+            </div>
+
+            {me && !me.user.emailVerified && (
+              <div className="mt-2 flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="font-medium">E-postanız doğrulanmadı</span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="self-start bg-background"
+                  disabled={resendVerification.isPending}
+                  onClick={() => resendVerification.mutate()}
+                >
+                  {resendVerification.isPending
+                    ? 'Gönderiliyor…'
+                    : 'Doğrulama E-postası Gönder'}
+                </Button>
+              </div>
+            )}
           </div>
 
           <form onSubmit={handlePasswordSubmit} className="grid max-w-sm gap-4 pt-2">

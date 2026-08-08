@@ -63,6 +63,15 @@ export default function LoginPage() {
 
           {error && <p className="text-center text-sm text-red-500">{error}</p>}
 
+          <p className="text-center text-sm">
+            <Link
+              href="/sifremi-unuttum"
+              className="font-medium text-primary hover:underline"
+            >
+              Şifremi Unuttum
+            </Link>
+          </p>
+
           <p className="text-center text-sm text-muted-foreground">
             Hesabın yok mu?{' '}
             <Link href="/kayit-ol" className="font-medium text-primary hover:underline">

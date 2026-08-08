@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
@@ -78,6 +78,77 @@ export function useAuth() {
     isLoggingOut: logoutMutation.isPending,
     loginError: loginMutation.error ? getLoginErrorMessage(loginMutation.error) : null,
   };
+}
+
+// ── Şifre sıfırlama / e-posta doğrulama ─────────────────────────────────────
+
+// Backend bu akışlarda düz { message } döndürür (envelope yok).
+interface MessageResponse {
+  message: string;
+}
+
+/**
+ * POST /auth/forgot-password — e-posta kayıtlı olsun ya da olmasın backend hep
+ * aynı mesajı döner, o yüzden burada da başarı/başarısızlık ayrımı yapılmaz.
+ */
+export function useForgotPassword() {
+  return useMutation({
+    mutationFn: async (payload: { email: string }) => {
+      const res = await api.post<MessageResponse>('/auth/forgot-password', payload);
+      return res.data;
+    },
+  });
+}
+
+/** POST /auth/reset-password — e-postadaki token ile yeni şifre belirler. */
+export function useResetPassword() {
+  return useMutation({
+    mutationFn: async (payload: { token: string; newPassword: string }) => {
+      const res = await api.post<MessageResponse>('/auth/reset-password', payload);
+      return res.data;
+    },
+  });
+}
+
+/** POST /auth/verify-email — e-postadaki token ile adresi doğrular. */
+export function useVerifyEmail() {
+  return useMutation({
+    mutationFn: async (payload: { token: string }) => {
+      const res = await api.post<MessageResponse>('/auth/verify-email', payload);
+      return res.data;
+    },
+  });
+}
+
+/**
+ * POST /auth/resend-verification — JWT gerektirir; api client Authorization
+ * header'ını zaten ekliyor. Başarıda 'me' sorgusu tazelenir.
+ */
+export function useResendVerification() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const res = await api.post<MessageResponse>('/auth/resend-verification');
+      return res.data;
+    },
+    onSuccess: (data) => {
+      toast.success(data.message ?? 'Doğrulama e-postası gönderildi');
+      queryClient.invalidateQueries({ queryKey: ['me'] });
+    },
+    onError: (error: unknown) => toast.error(getApiErrorMessage(error)),
+  });
+}
+
+/** Bu akışların hata mesajlarını okunur hale getirir. */
+export function getApiErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    if (!error.response) return 'Sunucuya bağlanılamadı';
+    const message = error.response.data?.message;
+    if (Array.isArray(message)) return message.join(', ');
+    if (message) return String(message);
+  }
+  return 'İşlem tamamlanamadı. Lütfen tekrar deneyin.';
 }
 
 // ── İşletme (tenant) kaydı ──────────────────────────────────────────────────

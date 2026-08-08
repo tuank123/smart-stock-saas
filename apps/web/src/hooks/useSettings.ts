@@ -10,6 +10,7 @@ export interface MeResponse {
     email: string;
     role: string;
     branchId: string | null;
+    emailVerified: boolean;
     createdAt: string;
   };
   tenant: {

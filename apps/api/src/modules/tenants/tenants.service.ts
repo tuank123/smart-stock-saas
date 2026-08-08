@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { TenantPlan } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -25,6 +25,8 @@ function slugify(input: string): string {
 
 @Injectable()
 export class TenantsService {
+  private readonly logger = new Logger(TenantsService.name);
+
   constructor(
     private prisma: PrismaService,
     private authService: AuthService,
@@ -103,6 +105,13 @@ export class TenantsService {
         },
       });
     });
+
+    // Doğrulama e-postası (mock) — gönderim hatası kaydı bozmamalı, signup devam eder.
+    try {
+      await this.authService.sendVerificationEmail(user.id);
+    } catch (e: any) {
+      this.logger.warn(`Doğrulama e-postası gönderilemedi (${user.email}): ${e.message}`);
+    }
 
     // Token üretimini AuthService'ten yeniden kullan (kod tekrarı yok)
     const { accessToken, refreshToken } = await this.authService.issueTokens({

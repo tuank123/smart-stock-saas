@@ -6,6 +6,9 @@ import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { VerifyPasswordDto } from './dto/verify-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
 import { setRefreshTokenCookie, buildAuthData } from './auth-http.util';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -119,6 +122,52 @@ export class AuthController {
     @CurrentUser() user: { userId: string },
   ) {
     return this.authService.verifyPassword(user.userId, dto.password);
+  }
+
+  /**
+   * POST /api/v1/auth/forgot-password
+   * Şifre sıfırlama bağlantısı ister. E-posta kayıtlı olmasa bile aynı mesajı
+   * döner (kullanıcı numaralandırmasını önlemek için).
+   */
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 900_000 } })
+  @Post('forgot-password')
+  @HttpCode(200)
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto.email);
+  }
+
+  /**
+   * POST /api/v1/auth/reset-password
+   * E-postadaki token ile yeni şifre belirler.
+   */
+  @Public()
+  @Post('reset-password')
+  @HttpCode(200)
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto.token, dto.newPassword);
+  }
+
+  /**
+   * POST /api/v1/auth/verify-email
+   * E-postadaki token ile adresi doğrular.
+   */
+  @Public()
+  @Post('verify-email')
+  @HttpCode(200)
+  verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.authService.verifyEmail(dto.token);
+  }
+
+  /**
+   * POST /api/v1/auth/resend-verification
+   * JWT gerektirir — giriş yapmış ama e-postası doğrulanmamış kullanıcı çağırır.
+   */
+  @Throttle({ default: { limit: 3, ttl: 900_000 } })
+  @Post('resend-verification')
+  @HttpCode(200)
+  resendVerification(@CurrentUser() user: { userId: string }) {
+    return this.authService.resendVerification(user.userId);
   }
 
   /**

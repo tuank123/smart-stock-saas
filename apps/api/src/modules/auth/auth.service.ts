@@ -2,11 +2,17 @@ import { Injectable, BadRequestException, UnauthorizedException, Logger, OnModul
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { createClient, RedisClientType } from 'redis';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { AuthResponse } from './dto/auth-response.dto';
+
+/** Şifre sıfırlama isteğinde her zaman dönen genel mesaj (e-posta varlığını sızdırmaz). */
+const FORGOT_PASSWORD_GENERIC_MESSAGE =
+  'Eğer bu e-posta adresi kayıtlıysa, şifre sıfırlama bağlantısı gönderildi.';
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -17,6 +23,7 @@ export class AuthService implements OnModuleInit {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private emailService: EmailService,
   ) {}
 
   async onModuleInit() {
@@ -240,6 +247,7 @@ export class AuthService implements OnModuleInit {
           email: true,
           role: true,
           branchId: true,
+          emailVerified: true,
           createdAt: true,
         },
       }),
@@ -293,6 +301,194 @@ export class AuthService implements OnModuleInit {
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     return { valid };
+  }
+
+  // ============================================
+  // Şifre sıfırlama
+  // ============================================
+
+  /**
+   * POST /auth/forgot-password
+   * Kullanıcı bulunsun ya da bulunmasın HER ZAMAN aynı mesajı döner — e-postanın
+   * sistemde kayıtlı olup olmadığı sızdırılmaz.
+   */
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    // E-postaya göre global arama (tenant bağlamı yok → super-admin RLS bypass),
+    // login'deki desenle aynı.
+    const users = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+      return tx.user.findMany({
+        where: { email, deletedAt: null },
+        select: { id: true, email: true, isActive: true },
+      });
+    });
+
+    const user =
+      users.length === 1 ? users[0] : (users.find((u) => u.isActive) ?? null);
+
+    if (!user || !user.isActive) {
+      this.logger.warn(`Şifre sıfırlama: eşleşen aktif kullanıcı yok (${email})`);
+      return { message: FORGOT_PASSWORD_GENERIC_MESSAGE };
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 saat
+
+    await this.prisma.passwordResetToken.create({
+      data: { userId: user.id, token, expiresAt },
+    });
+
+    const link = `${this.appUrl()}/sifre-sifirla?token=${token}`;
+    await this.emailService.sendEmail(
+      user.email,
+      'Şifre Sıfırlama',
+      `Şifrenizi sıfırlamak için aşağıdaki bağlantıya tıklayın:\n${link}\n\n` +
+        `Bağlantı 1 saat geçerlidir. Bu isteği siz yapmadıysanız bu e-postayı yok sayabilirsiniz.`,
+    );
+
+    this.logger.log(`✅ Şifre sıfırlama bağlantısı gönderildi: ${user.email}`);
+    return { message: FORGOT_PASSWORD_GENERIC_MESSAGE };
+  }
+
+  /**
+   * POST /auth/reset-password
+   * Token geçerliyse şifreyi günceller ve kullanıcının TÜM kullanılmamış
+   * sıfırlama token'larını geçersiz kılar (tek kullanımlık).
+   */
+  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+    const record = await this.prisma.passwordResetToken.findFirst({
+      where: { token, used: false, expiresAt: { gt: new Date() } },
+      select: { id: true, userId: true },
+    });
+
+    if (!record) {
+      throw new BadRequestException('Geçersiz veya süresi dolmuş bağlantı');
+    }
+
+    const rounds = process.env.BCRYPT_ROUNDS ? parseInt(process.env.BCRYPT_ROUNDS, 10) : 12;
+    const hash = await bcrypt.hash(newPassword, rounds);
+
+    await this.prisma.$transaction(async (tx) => {
+      // users tablosu RLS altında; oturum açmamış akış olduğu için bypass gerekiyor.
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+
+      await tx.user.update({
+        where: { id: record.userId },
+        data: { passwordHash: hash },
+      });
+
+      // Kullanılan token dahil, o kullanıcının bekleyen tüm token'ları kapanır.
+      await tx.passwordResetToken.updateMany({
+        where: { userId: record.userId, used: false },
+        data: { used: true },
+      });
+    });
+
+    this.logger.log(`✅ Şifre sıfırlandı: user ${record.userId}`);
+    return { message: 'Şifreniz güncellendi. Yeni şifrenizle giriş yapabilirsiniz.' };
+  }
+
+  // ============================================
+  // E-posta doğrulama
+  // ============================================
+
+  /**
+   * Doğrulama token'ı üretip mock e-posta gönderir. Signup sonrası TenantsService
+   * tarafından da çağrıldığı için public.
+   */
+  async sendVerificationEmail(userId: string): Promise<void> {
+    const user = await this.findUserByIdGlobal(userId, { email: true });
+    if (!user) throw new NotFoundException('User not found');
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 saat
+
+    await this.prisma.emailVerificationToken.create({
+      data: { userId, token, expiresAt },
+    });
+
+    const link = `${this.appUrl()}/email-dogrula?token=${token}`;
+    await this.emailService.sendEmail(
+      user.email,
+      'E-posta Adresinizi Doğrulayın',
+      `Hesabınızı etkinleştirmek için aşağıdaki bağlantıya tıklayın:\n${link}\n\n` +
+        `Bağlantı 24 saat geçerlidir.`,
+    );
+
+    this.logger.log(`✅ Doğrulama e-postası gönderildi: ${user.email}`);
+  }
+
+  /**
+   * POST /auth/verify-email
+   * Token geçerliyse kullanıcıyı doğrulanmış işaretler ve token'ları siler.
+   */
+  async verifyEmail(token: string): Promise<{ message: string }> {
+    const record = await this.prisma.emailVerificationToken.findFirst({
+      where: { token, expiresAt: { gt: new Date() } },
+      select: { id: true, userId: true },
+    });
+
+    if (!record) {
+      throw new BadRequestException('Geçersiz veya süresi dolmuş doğrulama bağlantısı');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+
+      await tx.user.update({
+        where: { id: record.userId },
+        data: { emailVerified: true },
+      });
+
+      // Tek kullanımlık: kullanıcının bekleyen tüm doğrulama token'ları silinir.
+      await tx.emailVerificationToken.deleteMany({
+        where: { userId: record.userId },
+      });
+    });
+
+    this.logger.log(`✅ E-posta doğrulandı: user ${record.userId}`);
+    return { message: 'E-posta adresiniz doğrulandı.' };
+  }
+
+  /**
+   * POST /auth/resend-verification (JWT gerektirir)
+   */
+  async resendVerification(userId: string): Promise<{ message: string }> {
+    const user = await this.findUserByIdGlobal(userId, { emailVerified: true });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (user.emailVerified) {
+      throw new BadRequestException('E-posta adresiniz zaten doğrulanmış');
+    }
+
+    // Eski token'ları temizle → aynı anda yalnızca bir geçerli bağlantı olsun.
+    await this.prisma.emailVerificationToken.deleteMany({ where: { userId } });
+    await this.sendVerificationEmail(userId);
+
+    return { message: 'Doğrulama e-postası tekrar gönderildi.' };
+  }
+
+  /** Frontend taban adresi (sıfırlama/doğrulama linkleri için). */
+  private appUrl(): string {
+    return this.configService.get<string>('APP_URL', 'http://localhost:3001');
+  }
+
+  /**
+   * users tablosu RLS altında olduğu ve bu akışlarda tenant bağlamı bulunmadığı
+   * için kullanıcıyı super-admin bypass'ıyla id'den okur.
+   */
+  private async findUserByIdGlobal<T extends Record<string, true>>(
+    userId: string,
+    extraSelect: T,
+  ): Promise<({ id: string; email: string } & Record<keyof T, any>) | null> {
+    const users = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+      return tx.user.findMany({
+        where: { id: userId, deletedAt: null },
+        select: { id: true, email: true, ...extraSelect },
+      });
+    });
+    return (users[0] as any) ?? null;
   }
 
   /**
