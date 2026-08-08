@@ -8,6 +8,7 @@ import {
 import { randomBytes, randomUUID } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
+import { encrypt, decryptSafe } from '../../common/utils/encryption';
 import {
   CreateBranchDto,
   GenerateSetupCodeDto,
@@ -25,16 +26,20 @@ export class BranchesService {
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
 
       try {
-        return await tx.branch.create({
+        const created = await tx.branch.create({
           data: {
             tenantId: user.tenantId,
             name: dto.name,
             slug: dto.slug,
             address: dto.address,
-            phone: dto.phone,
+            // Telefon DB'ye şifreli yazılır (AES-256-GCM).
+            phone: dto.phone ? encrypt(dto.phone) : dto.phone,
             timezone: dto.timezone ?? 'UTC',
           },
         });
+
+        // Çağırana düz metin dön — DB'deki şifreli hali sızmasın.
+        return { ...created, phone: decryptSafe(created.phone) };
       } catch (e: any) {
         if (e.code === 'P2002') {
           throw new ConflictException(`'${dto.slug}' slug'ı bu tenant'ta zaten mevcut`);
@@ -55,7 +60,10 @@ export class BranchesService {
         deletedAt: null,
       };
 
-      return tx.branch.findMany({ where, orderBy: { createdAt: 'asc' } });
+      const branches = await tx.branch.findMany({ where, orderBy: { createdAt: 'asc' } });
+
+      // Liste de tam Branch nesnesi döndürdüğü için telefonlar burada da çözülür.
+      return branches.map((b) => ({ ...b, phone: decryptSafe(b.phone) }));
     });
   }
 
@@ -88,7 +96,7 @@ export class BranchesService {
         slug: branch.slug,
         isActive: branch.isActive,
         address: branch.address,
-        phone: branch.phone,
+        phone: decryptSafe(branch.phone),
         closingTime: branch.closingTime,
         debtRemindersEnabled: branch.debtRemindersEnabled,
         integrationStatus: integration?.connectionStatus ?? null,
@@ -253,7 +261,10 @@ export class BranchesService {
         data: {
           ...(dto.name !== undefined ? { name: dto.name } : {}),
           ...(dto.address !== undefined ? { address: dto.address } : {}),
-          ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+          // Telefon DB'ye şifreli yazılır; null/boş gelirse olduğu gibi bırakılır.
+          ...(dto.phone !== undefined
+            ? { phone: dto.phone ? encrypt(dto.phone) : dto.phone }
+            : {}),
           ...(dto.closingTime !== undefined ? { closingTime: dto.closingTime } : {}),
           ...(dto.debtRemindersEnabled !== undefined
             ? { debtRemindersEnabled: dto.debtRemindersEnabled }
@@ -271,7 +282,8 @@ export class BranchesService {
         },
       });
 
-      return branch;
+      // Güncelleme yanıtı da düz metin telefon döner.
+      return { ...branch, phone: decryptSafe(branch.phone) };
     });
   }
 

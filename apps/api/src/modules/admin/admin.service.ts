@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TenantPlan, TenantStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { decryptSafe } from '../../common/utils/encryption';
 import {
   ListErrorsQueryDto,
   ListTenantsQueryDto,
@@ -102,7 +103,11 @@ export class AdminService {
         throw new NotFoundException('Tenant bulunamadı');
       }
 
-      return tenant;
+      // Şube telefonları DB'de şifreli; super-admin detayında düz metin gösterilir.
+      return {
+        ...tenant,
+        branches: tenant.branches.map((b) => ({ ...b, phone: decryptSafe(b.phone) })),
+      };
     });
   }
 
