@@ -101,6 +101,9 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+          # Lock dosyası monorepo kökünde; yolu açıkça veriyoruz ki alt
+          # paketlere lockfile eklenirse cache anahtarı şaşmasın.
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Bağımlılıkları yükle
         run: pnpm install --frozen-lockfile

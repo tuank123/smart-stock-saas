@@ -81,6 +81,10 @@ yarn-debug.log*
 yarn-error.log*
 
 # Package manager
-pnpm-lock.yaml
+# pnpm-lock.yaml BİLEREK ignore edilmiyor: tekrarlanabilir kurulum için
+# commit'lenmeli. CI hem `pnpm install --frozen-lockfile` hem setup-node'un
+# pnpm cache'i için bu dosyaya ihtiyaç duyuyor.
+# Projede pnpm kullanılıyor; diğer paket yöneticilerinin lock dosyaları
+# yanlışlıkla commit'lenmesin diye ignore'da kalıyor.
 package-lock.json
 yarn.lock
