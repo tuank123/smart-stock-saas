@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, UnauthorizedException, Logger, OnModuleInit, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, UnauthorizedException, Logger, OnModuleInit, OnModuleDestroy, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -15,7 +15,7 @@ const FORGOT_PASSWORD_GENERIC_MESSAGE =
   'Eğer bu e-posta adresi kayıtlıysa, şifre sıfırlama bağlantısı gönderildi.';
 
 @Injectable()
-export class AuthService implements OnModuleInit {
+export class AuthService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AuthService.name);
   private redisClient: RedisClientType | null = null;
 
@@ -28,6 +28,22 @@ export class AuthService implements OnModuleInit {
 
   async onModuleInit() {
     await this.initRedis();
+  }
+
+  /**
+   * Redis bağlantısını kapatır. Bu olmadan soket açık kalıyor: uygulama
+   * app.close() sonrası sonlanmıyor (e2e testlerinde "Jest did not exit"),
+   * production'da da graceful shutdown yarım kalıyordu.
+   */
+  async onModuleDestroy() {
+    if (!this.redisClient) return;
+    try {
+      await this.redisClient.quit();
+    } catch {
+      // Bağlantı zaten kopmuşsa quit() hata verebilir — kapanışı engellemesin.
+    } finally {
+      this.redisClient = null;
+    }
   }
 
   private async initRedis() {

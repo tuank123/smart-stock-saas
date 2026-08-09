@@ -54,6 +54,21 @@ API şu adreste çalışır: `http://localhost:3000/api/v1`
 
 ---
 
+## Testler / Tests
+
+```bash
+# api e2e testleri (postgres + redis gerektirir)
+pnpm --filter api test:e2e
+```
+
+İlk kurulum (test veritabanı, `.env.test`) için: [`apps/api/test/README.md`](apps/api/test/README.md)
+
+**CI:** Her push (`main`) ve `main`'e açılan her PR'da testler GitHub Actions
+üzerinden otomatik çalışır — bkz. [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+Pipeline tip kontrolünü (`api` + `web`) ve e2e testleri koşar.
+
+---
+
 ## API Dökümantasyonu / API Documentation
 
 Swagger UI (geliştirme modunda):

@@ -38,6 +38,9 @@ web-build
 .env.local
 .env.*.local
 .env.production.local
+# e2e testlerinin ortamı — sır içerir, her geliştirici kendi kopyasını
+# oluşturur (bkz. apps/api/test/README.md).
+.env.test
 
 # IDE
 .vscode
@@ -65,6 +68,9 @@ prisma/migrations
 .nuxt
 dist
 build
+# TypeScript incremental derleme artığı — makineye özel, commit'lenmemeli
+# (bayat bir tsbuildinfo CI'da tip kontrolünün dosya atlamasına yol açabilir).
+*.tsbuildinfo
 
 # Logs
 logs

@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
   OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -17,7 +18,7 @@ const MOCK_OTP = '123456';
 const OTP_TTL_SECONDS = 300;
 
 @Injectable()
-export class PortalService implements OnModuleInit {
+export class PortalService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PortalService.name);
   private redis: RedisClientType | null = null;
 
@@ -34,6 +35,21 @@ export class PortalService implements OnModuleInit {
       this.logger.log('✅ Redis connected (portal OTP)');
     } catch {
       this.logger.warn('⚠️  Redis bağlanamadı — OTP mock modda çalışacak');
+    }
+  }
+
+  /**
+   * AuthService ile aynı gerekçe: kapatılmayan Redis soketi süreci ayakta
+   * tutuyor (e2e'de "Jest did not exit", production'da eksik graceful shutdown).
+   */
+  async onModuleDestroy() {
+    if (!this.redis) return;
+    try {
+      await this.redis.quit();
+    } catch {
+      // Bağlantı zaten kopmuşsa kapanışı engellemesin.
+    } finally {
+      this.redis = null;
     }
   }
 

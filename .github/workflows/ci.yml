@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Aynı dal/PR için yeni push gelirse önceki koşuyu iptal et.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tip kontrolü + e2e testler
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          # Konteyner açılışta bu veritabanını kendisi oluşturur.
+          POSTGRES_DB: stok_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # apps/api/.env.test git'e girmediği (sır içerdiği) için testin ihtiyaç
+    # duyduğu değişkenlerin TAMAMI burada tanımlanır. Değerler dummy'dir —
+    # gerçek sır değildir, yalnızca yerel test veritabanı/servisler içindir.
+    env:
+      # Uygulamanın/testlerin kullandığı bağlantı: YETKİSİZ rol.
+      # Tabloların sahibi `postgres` olduğu ve stok_user superuser OLMADIĞI için
+      # RLS politikaları bu bağlantıda gerçekten zorlanır (PostgreSQL'de tablo
+      # sahibi ve superuser'lar RLS'i bypass eder — FORCE ROW LEVEL SECURITY yok).
+      DATABASE_URL: postgresql://stok_user:stok_password@localhost:5432/stok_test
+      # Şema/rol yönetimi gerektiren adımlar bunu kullanır (migrate, RLS, GRANT).
+      ADMIN_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/stok_test
+      REDIS_URL: redis://localhost:6379
+
+      # Uydurma test anahtarları — üretimdekilerle ilgisi yok.
+      JWT_SECRET: ci-dummy-jwt-secret-not-a-real-secret-0000000000
+      JWT_REFRESH_SECRET: ci-dummy-refresh-secret-not-a-real-secret-000000
+      PORTAL_JWT_SECRET: ci-dummy-portal-secret-not-a-real-secret-000000
+      JWT_EXPIRATION: 900
+      JWT_REFRESH_EXPIRATION: 604800
+
+      # AES-256-GCM anahtarı 64 karakterlik hex olmak ZORUNDA (32 byte).
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+      # CORS testleri bu listenin ilk girdisini "izin verilen origin" sayar.
+      ALLOWED_ORIGINS: http://localhost:3001,capacitor://localhost,http://localhost
+      CORS_ORIGINS: http://localhost:3001
+      APP_URL: http://localhost:3001
+
+      # Testler bcrypt'i çok kez çağırıyor; düşük tur sayısı koşuyu hızlandırır.
+      BCRYPT_ROUNDS: 4
+      RATE_LIMIT_WINDOW_MS: 900000
+      RATE_LIMIT_MAX_REQUESTS: 5
+      PORT: 3010
+
+      # Dış servislerin hepsi mock — CI ağa çıkmaz.
+      EMAIL_ENABLED: false
+      SMS_ENABLED: false
+      OCR_ENABLED: false
+      SYNC_ENABLED: false
+      OTP_ENABLED: false
+      S3_ENABLED: false
+      WHATSAPP_ENABLED: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # pnpm, setup-node'dan ÖNCE kurulmalı: setup-node'un `cache: pnpm`
+      # ayarı store yolunu bulmak için pnpm'i PATH'te arıyor.
+      - name: pnpm kurulumu
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Node.js kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Bağımlılıkları yükle
+        run: pnpm install --frozen-lockfile
+
+      # Repoda postinstall hook'u YOK, dolayısıyla Prisma Client kendiliğinden
+      # üretilmiyor. Bu adım olmadan @prisma/client tipleri şemadaki yeni
+      # modelleri (PasswordResetToken, EmailVerificationToken, emailVerified)
+      # içermez ve hem tsc hem testler patlar.
+      - name: Prisma Client üret
+        run: pnpm --filter database db:generate
+
+      # Migration'lar tablo oluşturduğu için yönetici bağlantısıyla koşar.
+      # Sonuçta tabloların sahibi `postgres` olur — RLS'in stok_user'a
+      # uygulanabilmesi için bu şart (sahip RLS'i bypass eder).
+      - name: Veritabanı şemasını uygula
+        working-directory: packages/database
+        env:
+          DATABASE_URL: ${{ env.ADMIN_DATABASE_URL }}
+        run: npx prisma migrate deploy
+
+      # ubuntu-latest imajında psql genelde kurulu; garanti altına alalım.
+      - name: psql istemcisini garanti et
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql --version
+
+      # RLS politikaları Prisma migration'larının parçası değil, ayrı dosyada.
+      - name: RLS politikalarını uygula
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -p 5432 -U postgres -d stok_test \
+            -v ON_ERROR_STOP=1 \
+            -f packages/database/prisma/rls_setup.sql
+
+      # Uygulamanın bağlandığı yetkisiz rol. Superuser DEĞİL ve tabloların
+      # sahibi değil → RLS politikaları bu bağlantıda fiilen zorlanır.
+      # (Lokal geliştirmede stok_user hem superuser hem tablo sahibi olduğu için
+      # RLS orada bypass ediliyor; CI bu yüzden lokalden DAHA katı.)
+      - name: Yetkisiz stok_user rolünü oluştur
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -p 5432 -U postgres -d stok_test -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE stok_user LOGIN PASSWORD 'stok_password';
+          GRANT USAGE ON SCHEMA public TO stok_user;
+          GRANT ALL ON ALL TABLES IN SCHEMA public TO stok_user;
+          -- Şu an sequence yok (tüm PK'lar gen_random_uuid()); ileride
+          -- autoincrement eklenirse CI sessizce kırılmasın diye peşinen veriyoruz.
+          GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO stok_user;
+          SQL
+
+      - name: Tip kontrolü — api
+        run: pnpm --filter api type-check
+
+      - name: Tip kontrolü — web
+        run: pnpm --filter web type-check
+
+      - name: e2e testler — api
+        env:
+          NODE_ENV: test
+        run: pnpm --filter api test:e2e
