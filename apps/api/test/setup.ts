@@ -12,6 +12,7 @@
 import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
+import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 
@@ -73,9 +74,37 @@ export function uniqueSuffix(): string {
 /**
  * Test tenant'ını ve ona bağlı her şeyi siler.
  *
- * users/branches FK'de onDelete: Cascade tanımlı, ama password_reset_tokens ve
- * email_verification_tokens tablolarının User'a Prisma ilişkisi YOK — bu yüzden
- * onları önce user_id üzerinden elle temizliyoruz, yoksa öksüz kayıt kalır.
+ * users/branches FK'de onDelete: Cascade tanımlı, ama diğer birçok tablo
+ * (debts, stock_levels, stock_movements, ocr_scans, cashier_sessions,
+ * products, categories, suppliers, ...) tenant_id/branch_id'ye karşı
+ * ON DELETE RESTRICT ile bağlı — migration SQL'inden doğrulandı, Prisma
+ * şemasında onDelete belirtilmeyen ilişkilerin varsayılanı bu. Yani bu
+ * tablolarda satır varken doğrudan `tenant.delete()` FK ihlaliyle patlar
+ * (ya da Branch'in CASCADE'i tetiklendiğinde branch_id RESTRICT'lerine takılır).
+ *
+ * Bu yüzden RESTRICT ile bağlı her şey, çocuktan ebeveyne doğru, tenant/branch
+ * silinmeden ÖNCE elle temizlenir. Bu tablolarda RLS YOK (yalnızca tenants/
+ * users/branches/staff_registration_tokens'ta var — rls_setup.sql'de
+ * doğrulandı), o yüzden `tenantId` filtresiyle doğrudan silinebilirler.
+ *
+ * sync_queue (ve ondan da RESTRICT ile beslenen sync_logs) listede:
+ * OcrService.confirmScan, transaction commit'inden SONRA (fire-and-forget,
+ * `void enqueueSyncAfterConfirm(...)`) bir sync_queue satırı ekliyor — ilk
+ * yazımda gözden kaçtı ve cleanup gerçek bir FK hatasıyla
+ * (sync_queue_tenant_id_fkey) patladı. sync_logs ise SyncScheduler'ın
+ * (30 saniyede bir çalışan cron job) test çalışırken/askıda kalırken bu
+ * satırı işleyip bir log yazmasıyla ortaya çıktı — 120 saniyelik bir askıda
+ * kalma sırasında tam olarak bu oldu ve sync_logs_queue_id_fkey'de patladı.
+ * Aynı şekilde başka bir serviste fire-and-forget bir yan etki eklenirse
+ * burada da unutulabilir — şüpheye düşerseniz testi çalıştırıp cleanup'ın
+ * hangi FK'da patladığına bakın, hata mesajı tablo adını verir.
+ *
+ * Yeni bir spec dosyası burada listelenmeyen bir tabloya (ör. purchase_orders,
+ * stock_transfers) yazıyorsa, o tabloyu da bu listeye ekleyin — aksi halde
+ * afterAll'daki temizlik FK hatasıyla başarısız olur.
+ *
+ * password_reset_tokens ve email_verification_tokens'ın User'a Prisma
+ * ilişkisi YOK — onlar user_id üzerinden elle temizlenir.
  * RLS, diğer public akışlardaki gibi is_super_admin ile bypass edilir.
  */
 export async function deleteTenantByTaxNumber(
@@ -91,8 +120,27 @@ export async function deleteTenantByTaxNumber(
     });
     if (!tenant) return;
 
+    const tenantId = tenant.id;
+
+    // Çocuktan ebeveyne: debt_payments → debts, stock_movements →
+    // stock_levels, ocr_scans/cashier_sessions, ardından products →
+    // categories, en son suppliers (branch_suppliers dahil).
+    await tx.debtPayment.deleteMany({ where: { debt: { tenantId } } });
+    await tx.debt.deleteMany({ where: { tenantId } });
+    await tx.stockMovement.deleteMany({ where: { tenantId } });
+    await tx.stockLevel.deleteMany({ where: { tenantId } });
+    await tx.ocrScan.deleteMany({ where: { tenantId } });
+    await tx.cashierSession.deleteMany({ where: { tenantId } });
+    await tx.syncLog.deleteMany({ where: { tenantId } });
+    await tx.syncQueue.deleteMany({ where: { tenantId } });
+    await tx.priceChangeLog.deleteMany({ where: { tenantId } });
+    await tx.branchSupplier.deleteMany({ where: { supplier: { tenantId } } });
+    await tx.product.deleteMany({ where: { tenantId } });
+    await tx.category.deleteMany({ where: { tenantId } });
+    await tx.supplier.deleteMany({ where: { tenantId } });
+
     const users = await tx.user.findMany({
-      where: { tenantId: tenant.id },
+      where: { tenantId },
       select: { id: true },
     });
     const userIds = users.map((u) => u.id);
@@ -102,7 +150,7 @@ export async function deleteTenantByTaxNumber(
       await tx.emailVerificationToken.deleteMany({ where: { userId: { in: userIds } } });
     }
 
-    await tx.tenant.delete({ where: { id: tenant.id } });
+    await tx.tenant.delete({ where: { id: tenantId } });
   });
 }
 
@@ -129,4 +177,74 @@ export function signupPayload(overrides: Partial<Record<string, unknown>> = {}) 
     password: 'Test1234',
     ...overrides,
   };
+}
+
+export interface SignedUpContext {
+  payload: ReturnType<typeof signupPayload>;
+  accessToken: string;
+  tenantId: string;
+  branchId: string;
+  userId: string;
+}
+
+/**
+ * signupPayload() ile kaydolur ve auth header'ı için gereken bağlamı döner.
+ * businessType='TEK_SUBE' → STARTER plan → tek şubeli PATRON akışları
+ * (debts/ocr/geçici kasa) bu planı gerektiriyor (bkz. servislerdeki
+ * assertAllowed / "planId !== 'STARTER'" kontrolleri).
+ *
+ * signup zaten bir accessToken döndürdüğü için ayrıca POST /auth/login
+ * ÇAĞRILMIYOR — login'in 5/15dk throttle'ına gereksiz yere dokunmamak için.
+ */
+export async function signupAndGetContext(
+  app: INestApplication,
+  overrides: Partial<Record<string, unknown>> = {},
+): Promise<SignedUpContext> {
+  const payload = signupPayload(overrides);
+
+  const res = await request(app.getHttpServer())
+    .post('/api/v1/tenants/signup')
+    .send(payload)
+    .expect(201);
+
+  const { accessToken, user } = res.body.data;
+
+  return {
+    payload,
+    accessToken,
+    tenantId: user.tenantId,
+    branchId: user.branchId,
+    userId: user.id,
+  };
+}
+
+/**
+ * Category oluşturur. Bu tablo için REST endpoint'i YOK (kod tabanında hiçbir
+ * controller category.create çağırmıyor — yalnızca seed/harici araçlarla
+ * doldurulması bekleniyor), o yüzden ürün oluşturmak için gereken kategori
+ * doğrudan Prisma ile yazılır. categories tablosunda RLS yok, ekstra bağlam
+ * (SET app.tenant_id) gerekmez.
+ */
+export async function createCategory(
+  prisma: PrismaService,
+  tenantId: string,
+  name: string,
+) {
+  const slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${uniqueSuffix()}`;
+  return prisma.category.create({ data: { tenantId, name, slug } });
+}
+
+/**
+ * Product.salePrice günceller. CreateProductDto bu alanı almıyor — üründe
+ * satış fiyatı normalde tedarikçi portalı (OTP'li onay akışı) veya Agent
+ * senkronizasyonu üzerinden set ediliyor. Testte bu ağır akışları kurmak
+ * yerine, salePrice'ı doğrudan Prisma ile yazıyoruz (products tablosunda da
+ * RLS yok).
+ */
+export async function setProductSalePrice(
+  prisma: PrismaService,
+  productId: string,
+  salePrice: number,
+) {
+  return prisma.product.update({ where: { id: productId }, data: { salePrice } });
 }

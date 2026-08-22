@@ -92,6 +92,9 @@ durdurur. Testler veri sildiği için bu kasıtlı: yanlış yapılandırılmı�
 | `setup.ts` | `createTestApp()` (main.ts bootstrap'ının aynısı) + temizlik yardımcıları |
 | `auth.e2e-spec.ts` | login, şifre kuralı, şifre sıfırlama, e-posta doğrulama |
 | `cors.e2e-spec.ts` | izinli/izinsiz origin, basit istek + preflight |
+| `debts.e2e-spec.ts` | Alacak Verecek: nakit/ürün borcu, kısmi ödeme/teslimat, hatırlatmalar |
+| `ocr.e2e-spec.ts` | Fatura Tarama (mock modda): fuzzy match, onay → stok artışı, eksik teslimat → otomatik borç, iade → stok azalışı |
+| `gecici-kasa.e2e-spec.ts` | Geçici Kasa: şifre doğrulama, oturum aç/kapa, satış, fiş listesi, yetersiz stok reddi |
 
 ## Bilinen tuzaklar
 
@@ -103,12 +106,56 @@ yoksa 429 alırsınız. `/auth/login` sınırı 5/15dk, `/auth/resend-verificati
 sayaçları sıfırdan başlatır.
 
 **Testler veritabanına yazar.** Her test kendi tenant'ını benzersiz vergi
-numarasıyla oluşturur ve `afterAll`'da siler. Bir çalıştırma yarıda kesilirse
-`E2E` ile başlayan vergi numaralı tenant'lar artakalabilir; temizlemek için:
+numarasıyla oluşturur ve `afterAll`'da `deleteTenantByTaxNumber()` (setup.ts)
+ile siler. Bir çalıştırma yarıda kesilirse (Ctrl+C, timeout, çökme) `E2E` ile
+başlayan vergi numaralı tenant'lar artakalabilir.
+
+`DELETE FROM tenants WHERE tax_number LIKE 'E2E%'` TEK BAŞINA ARTIK YETMEZ:
+debts/ocr/gecici-kasa spec'leri products/categories/suppliers/debts/
+stock_levels/ocr_scans/cashier_sessions/sync_queue/sync_logs gibi tablolara da
+yazıyor ve bunların hepsi `tenant_id`/`branch_id`'ye **ON DELETE RESTRICT** ile
+bağlı (varsayılan — Prisma şemasında `onDelete` belirtilmemiş ilişkiler).
+Doğrudan `tenants` silmeye çalışmak FK hatasıyla patlar. Elle temizlik
+gerekirse `deleteTenantByTaxNumber()`'ın kullandığı sırayı (setup.ts) psql ile
+uygulayın — `<TENANT_ID>` yerine gerçek UUID'yi yazın:
 
 ```sql
-DELETE FROM tenants WHERE tax_number LIKE 'E2E%';
+DELETE FROM sync_logs WHERE tenant_id = '<TENANT_ID>';
+DELETE FROM sync_queue WHERE tenant_id = '<TENANT_ID>';
+DELETE FROM debt_payments WHERE debt_id IN (SELECT id FROM debts WHERE tenant_id = '<TENANT_ID>');
+DELETE FROM debts WHERE tenant_id = '<TENANT_ID>';
+DELETE FROM stock_movements WHERE tenant_id = '<TENANT_ID>';
+DELETE FROM stock_levels WHERE tenant_id = '<TENANT_ID>';
+DELETE FROM ocr_scans WHERE tenant_id = '<TENANT_ID>';
+DELETE FROM cashier_sessions WHERE tenant_id = '<TENANT_ID>';
+DELETE FROM price_change_logs WHERE tenant_id = '<TENANT_ID>';
+DELETE FROM branch_suppliers WHERE supplier_id IN (SELECT id FROM suppliers WHERE tenant_id = '<TENANT_ID>');
+DELETE FROM products WHERE tenant_id = '<TENANT_ID>';
+DELETE FROM categories WHERE tenant_id = '<TENANT_ID>';
+DELETE FROM suppliers WHERE tenant_id = '<TENANT_ID>';
+DELETE FROM password_reset_tokens WHERE user_id IN (SELECT id FROM users WHERE tenant_id = '<TENANT_ID>');
+DELETE FROM email_verification_tokens WHERE user_id IN (SELECT id FROM users WHERE tenant_id = '<TENANT_ID>');
+DELETE FROM tenants WHERE id = '<TENANT_ID>';
 ```
+
+**RESTRICT FK'li yeni bir tabloya yazan spec eklerken `deleteTenantByTaxNumber`'ı
+güncelleyin.** ocr.e2e-spec.ts'i yazarken iki kez unutulan bir yan etki
+`afterAll`'ı FK hatasıyla düşürdü:
+
+1. `OcrService.confirmScan`, transaction commit'inden SONRA fire-and-forget
+   (`void enqueueSyncAfterConfirm(...)`) bir `sync_queue` satırı ekliyor —
+   asıl DTO/servis kodunda görünmeyen, yalnızca yan etki olarak var olan bir
+   yazım. `sync_queue_tenant_id_fkey` ile patladı.
+2. O satır 30 saniyede bir çalışan `SyncScheduler`'a yakalanıp işlenirse
+   (özellikle testler askıda kalıp uzun sürdüğünde — bize tam olarak 120
+   saniyelik bir timeout sırasında oldu) bir `sync_logs` satırı da oluşuyor.
+   `sync_logs_queue_id_fkey` ile patladı — ilk düzeltmeden SONRA, ikinci bir
+   test koşusunda ortaya çıktı.
+
+Ders: yeni bir spec'in hangi tabloları etkilediğini yalnızca DTO/controller'a
+bakarak çıkaramazsınız — serviste `void`'lenmiş fire-and-forget çağrılar ve
+arka plan job'ları da satır yazabilir. Şüpheye düşerseniz testi çalıştırıp
+cleanup'ın hangi FK'da patladığına bakın; hata mesajı tablo adını verir.
 
 **Kalıcı bağlantı/timer açan servisler `OnModuleDestroy` uygulamalı.** Yeni bir
 servis Redis client (`createClient`) veya benzer bir kalıcı bağlantı/timer
