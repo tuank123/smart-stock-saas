@@ -9,7 +9,11 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SyncService } from '../sync/sync.service';
 import { findBestFuzzyMatch } from '../../common/utils/fuzzyMatch';
+import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import { ConfirmReturnDto, ConfirmScanDto, ScanDto } from './dto/ocr.dto';
+
+// Miktarlarda kabul edilen ondalık tolerans (Decimal(12,3) hassasiyetiyle uyumlu).
+const QUANTITY_TOLERANCE = 0.001;
 
 export interface RawOcrLine {
   name: string;
@@ -324,6 +328,35 @@ export class OcrService {
             select: { id: true },
           });
           debtsCreated.push(productDebt.id);
+
+          // ── Bütünlük kontrolü: borçtaki toplam eksik miktar, (fatura - teslim
+          // alınan) hesabıyla birebir uyuşmalı ──
+          const expectedMissingTotal = missingLines.reduce((sum, l) => sum + l.missing, 0);
+          const actualMissingTotal = productLines.reduce((sum, pl) => sum + pl.quantity, 0);
+
+          if (Math.abs(expectedMissingTotal - actualMissingTotal) > QUANTITY_TOLERANCE) {
+            await this.prisma.errorLog
+              .create({
+                data: {
+                  source: 'DATA_INTEGRITY',
+                  severity: 'ERROR',
+                  message: 'OCR eksik teslimat borcu tutarsızlığı',
+                  tenantId: user.tenantId,
+                  branchId: scan.branchId,
+                  context: {
+                    scanId,
+                    debtId: productDebt.id,
+                    expectedMissingTotal,
+                    actualMissingTotal,
+                    missingLines,
+                    productLines,
+                  },
+                },
+              })
+              .catch(() => undefined);
+
+            throw new DataIntegrityException('OCR missing-quantity debt mismatch');
+          }
         }
       }
 

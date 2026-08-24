@@ -11,6 +11,7 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SmsService } from '../sms/sms.service';
+import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import {
   DailyReportQueryDto,
   InitializeStockDto,
@@ -22,6 +23,9 @@ import {
   UpdateThresholdDto,
   WasteStockDto,
 } from './dto/stock.dto';
+
+// Parasal tutarlarda kabul edilen ondalık tolerans (kuruş altı yuvarlama farkları için).
+const AMOUNT_TOLERANCE = 0.01;
 
 // Verilen takvim gününü closingTime (HH:mm) saatinde yerel Date olarak kurar.
 // Bir "iş günü" D, [D@closingTime, (D+1)@closingTime) aralığıdır.
@@ -266,6 +270,8 @@ export class StockService {
       // Tüm kalemlerin paylaştığı tek satış referansı.
       const transactionId = randomUUID();
       const movements: SaleMovement[] = [];
+      // Bütünlük kontrolünde (satış sonrası negatif stok var mı) yeniden okunacak.
+      const touchedLevelIds: string[] = [];
 
       for (const item of dto.items) {
         // a. Ürün (salePrice dahil)
@@ -323,6 +329,7 @@ export class StockService {
           where: { id: level.id },
           data: { quantity: { decrement: item.quantity } },
         });
+        touchedLevelIds.push(level.id);
 
         movements.push(movement);
       }
@@ -331,11 +338,68 @@ export class StockService {
         (sum, m) => sum + Math.abs(Number(m.quantity)) * Number(m.unitPrice),
         0,
       );
+      const roundedTotal = Math.round(totalAmount * 100) / 100;
+
+      // ── Bütünlük kontrolü 1: totalAmount == Σ(quantity × unitPrice) ──
+      // Yukarıdaki reduce ile aynı formül; bilerek bağımsız yeniden hesaplanır
+      // (kopyala-yapıştır değil, ayrı bir doğrulama adımı).
+      const recomputedTotal = movements.reduce(
+        (sum, m) => sum + Math.abs(Number(m.quantity)) * Number(m.unitPrice),
+        0,
+      );
+      const recomputedRounded = Math.round(recomputedTotal * 100) / 100;
+
+      // ── Bütünlük kontrolü 2: hiçbir StockLevel negatife düşmemeli ──
+      // "c" adımındaki kontrol (level.quantity < item.quantity) tek başına
+      // yarış durumuna karşı yeterli değil: iki eşzamanlı satış aynı ürünün
+      // aynı başlangıç miktarını okuyup ikisi de geçebilir, ardından ikisi de
+      // düşer ve sonuç negatif olabilir. Bu yüzden asıl garanti burada,
+      // düşüşlerden SONRA gerçek DB değerleri yeniden okunarak alınır.
+      const finalLevels = touchedLevelIds.length
+        ? await tx.stockLevel.findMany({
+            where: { id: { in: touchedLevelIds } },
+            select: { id: true, productId: true, quantity: true },
+          })
+        : [];
+      const negativeLevel = finalLevels.find((l) => Number(l.quantity) < 0);
+
+      if (
+        Math.abs(roundedTotal - recomputedRounded) > AMOUNT_TOLERANCE ||
+        negativeLevel
+      ) {
+        await this.prisma.errorLog
+          .create({
+            data: {
+              source: 'DATA_INTEGRITY',
+              severity: 'ERROR',
+              message: 'Satış tutarsızlığı',
+              tenantId: user.tenantId,
+              branchId,
+              context: {
+                transactionId,
+                totalAmount: roundedTotal,
+                recomputedTotal: recomputedRounded,
+                items: movements.map((m) => ({
+                  productId: m.productId,
+                  quantity: Number(m.quantity),
+                  unitPrice: Number(m.unitPrice),
+                })),
+                stockLevelsAfterSale: finalLevels.map((l) => ({
+                  productId: l.productId,
+                  quantity: Number(l.quantity),
+                })),
+              },
+            },
+          })
+          .catch(() => undefined);
+
+        throw new DataIntegrityException('sale amount or stock level mismatch');
+      }
 
       return {
         transactionId,
         items: movements,
-        totalAmount: Math.round(totalAmount * 100) / 100,
+        totalAmount: roundedTotal,
         paymentMethod: dto.paymentMethod,
       };
     });

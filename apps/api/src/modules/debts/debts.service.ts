@@ -5,12 +5,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import {
   CreateDebtDto,
   RecordCashPaymentDto,
   RecordProductReceiptDto,
   UpdateDebtDto,
 } from './dto/debt.dto';
+
+// Parasal tutarlarda kabul edilen ondalık tolerans (kuruş altı yuvarlama farkları için).
+const AMOUNT_TOLERANCE = 0.01;
 
 type DebtUser = {
   tenantId: string;
@@ -185,7 +189,7 @@ export class DebtsService {
         data: { debtId: id, amount: dto.amount, createdBy: user.userId },
       });
 
-      return tx.debt.update({
+      const updated = await tx.debt.update({
         where: { id },
         data: {
           remainingAmount: newRemaining,
@@ -195,6 +199,41 @@ export class DebtsService {
         },
         include: { supplier: { select: { id: true, name: true } } },
       });
+
+      // ── Bütünlük kontrolü: kalan + tüm ödemelerin toplamı == orijinal tutar ──
+      const paymentsAgg = await tx.debtPayment.aggregate({
+        where: { debtId: id },
+        _sum: { amount: true },
+      });
+      const paymentsTotal = Number(paymentsAgg._sum.amount ?? 0);
+      const originalAmount = Number(existing.amount ?? 0);
+      const finalRemaining = Number(updated.remainingAmount ?? 0);
+
+      if (Math.abs(finalRemaining + paymentsTotal - originalAmount) > AMOUNT_TOLERANCE) {
+        // ErrorLog, rollback edilecek `tx` DIŞINDA (this.prisma ile) yazılır —
+        // yoksa kayıt da transaction ile birlikte geri alınır ve iz kalmaz.
+        await this.prisma.errorLog
+          .create({
+            data: {
+              source: 'DATA_INTEGRITY',
+              severity: 'ERROR',
+              message: 'Borç ödeme tutarsızlığı',
+              tenantId: user.tenantId,
+              branchId: existing.branchId,
+              context: {
+                debtId: id,
+                amount: originalAmount,
+                remainingAmount: finalRemaining,
+                paymentsTotal,
+              },
+            },
+          })
+          .catch(() => undefined);
+
+        throw new DataIntegrityException('debt payment mismatch');
+      }
+
+      return updated;
     });
   }
 
@@ -267,6 +306,33 @@ export class DebtsService {
         unit: l.unit,
         receivedQuantity: l.receivedQuantity ?? 0,
       }));
+
+      // ── Bütünlük kontrolü: hiçbir satırda teslim alınan, sipariş edileni geçmemeli ──
+      // Yukarıdaki Math.min zaten bunu garanti ediyor; bu, olası bir gelecekteki
+      // mantık değişikliğine karşı son bir güvenlik ağı.
+      const overReceived = persistedLines.find((l) => l.receivedQuantity > l.quantity);
+      if (overReceived) {
+        await this.prisma.errorLog
+          .create({
+            data: {
+              source: 'DATA_INTEGRITY',
+              severity: 'ERROR',
+              message: 'Ürün teslimatı tutarsızlığı',
+              tenantId: user.tenantId,
+              branchId: existing.branchId,
+              context: {
+                debtId: id,
+                productId: overReceived.productId,
+                quantity: overReceived.quantity,
+                receivedQuantity: overReceived.receivedQuantity,
+                productLines: persistedLines,
+              },
+            },
+          })
+          .catch(() => undefined);
+
+        throw new DataIntegrityException('product receipt exceeds ordered quantity');
+      }
 
       const allReceived = persistedLines.every(
         (l) => l.receivedQuantity >= l.quantity,
