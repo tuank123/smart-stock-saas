@@ -22,6 +22,19 @@ export const api = axios.create({
   withCredentials: true,
 });
 
+// Public/giriş-öncesi uç noktalar — bunlardan gelen bir 401 asla "oturum
+// süresi doldu" anlamına gelmez (ör. /auth/login'e yanlış şifre girmek),
+// çünkü henüz ortada yenilenecek bir oturum yok. Response interceptor bu
+// isteklerde refresh denemeden/sert yönlendirme yapmadan hatayı olduğu gibi
+// çağırana (mutation'ın kendi onError/error state'ine) bırakır.
+const PUBLIC_AUTH_ENDPOINTS = [
+  '/auth/login',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/auth/verify-email',
+  '/tenants/signup',
+];
+
 // Attach access token to every request
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = authStorage.getToken();
@@ -44,7 +57,11 @@ api.interceptors.response.use(
       _retry?: boolean;
     };
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    const isPublicAuthEndpoint = PUBLIC_AUTH_ENDPOINTS.some((path) =>
+      originalRequest?.url?.includes(path),
+    );
+
+    if (error.response?.status === 401 && !originalRequest._retry && !isPublicAuthEndpoint) {
       originalRequest._retry = true;
       const native = isNative();
 
