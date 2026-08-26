@@ -105,9 +105,9 @@ export class AuthController {
   @Patch('change-password')
   changePassword(
     @Body() dto: ChangePasswordDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; tenantId: string },
   ) {
-    return this.authService.changePassword(user.userId, dto);
+    return this.authService.changePassword(user.userId, user.tenantId, dto);
   }
 
   /**
@@ -119,9 +119,9 @@ export class AuthController {
   @HttpCode(200)
   verifyPassword(
     @Body() dto: VerifyPasswordDto,
-    @CurrentUser() user: { userId: string },
+    @CurrentUser() user: { userId: string; tenantId: string },
   ) {
-    return this.authService.verifyPassword(user.userId, dto.password);
+    return this.authService.verifyPassword(user.userId, user.tenantId, dto.password);
   }
 
   /**

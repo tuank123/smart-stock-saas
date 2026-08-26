@@ -297,4 +297,140 @@ describe('Auth (e2e)', () => {
       .send({ token: record!.token })
       .expect(400);
   });
+
+  // ── RLS bağlam sızıntısı regresyonu ─────────────────────────────────────
+  //
+  // getMe/login/refreshToken/changePassword/verifyPassword'ın hepsi, RLS
+  // altındaki users/tenants tablolarını sorgulamadan ÖNCE app.tenant_id /
+  // app.is_super_admin set etmiyordu (yalnızca bu metotlar — codebase'in
+  // geri kalanı bunu tutarlı yapıyor). Postgres'te düz SET, SET LOCAL gibi
+  // transaction'a değil SESSION'a/bağlantıya bağlı olduğundan, bu havuzlanmış
+  // bir bağlantıda ÖNCEKİ bir isteğin bıraktığı BAŞKA bir tenant'ın
+  // app.tenant_id değerini "miras alıp" o kullanıcıyı RLS'in sessizce
+  // görünmez kılmasına (404/başarısız) yol açabiliyordu. Bunu CI'da (RLS
+  // gerçekten zorlanan ortam) yakalayan gerçek bir başarısızlık zaten oldu
+  // (bkz. staff-registration.e2e-spec.ts'in cross-tenant testi). Aşağıdaki
+  // testler her metot için AYNI sızıntıyı elle tetikliyor: hemen öncesinde
+  // BAŞKA bir tenant'ın bağlamını "kirleten" bağımsız bir istek atılıyor,
+  // sonra hedef metot doğru tenant'ın sonucunu döndürüyor mu diye bakılıyor.
+  //
+  // NOT: Yerelde RLS bypass edildiği için (stok_user superuser/sahip) bu
+  // testler yerelde sızıntı olsa bile geçer — asıl garanti CI'da devreye
+  // girer. Yine de düzeltmenin regresyona karşı kalıcı bir bekçisi olarak
+  // burada duruyorlar.
+  describe('RLS bağlam sızıntısı regresyonu (getMe/refresh/changePassword/verifyPassword)', () => {
+    let ctxA: { payload: ReturnType<typeof signupPayload>; accessToken: string; refreshToken: string };
+    let ctxB: { payload: ReturnType<typeof signupPayload>; accessToken: string; refreshToken: string };
+
+    beforeAll(async () => {
+      // NOT: POST /auth/login yerine signup'ın kendi döndürdüğü token'lar
+      // kullanılıyor (tıpkı setup.ts → signupAndGetContext gibi) — bu dosyada
+      // /auth/login zaten @Throttle(5/15dk) bütçesinin 4/5'ini önceki
+      // testlerde tüketmiş durumda, burada login() çağırmak dosyanın geri
+      // kalanını 429'a düşürür. Signup, login ile birebir aynı buildAuthData
+      // yolunu kullanıyor (bkz. tenants.controller.ts) — X-Client-Platform:
+      // native ile refreshToken body'de de dönüyor.
+      const payloadA = signupPayload();
+      const payloadB = signupPayload();
+
+      const signupA = await request(app.getHttpServer())
+        .post('/api/v1/tenants/signup')
+        .set('X-Client-Platform', 'native')
+        .send(payloadA)
+        .expect(201);
+      createdTaxNumbers.push(payloadA.taxNumber);
+
+      const signupB = await request(app.getHttpServer())
+        .post('/api/v1/tenants/signup')
+        .set('X-Client-Platform', 'native')
+        .send(payloadB)
+        .expect(201);
+      createdTaxNumbers.push(payloadB.taxNumber);
+
+      ctxA = { payload: payloadA, accessToken: signupA.body.data.accessToken, refreshToken: signupA.body.data.refreshToken };
+      ctxB = { payload: payloadB, accessToken: signupB.body.data.accessToken, refreshToken: signupB.body.data.refreshToken };
+    });
+
+    // "Bağlamı A'ya kirlet" — herhangi bir tenant-scoped uç nokta yeterli;
+    // burada A'nın kendi şube listesini okuması app.tenant_id'yi A'ya set eder.
+    async function poisonContextWithA(): Promise<void> {
+      await request(app.getHttpServer())
+        .get('/api/v1/branches')
+        .set('Authorization', `Bearer ${ctxA.accessToken}`)
+        .expect(200);
+    }
+
+    it('GET /auth/me — A bağlamı kirletildikten hemen sonra B kendi hesabını doğru görür', async () => {
+      await poisonContextWithA();
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/auth/me')
+        .set('Authorization', `Bearer ${ctxB.accessToken}`)
+        .expect(200);
+
+      expect(res.body.user.email).toBe(ctxB.payload.email);
+      expect(res.body.tenant.taxNumber).toBe(ctxB.payload.taxNumber);
+    });
+
+    it('POST /auth/refresh — A bağlamı kirletildikten hemen sonra B\'nin refresh token\'ı doğru kullanıcıyı döner', async () => {
+      await poisonContextWithA();
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/auth/refresh')
+        .send({ refreshToken: ctxB.refreshToken })
+        .expect(200);
+
+      expect(res.body.data.user.email).toBe(ctxB.payload.email);
+    });
+
+    it('POST /auth/verify-password — A bağlamı kirletildikten hemen sonra B\'nin şifresi doğru doğrulanır', async () => {
+      await poisonContextWithA();
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/auth/verify-password')
+        .set('Authorization', `Bearer ${ctxB.accessToken}`)
+        .send({ password: ctxB.payload.password })
+        .expect(200);
+
+      expect(res.body.valid).toBe(true);
+    });
+
+    it('PATCH /auth/change-password — A bağlamı kirletildikten hemen sonra B\'nin şifresi gerçekten kendi hesabında değişir, A etkilenmez', async () => {
+      await poisonContextWithA();
+
+      const newPassword = 'YeniSifreB123';
+      await request(app.getHttpServer())
+        .patch('/api/v1/auth/change-password')
+        .set('Authorization', `Bearer ${ctxB.accessToken}`)
+        .send({ currentPassword: ctxB.payload.password, newPassword })
+        .expect(200);
+
+      // Doğrulama /auth/login ÜZERİNDEN YAPILMIYOR — bu dosyada login zaten
+      // @Throttle(5/15dk) bütçesinin çoğunu tüketmiş durumda (yukarıdaki
+      // testler). Throttle'sız /auth/verify-password ile aynı şeyi kanıtlıyoruz:
+      // update GERÇEKTEN B'nin kendi satırına yazılmış (kirlenmiş bağlamda
+      // sessizce 0 satır değil) ve A hiç etkilenmemiş.
+      const verifyBNew = await request(app.getHttpServer())
+        .post('/api/v1/auth/verify-password')
+        .set('Authorization', `Bearer ${ctxB.accessToken}`)
+        .send({ password: newPassword })
+        .expect(200);
+      expect(verifyBNew.body.valid).toBe(true);
+
+      const verifyBOld = await request(app.getHttpServer())
+        .post('/api/v1/auth/verify-password')
+        .set('Authorization', `Bearer ${ctxB.accessToken}`)
+        .send({ password: ctxB.payload.password })
+        .expect(200);
+      expect(verifyBOld.body.valid).toBe(false);
+
+      // A'nın kendi hesabı bu işlemden hiç etkilenmemiş olmalı.
+      const verifyAUnchanged = await request(app.getHttpServer())
+        .post('/api/v1/auth/verify-password')
+        .set('Authorization', `Bearer ${ctxA.accessToken}`)
+        .send({ password: ctxA.payload.password })
+        .expect(200);
+      expect(verifyAUnchanged.body.valid).toBe(true);
+    });
+  });
 });

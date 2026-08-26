@@ -120,10 +120,16 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       throw new UnauthorizedException('Bu hesap kapatılmış. Giriş yapılamıyor.');
     }
 
-    // Update last login
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+    // Update last login — RLS altında; getMe'deki düzeltmeyle aynı gerekçe:
+    // bağlam kurulmadan çağrılırsa, havuzlanmış bağlantıda kalan BAŞKA bir
+    // tenant'ın app.tenant_id'si yüzünden bu update sessizce 0 satır etkileyebilir.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      await tx.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      });
     });
 
     // Clear rate limit on successful login
@@ -181,13 +187,19 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      // Get user
-      const user = await this.prisma.user.findUnique({
-        where: { id: payload.userId },
-        include: {
-          tenant: true,
-          branch: true,
-        },
+      // Get user — henüz tenant bağlamı yok (refresh token payload'ı yalnızca
+      // userId/email taşır); login()'in ilk e-posta aramasıyla ve
+      // findUserByIdGlobal ile aynı gerekçeyle super-admin RLS bypass'ı
+      // kullanılıyor (tenant-agnostic, id ile tekil arama).
+      const user = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+        return tx.user.findUnique({
+          where: { id: payload.userId },
+          include: {
+            tenant: true,
+            branch: true,
+          },
+        });
       });
 
       if (!user || !user.isActive) {
@@ -255,30 +267,44 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
    * GET /auth/me — current user + tenant info
    */
   async getMe(userId: string, tenantId: string) {
-    const [user, tenant] = await Promise.all([
-      this.prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          id: true,
-          email: true,
-          role: true,
-          branchId: true,
-          emailVerified: true,
-          createdAt: true,
-        },
-      }),
-      this.prisma.tenant.findUnique({
-        where: { id: tenantId },
-        select: {
-          id: true,
-          companyName: true,
-          taxNumber: true,
-          status: true,
-          planId: true,
-          settings: true,
-        },
-      }),
-    ]);
+    // users/tenants RLS altında — diğer tüm tenant-scoped metotlarla aynı
+    // desen: app.tenant_id burada AÇIKÇA set edilmeli. Önceden bu eksikti;
+    // sorgular bağlam kurmadan doğrudan this.prisma.* üzerinden çalışıyordu,
+    // bu da RLS'in gerçekten zorlandığı ortamlarda (CI, production) hangi
+    // pooled bağlantının seçildiğine bağlı olarak (bir önceki sorgunun
+    // set ettiği app.tenant_id kalıntısı — Postgres'te düz SET, SET LOCAL
+    // gibi transaction'a değil SESSION'a/bağlantıya bağlıdır) rastgele
+    // "kullanıcı bulunamadı" (404) sonucuna yol açabiliyordu. Yerelde RLS
+    // bypass edildiği (stok_user superuser/sahip) için bu hiç görünmüyordu.
+    const [user, tenant] = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+
+      return Promise.all([
+        tx.user.findUnique({
+          where: { id: userId },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            branchId: true,
+            emailVerified: true,
+            createdAt: true,
+          },
+        }),
+        tx.tenant.findUnique({
+          where: { id: tenantId },
+          select: {
+            id: true,
+            companyName: true,
+            taxNumber: true,
+            status: true,
+            planId: true,
+            settings: true,
+          },
+        }),
+      ]);
+    });
 
     if (!user || !tenant) {
       throw new NotFoundException('User or tenant not found');
@@ -290,8 +316,12 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   /**
    * PATCH /auth/change-password
    */
-  async changePassword(userId: string, dto: ChangePasswordDto) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+  async changePassword(userId: string, tenantId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      return tx.user.findUnique({ where: { id: userId } });
+    });
     if (!user) throw new NotFoundException('User not found');
 
     const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
@@ -299,9 +329,13 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
 
     const rounds = process.env.BCRYPT_ROUNDS ? parseInt(process.env.BCRYPT_ROUNDS, 10) : 12;
     const hash = await bcrypt.hash(dto.newPassword, rounds);
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { passwordHash: hash },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      await tx.user.update({
+        where: { id: userId },
+        data: { passwordHash: hash },
+      });
     });
 
     return { message: 'Şifre güncellendi' };
@@ -311,8 +345,12 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
    * Şifre doğrulama (changePassword ile aynı bcrypt.compare deseni).
    * Yanlış şifrede exception fırlatmaz — { valid: false } döner.
    */
-  async verifyPassword(userId: string, password: string): Promise<{ valid: boolean }> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+  async verifyPassword(userId: string, tenantId: string, password: string): Promise<{ valid: boolean }> {
+    const user = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      return tx.user.findUnique({ where: { id: userId } });
+    });
     if (!user) throw new NotFoundException('User not found');
 
     const valid = await bcrypt.compare(password, user.passwordHash);
