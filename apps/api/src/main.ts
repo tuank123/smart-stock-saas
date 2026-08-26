@@ -5,11 +5,19 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import * as bodyParser from 'body-parser';
+import type { IncomingMessage } from 'http';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+    // Nest'in kendi varsayılan body-parser'ı yerine BODY SIZE LIMIT
+    // bölümündeki manuel json()/urlencoded() çağrıları kullanılıyor — bu,
+    // WhatsApp webhook imza doğrulaması için ham (rawBody) gövdeyi
+    // yakalayan 'verify' callback'inin GERÇEKTEN devrede olduğundan emin
+    // olmanın tek yolu (aksi halde Nest'in varsayılan parser'ı isteği daha
+    // önce işleyip bizimkini no-op'a düşürebilir).
+    bodyParser: false,
   });
 
   const configService = app.get(ConfigService);
@@ -55,7 +63,19 @@ async function bootstrap() {
   // ============================================
   // BODY SIZE LIMIT
   // ============================================
-  app.use(bodyParser.json({ limit: '10mb' }));
+  // 'verify', her istekte ham (parse edilmemiş) gövdeyi req.rawBody'e yazar.
+  // Yalnızca WhatsappSignatureGuard bunu okur (POST /whatsapp/webhook'un
+  // X-Hub-Signature-256 imzasını doğrulamak için); diğer TÜM endpoint'ler
+  // için davranış ve 10mb limiti AYNI kalır — bu sadece mevcut json()
+  // çağrısına eklenen ucuz bir buffer referansı, ikinci bir parser değil.
+  app.use(
+    bodyParser.json({
+      limit: '10mb',
+      verify: (req: IncomingMessage & { rawBody?: Buffer }, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
   app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 
   // ============================================

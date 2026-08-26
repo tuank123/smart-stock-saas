@@ -1,7 +1,8 @@
-import { Body, Controller, Get, HttpCode, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { Public } from '../../common/decorators/public.decorator';
+import { WhatsappSignatureGuard } from '../../common/guards/whatsapp-signature.guard';
 import { WhatsappService } from './whatsapp.service';
 
 @Controller('whatsapp')
@@ -34,8 +35,12 @@ export class WhatsappController {
   /**
    * POST /whatsapp/webhook — gelen mesaj bildirimleri.
    * Her zaman 200 döneriz (Meta retry'ını önlemek için); işleme servise devredilir.
+   * WhatsappSignatureGuard, işlemeden ÖNCE X-Hub-Signature-256'yı doğrular
+   * (bkz. whatsapp-signature.guard.ts) — yalnızca WHATSAPP_APP_SECRET
+   * tanımlıysa devrede, aksi halde mock modda atlanır.
    */
   @Public()
+  @UseGuards(WhatsappSignatureGuard)
   @Post('webhook')
   @HttpCode(200)
   async receive(@Body() payload: unknown): Promise<{ received: true }> {

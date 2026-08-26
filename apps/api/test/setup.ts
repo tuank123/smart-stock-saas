@@ -2,9 +2,11 @@
  * e2e test yardımcıları.
  *
  * createTestApp(), main.ts'teki bootstrap yapılandırmasının AYNISINI uygular
- * (cookie-parser, CORS, global prefix + versioning, ValidationPipe). Aksi
- * halde testler gerçek uygulamadan farklı bir pipeline'ı test etmiş olurdu:
- * doğrulama hataları 400 yerine 201 dönerdi ve rotalar /api/v1 önekini almazdı.
+ * (cookie-parser, CORS, global prefix + versioning, ValidationPipe, body
+ * parser + rawBody yakalama). Aksi halde testler gerçek uygulamadan farklı
+ * bir pipeline'ı test etmiş olurdu: doğrulama hataları 400 yerine 201
+ * dönerdi, rotalar /api/v1 önekini almazdı, ya da WhatsappSignatureGuard'ın
+ * okuduğu req.rawBody hiç dolmazdı (bkz. main.ts BODY SIZE LIMIT yorumu).
  *
  * Global guard'lar (Throttler, JWT, Tenant, Roles) ve exception filter'ı
  * AppModule'de APP_GUARD/APP_FILTER ile tanımlı olduğu için otomatik gelir.
@@ -13,6 +15,8 @@ import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
+import * as bodyParser from 'body-parser';
+import type { IncomingMessage } from 'http';
 import * as bcrypt from 'bcrypt';
 import { UserRole } from '@prisma/client';
 import { AppModule } from '../src/app.module';
@@ -38,9 +42,26 @@ export async function createTestApp(): Promise<TestContext> {
     imports: [AppModule],
   }).compile();
 
-  const app = moduleRef.createNestApplication();
+  // bodyParser:false — main.ts ile aynı gerekçe: Nest'in kendi varsayılan
+  // body-parser'ı devre dışı, aşağıdaki manuel json()/urlencoded() çağrıları
+  // kullanılıyor. Bu, WhatsappSignatureGuard'ın okuduğu req.rawBody'nin
+  // testlerde de gerçekten dolduğundan emin olmanın tek yolu.
+  const app = moduleRef.createNestApplication({ bodyParser: false });
 
   app.use(cookieParser());
+
+  // main.ts BODY SIZE LIMIT ile birebir aynı — 'verify' ham gövdeyi
+  // req.rawBody'e yazar (yalnızca WhatsappSignatureGuard okur), diğer tüm
+  // endpoint'ler için davranış/limit değişmez.
+  app.use(
+    bodyParser.json({
+      limit: '10mb',
+      verify: (req: IncomingMessage & { rawBody?: Buffer }, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
+  app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 
   app.enableCors({
     origin: allowedOrigins(),
@@ -105,7 +126,9 @@ export function uniqueSuffix(): string {
  * Yeni bir spec dosyası burada listelenmeyen bir tabloya yazıyorsa, o tabloyu
  * da bu listeye ekleyin — aksi halde afterAll'daki temizlik FK hatasıyla
  * başarısız olur. whatsapp_message_logs/purchase_order_items, purchase_orders
- * ve stock_transfers de bu şekilde eklendi (orders/transfers e2e testleri).
+ * ve stock_transfers de bu şekilde eklendi (orders/transfers e2e testleri);
+ * supplier_portal_uploads/branch_supplier_portals/branch_integrations/
+ * agent_setup_tokens de aynı şekilde (portal/agent-sync e2e testleri).
  *
  * password_reset_tokens ve email_verification_tokens'ın User'a Prisma
  * ilişkisi YOK — onlar user_id üzerinden elle temizlenir.
@@ -135,6 +158,16 @@ export async function deleteTenantByTaxNumber(
     await tx.purchaseOrderItem.deleteMany({ where: { purchaseOrder: { tenantId } } });
     await tx.purchaseOrder.deleteMany({ where: { tenantId } });
     await tx.stockTransfer.deleteMany({ where: { tenantId } });
+    // supplier_portal_uploads.supplier_id/portal_id ON DELETE SET NULL'dır,
+    // ama tenant_id/branch_id RESTRICT — tenant/branch silinmeden önce
+    // temizlenmeli (portal.e2e-spec.ts, whatsapp.e2e-spec.ts).
+    await tx.supplierPortalUpload.deleteMany({ where: { tenantId } });
+    await tx.branchSupplierPortal.deleteMany({ where: { tenantId } });
+    // branch_integrations tenant_id/branch_id RESTRICT (agent-sync.e2e-spec.ts).
+    await tx.branchIntegration.deleteMany({ where: { tenantId } });
+    // agent_setup_tokens'ta FK yok (migration'da tanımsız) ama hijyen için
+    // yine de temizlenir.
+    await tx.agentSetupToken.deleteMany({ where: { tenantId } });
     await tx.stockMovement.deleteMany({ where: { tenantId } });
     await tx.stockLevel.deleteMany({ where: { tenantId } });
     await tx.ocrScan.deleteMany({ where: { tenantId } });
