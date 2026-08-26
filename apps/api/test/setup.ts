@@ -13,8 +13,11 @@ import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
+import * as bcrypt from 'bcrypt';
+import { UserRole } from '@prisma/client';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { AuthService } from '../src/modules/auth/auth.service';
 
 export interface TestContext {
   app: INestApplication;
@@ -99,9 +102,10 @@ export function uniqueSuffix(): string {
  * burada da unutulabilir — şüpheye düşerseniz testi çalıştırıp cleanup'ın
  * hangi FK'da patladığına bakın, hata mesajı tablo adını verir.
  *
- * Yeni bir spec dosyası burada listelenmeyen bir tabloya (ör. purchase_orders,
- * stock_transfers) yazıyorsa, o tabloyu da bu listeye ekleyin — aksi halde
- * afterAll'daki temizlik FK hatasıyla başarısız olur.
+ * Yeni bir spec dosyası burada listelenmeyen bir tabloya yazıyorsa, o tabloyu
+ * da bu listeye ekleyin — aksi halde afterAll'daki temizlik FK hatasıyla
+ * başarısız olur. whatsapp_message_logs/purchase_order_items, purchase_orders
+ * ve stock_transfers de bu şekilde eklendi (orders/transfers e2e testleri).
  *
  * password_reset_tokens ve email_verification_tokens'ın User'a Prisma
  * ilişkisi YOK — onlar user_id üzerinden elle temizlenir.
@@ -127,6 +131,10 @@ export async function deleteTenantByTaxNumber(
     // categories, en son suppliers (branch_suppliers dahil).
     await tx.debtPayment.deleteMany({ where: { debt: { tenantId } } });
     await tx.debt.deleteMany({ where: { tenantId } });
+    await tx.whatsappMessageLog.deleteMany({ where: { tenantId } });
+    await tx.purchaseOrderItem.deleteMany({ where: { purchaseOrder: { tenantId } } });
+    await tx.purchaseOrder.deleteMany({ where: { tenantId } });
+    await tx.stockTransfer.deleteMany({ where: { tenantId } });
     await tx.stockMovement.deleteMany({ where: { tenantId } });
     await tx.stockLevel.deleteMany({ where: { tenantId } });
     await tx.ocrScan.deleteMany({ where: { tenantId } });
@@ -216,6 +224,67 @@ export async function signupAndGetContext(
     branchId: user.branchId,
     userId: user.id,
   };
+}
+
+export interface RoleUserContext {
+  userId: string;
+  email: string;
+  accessToken: string;
+}
+
+/**
+ * signupAndGetContext() her zaman bir PATRON döner, ama birçok endpoint
+ * (ör. orders.create, stock.recordWaste, stock.updateThreshold) yalnızca
+ * SUBE_MUDURU'ya açık, ya da tam tersi bir yetkisiz-rol reddini test etmek
+ * gerekiyor (ör. KASIYER sipariş onaylayamaz). staff-registration akışının
+ * e-posta kodu adımlarını kurmak yerine, kullanıcı doğrudan Prisma ile
+ * oluşturulur (createCategory ile aynı desen — bu tabloda da RLS yok) ve
+ * token'ı AuthService.issueTokens() ile mint edilir: bu, AuthService.login'in
+ * kullandığı AYNI imzalama mantığı (bkz. auth.service.ts), bu yüzden
+ * JwtStrategy/RolesGuard tarafında signup/login ile üretilen token'lardan
+ * ayırt edilemez — ve login'in 5/15dk throttle'ına hiç dokunmaz.
+ */
+export async function createRoleUser(
+  app: INestApplication,
+  prisma: PrismaService,
+  params: {
+    tenantId: string;
+    branchId: string | null;
+    role: UserRole;
+    planId?: string | null;
+  },
+): Promise<RoleUserContext> {
+  const suffix = uniqueSuffix();
+  const email = `e2e-${params.role.toLowerCase()}-${suffix}@example.test`;
+  const passwordHash = await bcrypt.hash('Test1234', 4);
+
+  const user = await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    return tx.user.create({
+      data: {
+        tenantId: params.tenantId,
+        branchId: params.branchId,
+        email,
+        fullName: `E2E ${params.role}`,
+        passwordHash,
+        role: params.role,
+        isActive: true,
+      },
+      select: { id: true, email: true },
+    });
+  });
+
+  const authService = app.get(AuthService);
+  const { accessToken } = await authService.issueTokens({
+    id: user.id,
+    email: user.email,
+    tenantId: params.tenantId,
+    branchId: params.branchId,
+    role: params.role,
+    planId: params.planId ?? null,
+  });
+
+  return { userId: user.id, email: user.email, accessToken };
 }
 
 /**

@@ -203,11 +203,19 @@ export class StockService {
 
       const level = await tx.stockLevel.findUnique({
         where: { productId_branchId: { productId: dto.productId, branchId } },
-        select: { id: true, tenantId: true },
+        select: { id: true, tenantId: true, quantity: true },
       });
 
       if (!level || level.tenantId !== user.tenantId) {
         throw new NotFoundException('Stok kaydı bulunamadı');
+      }
+
+      // recordSale ile aynı kontrol: fire miktarı mevcut stoktan fazlaysa
+      // reddedilir — stok asla negatife düşürülmez.
+      if (Number(level.quantity) < dto.quantity) {
+        throw new BadRequestException(
+          `Yetersiz stok (mevcut: ${level.quantity})`,
+        );
       }
 
       // Store the waste photo. Same pattern as PortalService.uploadPdf: when S3

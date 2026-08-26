@@ -146,13 +146,54 @@ export class TransfersService {
 
       const transfer = await tx.stockTransfer.findUnique({
         where: { id: transferId },
-        select: { id: true, tenantId: true, status: true },
+        select: {
+          id: true, tenantId: true, status: true,
+          fromBranchId: true, productId: true, quantity: true,
+        },
       });
 
       if (!transfer || transfer.tenantId !== user.tenantId) throw new NotFoundException('Transfer bulunamadı');
       if (transfer.status !== 'APPROVED') {
         throw new BadRequestException(`Yalnızca APPROVED transferler gönderilebilir (mevcut: ${transfer.status})`);
       }
+
+      // Mal fiziksel olarak yola çıkıyor: kaynak şubenin stoğu BURADA düşer
+      // (receiveTransfer'da değil) — aksi halde IN_TRANSIT süresince kaynak
+      // şubenin ekranı hâlâ eski (fazla) miktarı gösterir ve fazladan
+      // satış/kullanım riski oluşur.
+      const fromLevel = await tx.stockLevel.findUnique({
+        where: {
+          productId_branchId: { productId: transfer.productId, branchId: transfer.fromBranchId },
+        },
+        select: { id: true, quantity: true },
+      });
+      if (!fromLevel || fromLevel.quantity.lessThan(transfer.quantity)) {
+        throw new BadRequestException(
+          `Yetersiz stok (mevcut: ${fromLevel?.quantity ?? 0})`,
+        );
+      }
+
+      await tx.stockLevel.update({
+        where: { id: fromLevel.id },
+        data: {
+          quantity: { decrement: transfer.quantity },
+          version: { increment: 1 },
+        },
+      });
+
+      // TRANSFER_OUT hareketi (fromBranch, negatif) — stok düşüşüyle aynı adımda.
+      await tx.stockMovement.create({
+        data: {
+          tenantId: user.tenantId,
+          productId: transfer.productId,
+          branchId: transfer.fromBranchId,
+          movementType: 'TRANSFER_OUT',
+          quantity: transfer.quantity.negated(),
+          referenceId: transfer.id,
+          referenceType: 'STOCK_TRANSFER',
+          createdBy: user.userId,
+        },
+      });
 
       return tx.stockTransfer.update({
         where: { id: transferId },
@@ -181,16 +222,9 @@ export class TransfersService {
         throw new BadRequestException(`Yalnızca IN_TRANSIT transferler teslim alınabilir (mevcut: ${transfer.status})`);
       }
 
-      // a) fromBranch stok düş
-      await tx.stockLevel.updateMany({
-        where: { productId: transfer.productId, branchId: transfer.fromBranchId },
-        data: {
-          quantity: { decrement: transfer.quantity },
-          version: { increment: 1 },
-        },
-      });
-
-      // b) toBranch stok artır — hedef şubede kayıt yoksa oluştur
+      // fromBranch stoğu zaten dispatchTransfer'da düşürüldü — burada tekrar
+      // düşülmez (çifte düşüş olmasın). Yalnızca toBranch stok artır — hedef
+      // şubede kayıt yoksa oluştur.
       await tx.stockLevel.upsert({
         where: {
           productId_branchId: {
@@ -213,21 +247,8 @@ export class TransfersService {
 
       const now = new Date();
 
-      // c) TRANSFER_OUT hareketi (fromBranch, negatif)
-      await tx.stockMovement.create({
-        data: {
-          tenantId: user.tenantId,
-          productId: transfer.productId,
-          branchId: transfer.fromBranchId,
-          movementType: 'TRANSFER_OUT',
-          quantity: transfer.quantity.negated(),
-          referenceId: transfer.id,
-          referenceType: 'STOCK_TRANSFER',
-          createdBy: user.userId,
-        },
-      });
-
-      // d) TRANSFER_IN hareketi (toBranch, pozitif)
+      // TRANSFER_IN hareketi (toBranch, pozitif). TRANSFER_OUT artık
+      // dispatchTransfer'da, stok düşüşüyle aynı adımda yazılıyor.
       await tx.stockMovement.create({
         data: {
           tenantId: user.tenantId,
@@ -241,7 +262,7 @@ export class TransfersService {
         },
       });
 
-      // e) Transfer tamamla
+      // Transfer tamamla
       return tx.stockTransfer.update({
         where: { id: transferId },
         data: { status: 'DELIVERED', receivedBy: user.userId, receivedAt: now },
