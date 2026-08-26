@@ -84,6 +84,11 @@ jobs:
       OTP_ENABLED: false
       S3_ENABLED: false
       WHATSAPP_ENABLED: false
+      # Gerçek bir sır DEĞİL — yalnızca whatsapp.e2e-spec.ts'in imza
+      # doğrulama testlerini hesaplayabilmesi için sabit test değeri (bkz.
+      # apps/api/.env.test). Tanımsız bırakılırsa WhatsappSignatureGuard mock
+      # modda (imzasız) çalışır ama testlerin kendi HMAC hesaplaması patlar.
+      WHATSAPP_APP_SECRET: test_app_secret_do_not_use_in_prod
 
     steps:
       - name: Checkout
@@ -240,6 +245,11 @@ jobs:
       OTP_ENABLED: false
       S3_ENABLED: false
       WHATSAPP_ENABLED: false
+      # Gerçek bir sır DEĞİL — yalnızca whatsapp.e2e-spec.ts'in imza
+      # doğrulama testlerini hesaplayabilmesi için sabit test değeri (bkz.
+      # apps/api/.env.test). Tanımsız bırakılırsa WhatsappSignatureGuard mock
+      # modda (imzasız) çalışır ama testlerin kendi HMAC hesaplaması patlar.
+      WHATSAPP_APP_SECRET: test_app_secret_do_not_use_in_prod
 
     steps:
       - name: Checkout
