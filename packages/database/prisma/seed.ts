@@ -1,212 +1,123 @@
+/**
+ * Geliştirme veritabanı için başlangıç verisi: "Acme Corporation" tenant'ı +
+ * "Istanbul HQ" branch'i + admin@acme.com (PATRON) / manager@acme.com
+ * (SUBE_MUDURU) kullanıcıları.
+ *
+ * İDEMPOTENT ve YIKICI DEĞİL: her varlık önce var mı diye kontrol edilir,
+ * yoksa oluşturulur; varsa dokunulmadan atlanır. Eskiden bu dosya en başta
+ * `user.deleteMany()/branch.deleteMany()/tenant.deleteMany()` ile TÜM
+ * tabloyu siliyordu — bu artık YOK, çünkü bu script'i tekrar çalıştırmak
+ * mevcut/gerçek verileri asla bozmamalı.
+ *
+ * apps/api/src/scripts/create-super-admin.ts ve seed-ui-test-users.ts ile
+ * aynı desen (RLS bypass, gerçek bcrypt hash, mevcut UserRole enum değerleri).
+ *
+ * Kullanım: pnpm --filter database db:seed
+ */
 import { PrismaClient } from '@prisma/client';
-import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
 
-const prisma = new PrismaClient();
+const TENANT_TAX_NUMBER = 'TR1234567890';
+const TENANT_COMPANY_NAME = 'Acme Corporation';
+const BRANCH_NAME = 'Istanbul HQ';
+
+// Şifre kuralıyla uyumlu (8+ karakter, 1 büyük harf, 1 rakam) — projenin
+// diğer test fixture'larıyla aynı (bkz. apps/api/test/setup.ts signupPayload).
+const SEED_PASSWORD = 'Test1234';
+
+const USERS = [
+  { email: 'admin@acme.com', role: 'PATRON' as const, fullName: 'Acme Admin' },
+  { email: 'manager@acme.com', role: 'SUBE_MUDURU' as const, fullName: 'Acme Manager' },
+];
 
 async function main() {
-  // Clear existing data
-  await prisma.user.deleteMany();
-  await prisma.branch.deleteMany();
-  await prisma.tenant.deleteMany();
+  const prisma = new PrismaClient();
+  const rounds = process.env.BCRYPT_ROUNDS ? parseInt(process.env.BCRYPT_ROUNDS, 10) : 12;
 
-  console.log('🗑️  Cleared existing data');
-
-  // Create test tenant
-  const tenant = await prisma.tenant.create({
-    data: {
-      planId: 'STARTER',
-      companyName: 'Acme Corporation',
-      taxNumber: 'TR1234567890',
-      status: 'ACTIVE',
-      settings: {
-        language: 'tr',
-        currency: 'TRY',
-        dateFormat: 'DD.MM.YYYY',
-      },
-    },
-  });
-
-  console.log('✅ Created tenant:', tenant.id);
-
-  // Create main branch
-  const branch = await prisma.branch.create({
-    data: {
-      tenantId: tenant.id,
-      name: 'Istanbul HQ',
-      slug: 'istanbul-hq',
-      address: 'Besiktas, Istanbul',
-      phone: '+90 212 123 4567',
-      timezone: 'Europe/Istanbul',
-      isActive: true,
-    },
-  });
-
-  console.log('✅ Created branch:', branch.id);
-
-  // Create test users
-  // Note: In production, use proper password hashing (bcrypt)
-  // For seed, we'll use a placeholder (to be updated with real bcrypt in controller)
-  const admin = await prisma.user.create({
-    data: {
-      tenantId: tenant.id,
-      branchId: branch.id,
-      email: 'admin@acme.com',
-      passwordHash: 'placeholder_hashed_password', // to be replaced
-      role: 'TENANT_ADMIN',
-      isActive: true,
-    },
-  });
-
-  const manager = await prisma.user.create({
-    data: {
-      tenantId: tenant.id,
-      branchId: branch.id,
-      email: 'manager@acme.com',
-      passwordHash: 'placeholder_hashed_password',
-      role: 'MANAGER',
-      isActive: true,
-    },
-  });
-
-  console.log('✅ Created users:', admin.id, manager.id);
-
-  // Run RLS policies setup
-  await setupRLSPolicies();
-
-  console.log('✅ RLS policies configured');
-  console.log('\n🎉 Database seeded successfully!');
-}
-
-/**
- * Setup PostgreSQL Row Level Security (RLS) policies
- * Ensures multi-tenant data isolation at database level
- */
-async function setupRLSPolicies() {
-  const sql = `
-    -- ============================================
-    -- Enable RLS on all tables
-    -- ============================================
-    ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
-    ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-    ALTER TABLE branches ENABLE ROW LEVEL SECURITY;
-
-    -- ============================================
-    -- TENANTS TABLE POLICIES
-    -- ============================================
-    -- Tenants can view their own record
-    CREATE POLICY tenants_select ON tenants
-      FOR SELECT
-      USING (deleted_at IS NULL);
-
-    -- Prevent tenant deletion (only soft delete)
-    CREATE POLICY tenants_no_hard_delete ON tenants
-      FOR DELETE
-      USING (false);
-
-    -- ============================================
-    -- USERS TABLE POLICIES
-    -- ============================================
-    -- Users can view other users in their tenant
-    CREATE POLICY users_select ON users
-      FOR SELECT
-      USING (
-        deleted_at IS NULL
-        AND tenant_id = current_setting('app.current_tenant_id')::uuid
-      );
-
-    -- Users can insert other users in their tenant
-    CREATE POLICY users_insert ON users
-      FOR INSERT
-      WITH CHECK (tenant_id = current_setting('app.current_tenant_id')::uuid);
-
-    -- Users can update other users in their tenant
-    CREATE POLICY users_update ON users
-      FOR UPDATE
-      USING (tenant_id = current_setting('app.current_tenant_id')::uuid)
-      WITH CHECK (tenant_id = current_setting('app.current_tenant_id')::uuid);
-
-    -- Prevent user hard deletion (only soft delete)
-    CREATE POLICY users_no_hard_delete ON users
-      FOR DELETE
-      USING (false);
-
-    -- ============================================
-    -- BRANCHES TABLE POLICIES
-    -- ============================================
-    -- Users can view branches in their tenant
-    CREATE POLICY branches_select ON branches
-      FOR SELECT
-      USING (
-        deleted_at IS NULL
-        AND tenant_id = current_setting('app.current_tenant_id')::uuid
-      );
-
-    -- Users can insert branches in their tenant
-    CREATE POLICY branches_insert ON branches
-      FOR INSERT
-      WITH CHECK (tenant_id = current_setting('app.current_tenant_id')::uuid);
-
-    -- Users can update branches in their tenant
-    CREATE POLICY branches_update ON branches
-      FOR UPDATE
-      USING (tenant_id = current_setting('app.current_tenant_id')::uuid)
-      WITH CHECK (tenant_id = current_setting('app.current_tenant_id')::uuid);
-
-    -- Prevent branch hard deletion (only soft delete)
-    CREATE POLICY branches_no_hard_delete ON branches
-      FOR DELETE
-      USING (false);
-
-    -- ============================================
-    -- CREATE HELPER FUNCTION for soft deletes
-    -- ============================================
-    CREATE OR REPLACE FUNCTION set_soft_delete_tenant()
-    RETURNS TRIGGER AS $$
-    BEGIN
-      NEW.deleted_at = CURRENT_TIMESTAMP;
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-
-    CREATE OR REPLACE FUNCTION set_soft_delete_user()
-    RETURNS TRIGGER AS $$
-    BEGIN
-      NEW.deleted_at = CURRENT_TIMESTAMP;
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-
-    CREATE OR REPLACE FUNCTION set_soft_delete_branch()
-    RETURNS TRIGGER AS $$
-    BEGIN
-      NEW.deleted_at = CURRENT_TIMESTAMP;
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-  `;
-
-  // Execute raw SQL for RLS setup
   try {
-    // Split by statement and execute each
-    const statements = sql
-      .split('--')
-      .map((s) => s.trim())
-      .filter((s) => s && !s.startsWith('='))
-      .join('--');
+    await prisma.$transaction(async (tx) => {
+      // Tenant/branch/user oluşturma için henüz bir tenant bağlamı yok —
+      // signup ve diğer script'lerle aynı RLS bypass deseni.
+      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
 
-    // For now, we'll skip RLS setup if it fails (policies may already exist)
-    // In production, use Prisma's executeRaw or migrations
-    console.log('⚠️  RLS policies setup skipped (use migrations in production)');
-  } catch (error) {
-    console.error('⚠️  RLS setup failed (expected if policies exist):', error);
+      let tenant = await tx.tenant.findUnique({
+        where: { taxNumber: TENANT_TAX_NUMBER },
+        select: { id: true },
+      });
+      if (!tenant) {
+        tenant = await tx.tenant.create({
+          data: {
+            companyName: TENANT_COMPANY_NAME,
+            taxNumber: TENANT_TAX_NUMBER,
+            planId: 'STARTER',
+            status: 'ACTIVE',
+            settings: { language: 'tr', currency: 'TRY', dateFormat: 'DD.MM.YYYY' },
+          },
+          select: { id: true },
+        });
+        console.log(`✅ Tenant oluşturuldu: ${tenant.id} (${TENANT_COMPANY_NAME})`);
+      } else {
+        console.log(`ℹ️  Tenant zaten var: ${tenant.id} (${TENANT_COMPANY_NAME}) — atlandı`);
+      }
+
+      let branch = await tx.branch.findFirst({
+        where: { tenantId: tenant.id },
+        select: { id: true },
+      });
+      if (!branch) {
+        branch = await tx.branch.create({
+          data: {
+            tenantId: tenant.id,
+            name: BRANCH_NAME,
+            slug: 'istanbul-hq',
+            address: 'Beşiktaş, İstanbul',
+            phone: '+90 212 123 4567',
+            timezone: 'Europe/Istanbul',
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        console.log(`✅ Branch oluşturuldu: ${branch.id} (${BRANCH_NAME})`);
+      } else {
+        console.log(`ℹ️  Branch zaten var: ${branch.id} — atlandı`);
+      }
+
+      for (const u of USERS) {
+        const existing = await tx.user.findFirst({
+          where: { email: u.email, deletedAt: null },
+          select: { id: true, role: true },
+        });
+        if (existing) {
+          console.log(`ℹ️  ${u.email} zaten var (${existing.role}) — atlandı`);
+          continue;
+        }
+
+        const passwordHash = await bcrypt.hash(SEED_PASSWORD, rounds);
+        const created = await tx.user.create({
+          data: {
+            tenantId: tenant.id,
+            branchId: branch.id,
+            email: u.email,
+            fullName: u.fullName,
+            passwordHash,
+            role: u.role,
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        console.log(`✅ ${u.email} (${u.role}) oluşturuldu: ${created.id}`);
+      }
+    });
+
+    console.log('\n🎉 Seed tamamlandı (mevcut kayıtlara dokunulmadı).');
+    console.log(`   Yeni oluşturulan kullanıcıların şifresi: ${SEED_PASSWORD}`);
+    console.log('   (Zaten var olan kullanıcıların şifresi DEĞİŞTİRİLMEDİ.)');
+  } catch (err) {
+    console.error('❌ Seed başarısız:', err);
+    process.exitCode = 1;
+  } finally {
+    await prisma.$disconnect();
   }
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+main();

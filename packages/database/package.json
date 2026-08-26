@@ -8,7 +8,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
-    "db:seed": "node prisma/seed.js",
+    "db:seed": "ts-node --project tsconfig.seed.json prisma/seed.ts",
     "build": "echo 'Database package does not require building'",
     "type-check": "tsc --noEmit"
   },
@@ -17,6 +17,10 @@
   },
   "devDependencies": {
     "prisma": "^5.7.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2",
+    "@types/node": "^20.10.6",
+    "bcrypt": "^6.0.0",
+    "@types/bcrypt": "^6.0.0"
   }
 }
