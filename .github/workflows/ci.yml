@@ -169,3 +169,159 @@ jobs:
         env:
           NODE_ENV: test
         run: pnpm --filter api test:e2e
+
+  # Yukarıdaki `test` job'ından TAMAMEN AYRI: kendi taze Postgres/Redis servis
+  # konteynerlerini alır (GitHub Actions'ta servisler job'a özeldir), backend'i
+  # gerçekten dinleyen bir süreç olarak (node dist/main) başlatır. `test`
+  # job'ındaki backend ise Jest+supertest içinde in-process çalışıyor, hiçbir
+  # zaman gerçek bir portu dinlemiyor — bu yüzden Playwright'ın ihtiyaç duyduğu
+  # "gerçekten ayakta, HTTP ile erişilebilir backend" iki job arasında
+  # PAYLAŞILAMAZ, PAYLAŞILMIYOR da. İki job paralel çalışır (aralarında
+  # `needs:` yok) ve /auth/login'in IP bazlı throttle sayacı (5/15dk) bu
+  # job'ın kendi taze runner'ında sıfırdan başlar — `test` job'ıyla hiçbir
+  # ortak state'i yok.
+  ui-e2e:
+    name: UI/navigasyon testleri (Playwright)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: stok_ui_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Bu job RLS zorlamasını test etmiyor (onu `test` job'ı yapıyor) —
+      # basitlik için doğrudan superuser bağlantısı yeterli.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/stok_ui_test
+      REDIS_URL: redis://localhost:6379
+
+      JWT_SECRET: ci-ui-dummy-jwt-secret-not-a-real-secret-0000000
+      JWT_REFRESH_SECRET: ci-ui-dummy-refresh-secret-not-a-real-secret-00
+      PORTAL_JWT_SECRET: ci-ui-dummy-portal-secret-not-a-real-secret-00
+      JWT_EXPIRATION: 900
+      JWT_REFRESH_EXPIRATION: 604800
+
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+      ALLOWED_ORIGINS: http://localhost:3001,capacitor://localhost,http://localhost
+      CORS_ORIGINS: http://localhost:3001
+      APP_URL: http://localhost:3001
+
+      BCRYPT_ROUNDS: 4
+      RATE_LIMIT_WINDOW_MS: 900000
+      RATE_LIMIT_MAX_REQUESTS: 5
+      PORT: 3000
+      NODE_ENV: development
+
+      EMAIL_ENABLED: false
+      SMS_ENABLED: false
+      OCR_ENABLED: false
+      SYNC_ENABLED: false
+      OTP_ENABLED: false
+      S3_ENABLED: false
+      WHATSAPP_ENABLED: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: pnpm kurulumu
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Node.js kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Bağımlılıkları yükle
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma Client üret
+        run: pnpm --filter database db:generate
+
+      - name: Veritabanı şemasını uygula
+        working-directory: packages/database
+        run: npx prisma migrate deploy
+
+      # e2e-ui/auth-navigation.spec.ts sabit admin@acme.com / manager@acme.com
+      # hesaplarını kullanıyor. Yerelde (stok_dev) bunlar zaten elle
+      # oluşturulmuş; CI'da her koşu taze/boş bir veritabanıyla başladığı için
+      # bu script aynı hesapları (aynı şifrelerle) idempotent şekilde kurar.
+      - name: UI test kullanıcılarını seed et (admin@acme.com, manager@acme.com)
+        working-directory: apps/api
+        run: npx ts-node src/scripts/seed-ui-test-users.ts
+
+      - name: Backend'i build et
+        run: pnpm --filter api build
+
+      - name: Backend'i arka planda başlat
+        working-directory: apps/api
+        run: |
+          nohup node dist/main > /tmp/api.log 2>&1 &
+          echo $! > /tmp/api.pid
+
+      # /auth/me korumalı bir rota — token yokken 401 dönmesi backend'in
+      # gerçekten ayakta ve istek karşıladığı anlamına gelir.
+      - name: Backend hazır olana kadar bekle
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/v1/auth/me || echo "000")
+            if [ "$code" = "401" ]; then
+              echo "✅ Backend hazır (HTTP 401 bekleniyordu, alındı)"
+              exit 0
+            fi
+            echo "⏳ Backend henüz hazır değil (HTTP $code) — $i/30"
+            sleep 2
+          done
+          echo "❌ Backend 60 saniyede hazır olmadı, loglar:"
+          cat /tmp/api.log || true
+          exit 1
+
+      # Yalnızca chromium — tüm tarayıcılara gerek yok.
+      - name: Playwright tarayıcı cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Playwright chromium kurulumu
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      # webServer ayarı (playwright.config.ts) apps/web dev sunucusunu
+      # (pnpm dev, :3001) otomatik başlatıp hazır olunca testleri koşuyor —
+      # burada ayrıca başlatmıyoruz.
+      - name: UI/navigasyon testleri — web
+        run: pnpm --filter web test:ui
+
+      - name: Backend loglarını göster (her durumda)
+        if: always()
+        run: cat /tmp/api.log || true
+
+      - name: Backend'i durdur
+        if: always()
+        run: kill "$(cat /tmp/api.pid)" 2>/dev/null || true

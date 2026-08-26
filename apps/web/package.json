@@ -10,6 +10,7 @@
     "lint": "next lint",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "type-check": "tsc --noEmit",
+    "test:ui": "playwright test --config=playwright.config.ts",
     "build:mobile": "bash scripts/update-local-ip.sh && NEXT_BUILD_EXPORT=true next build && npx cap sync",
     "cap:ios": "npx cap open ios",
     "cap:android": "npx cap open android"
@@ -49,6 +50,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20.10.6",
     "@types/react": "^18.2.46",
     "@types/react-dom": "^18.2.18",

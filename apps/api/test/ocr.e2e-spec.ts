@@ -217,4 +217,85 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     expect(Number(debt.amount)).toBe(50);
     expect(debt.source).toBe('OCR');
   });
+
+  // ── (e) Otomatik CASH borç — kısmi ödemeyle ──────────────────────────────
+  //
+  // amount HER ZAMAN faturanın tam/ham tutarı olmalı — kısmi ödemeden
+  // etkilenmemeli. remainingAmount ise amount - paidAmount olmalı. Daha önce
+  // ikisine de yanlışlıkla `diff` (invoiceTotal - paidAmount) yazılıyordu,
+  // yani paidAmount iki kez düşüyordu (bkz. ocr.service.ts'teki yorum).
+
+  it('POST /ocr/scan/:scanId/confirm — invoiceTotal+paidAmount ile otomatik CASH borç: amount=invoiceTotal, remainingAmount=invoiceTotal-paidAmount', async () => {
+    const scan = await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/ocr/scan/${scan.body.scanId}/confirm`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        allItemsReceived: true,
+        lines: [{ productId, qty: 1, unit: 'adet' }],
+        invoiceTotal: 20000,
+        paidAmount: 5000,
+      })
+      .expect(200);
+
+    expect(res.body.debtsCreated).toHaveLength(1);
+
+    const debtsRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    const debt = debtsRes.body.find(
+      (d: { id: string }) => d.id === res.body.debtsCreated[0],
+    );
+    expect(debt).toBeDefined();
+    expect(debt.debtType).toBe('CASH');
+    expect(debt.direction).toBe('PAYABLE');
+    expect(debt.status).toBe('OPEN');
+    expect(Number(debt.amount)).toBe(20000);
+    expect(Number(debt.remainingAmount)).toBe(15000);
+  });
+
+  // ── (f) Otomatik CASH borç — hiç ödeme yapılmadan (paidAmount=0) ─────────
+
+  it('POST /ocr/scan/:scanId/confirm — paidAmount=0 iken remainingAmount amount ile aynı kalır', async () => {
+    const scan = await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/ocr/scan/${scan.body.scanId}/confirm`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        allItemsReceived: true,
+        lines: [{ productId, qty: 1, unit: 'adet' }],
+        invoiceTotal: 8000,
+        paidAmount: 0,
+      })
+      .expect(200);
+
+    expect(res.body.debtsCreated).toHaveLength(1);
+
+    const debtsRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    const debt = debtsRes.body.find(
+      (d: { id: string }) => d.id === res.body.debtsCreated[0],
+    );
+    expect(debt).toBeDefined();
+    expect(Number(debt.amount)).toBe(8000);
+    // paidAmount=0 → remainingAmount amount'tan etkilenmemeli, ona eşit kalmalı.
+    expect(Number(debt.remainingAmount)).toBe(8000);
+  });
 });

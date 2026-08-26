@@ -259,7 +259,19 @@ export class OcrService {
               direction: 'PAYABLE',
               debtType: 'CASH',
               source: 'OCR',
-              amount: diff,
+              // amount = faturanın TAM/ham tutarı — kısmi ödemeden ASLA etkilenmez.
+              // (Önceki halde yanlışlıkla `diff` yazılmıştı; diff zaten
+              // invoiceTotal-paidAmount olduğu için paidAmount hem amount'tan
+              // hem remainingAmount'tan düşüyor, iki kez çıkarılmış oluyordu.)
+              amount: dto.invoiceTotal,
+              // remainingAmount = amount - paidAmount (paidAmount 0 ise = amount).
+              // Aşağıda dto.paidAmount>0 için ayrıca bir DebtPayment kaydı
+              // oluşturuluyor — o ödeme bu debt'e bağlanınca remainingAmount'ın
+              // da onu düşmesi gerekir, yoksa recordCashPayment ilk manuel
+              // ödemede current'ı hâlâ tam amount sanıp bu OCR-anı ödemesini
+              // görmezden gelir (remainingAmount + paymentsTotal artık amount'u
+              // aşar — bkz. DATA_INTEGRITY kontrolü).
+              remainingAmount: diff,
               status: 'OPEN',
               createdBy: user.userId,
               notes: 'Fatura onayı sırasında otomatik oluşturuldu',

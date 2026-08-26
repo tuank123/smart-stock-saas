@@ -180,6 +180,14 @@ export class DebtsService {
       }
 
       const current = existing.remainingAmount ?? existing.amount ?? 0;
+
+      // Ödeme, kalan tutarı aşamaz — aşarsa hem remainingAmount 0'a kilitlenip
+      // fazlalık sessizce kaybolur hem de ödemeler toplamı orijinal tutarı
+      // geçer (bkz. DATA_INTEGRITY kontrolü, birkaç satır aşağıda).
+      if (dto.amount > Number(current)) {
+        throw new BadRequestException('Ödeme tutarı kalan borçtan fazla olamaz');
+      }
+
       const newRemaining = Math.max(0, Number(current) - dto.amount);
       const now = new Date();
       const fullyPaid = newRemaining <= 0;
