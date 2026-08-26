@@ -121,7 +121,13 @@ export class StaffRegistrationService {
         select: { id: true, tenantId: true },
       });
 
-      if (!target) throw new NotFoundException('Kullanıcı bulunamadı');
+      // Diğer servislerle (debts/orders/transfers/portal/branches) aynı
+      // desen: RLS'e ek olarak, başka tenant'ın kullanıcısı burada da
+      // "bulunamadı" sayılır — var/yok bilgisini sızdırmamak için 403
+      // yerine 404.
+      if (!target || target.tenantId !== user.tenantId) {
+        throw new NotFoundException('Kullanıcı bulunamadı');
+      }
 
       await tx.user.update({
         where: { id: userId },
