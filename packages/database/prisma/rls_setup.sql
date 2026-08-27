@@ -54,10 +54,19 @@ CREATE POLICY tenant_isolation ON staff_registration_tokens
 -- WRITE POLICIES (INSERT, UPDATE, DELETE)
 -- ============================================
 
--- Tenants: Only SUPER_ADMIN can modify
+-- Tenants: Kendi tenant'ını (PATCH/DELETE /tenants/me) VEYA SUPER_ADMIN
+-- herhangi bir tenant'ı güncelleyebilir. Önceden yalnızca is_super_admin
+-- kontrolü vardı (tenant_isolation SELECT policy'sindeki "id = app.tenant_id
+-- OR is_super_admin" deseninden farklı olarak) — bu, updateMyTenant/
+-- closeMyMembership'in (is_super_admin='false' ile, kendi tenant bağlamında
+-- çalışan) UPDATE'lerini RLS altında SESSİZCE 0 satır güncellemesine
+-- (Prisma'da "Record to update not found" hatasına) düşürüyordu.
 CREATE POLICY tenant_modification ON tenants
   FOR UPDATE
-  USING (current_setting('app.is_super_admin', true) = 'true');
+  USING (
+    id = current_setting('app.tenant_id', true)::uuid
+    OR current_setting('app.is_super_admin', true) = 'true'
+  );
 
 CREATE POLICY tenant_creation ON tenants
   FOR INSERT
