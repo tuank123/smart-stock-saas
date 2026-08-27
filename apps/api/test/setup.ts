@@ -128,7 +128,8 @@ export function uniqueSuffix(): string {
  * başarısız olur. whatsapp_message_logs/purchase_order_items, purchase_orders
  * ve stock_transfers de bu şekilde eklendi (orders/transfers e2e testleri);
  * supplier_portal_uploads/branch_supplier_portals/branch_integrations/
- * agent_setup_tokens de aynı şekilde (portal/agent-sync e2e testleri).
+ * agent_setup_tokens de aynı şekilde (portal/agent-sync e2e testleri);
+ * scheduled_reports de aynı şekilde (reports e2e testleri).
  *
  * password_reset_tokens ve email_verification_tokens'ın User'a Prisma
  * ilişkisi YOK — onlar user_id üzerinden elle temizlenir.
@@ -154,6 +155,7 @@ export async function deleteTenantByTaxNumber(
     // categories, en son suppliers (branch_suppliers dahil).
     await tx.debtPayment.deleteMany({ where: { debt: { tenantId } } });
     await tx.debt.deleteMany({ where: { tenantId } });
+    await tx.scheduledReport.deleteMany({ where: { tenantId } });
     await tx.whatsappMessageLog.deleteMany({ where: { tenantId } });
     await tx.purchaseOrderItem.deleteMany({ where: { purchaseOrder: { tenantId } } });
     await tx.purchaseOrder.deleteMany({ where: { tenantId } });
