@@ -15,6 +15,10 @@ jobs:
   test:
     name: Tip kontrolü + e2e testler
     runs-on: ubuntu-latest
+    # Jest'in süreç sonlandıramadığı bir asılma durumunda (bkz. 2026-08-28
+    # runId 33177096921 — testler bitti ama Jest process 19+ dakika kapanmadı)
+    # job'ın sonsuza kadar CI dakikası tüketmesini önler.
+    timeout-minutes: 10
 
     services:
       postgres:
