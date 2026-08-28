@@ -3,11 +3,12 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { encrypt, decryptSafe } from '../../common/utils/encryption';
 import {
   CreateBranchDto,
@@ -18,7 +19,10 @@ import {
 
 @Injectable()
 export class BranchesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private securityEvents: SecurityEventLogger,
+  ) {}
 
   async createBranch(dto: CreateBranchDto, user: { tenantId: string }) {
     return this.prisma.$transaction(async (tx) => {
@@ -81,9 +85,13 @@ export class BranchesService {
 
       const branch = await tx.branch.findUnique({ where: { id: branchId } });
 
-      if (!branch || branch.tenantId !== user.tenantId) {
-        throw new NotFoundException('Şube bulunamadı');
-      }
+      assertTenantOwnership(branch, {
+        resourceType: 'Branch',
+        resourceId: branchId,
+        user,
+        notFoundMessage: 'Şube bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       const integration = await tx.branchIntegration.findFirst({
         where: { branchId },
@@ -130,9 +138,13 @@ export class BranchesService {
         where: { id: branchId },
         select: { id: true, tenantId: true },
       });
-      if (!branch || branch.tenantId !== user.tenantId) {
-        throw new NotFoundException('Şube bulunamadı');
-      }
+      assertTenantOwnership(branch, {
+        resourceType: 'Branch',
+        resourceId: branchId,
+        user,
+        notFoundMessage: 'Şube bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       // BranchIntegration'ı adapterType + PENDING_INSTALL ile hazırla.
       await tx.branchIntegration.upsert({
@@ -214,9 +226,13 @@ export class BranchesService {
         where: { branchId },
       });
 
-      if (!integration || integration.tenantId !== user.tenantId) {
-        throw new NotFoundException('Bu şubeye ait integration bulunamadı');
-      }
+      assertTenantOwnership(integration, {
+        resourceType: 'BranchIntegration',
+        resourceId: branchId,
+        user,
+        notFoundMessage: 'Bu şubeye ait integration bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       return integration;
     });
@@ -252,9 +268,13 @@ export class BranchesService {
       }
 
       const existing = await tx.branch.findUnique({ where: { id: branchId } });
-      if (!existing || existing.tenantId !== user.tenantId) {
-        throw new NotFoundException('Şube bulunamadı');
-      }
+      assertTenantOwnership(existing, {
+        resourceType: 'Branch',
+        resourceId: branchId,
+        user,
+        notFoundMessage: 'Şube bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       const branch = await tx.branch.update({
         where: { id: branchId },

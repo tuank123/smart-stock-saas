@@ -12,6 +12,8 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { createClient, RedisClientType } from 'redis';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { UpdatePriceItemsDto, UploadDto } from './dto/portal.dto';
 
 const MOCK_OTP = '123456';
@@ -26,6 +28,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     private prisma: PrismaService,
     private config: ConfigService,
     private jwtService: JwtService,
+    private securityEvents: SecurityEventLogger,
   ) {}
 
   async onModuleInit() {
@@ -64,9 +67,13 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
         where: { id: branchId },
         select: { id: true, tenantId: true, slug: true },
       });
-      if (!branch || branch.tenantId !== tenantId) {
-        throw new NotFoundException('Şube bulunamadı');
-      }
+      assertTenantOwnership(branch, {
+        resourceType: 'Branch',
+        resourceId: branchId,
+        user: { tenantId },
+        notFoundMessage: 'Şube bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       const existing = await tx.branchSupplierPortal.findUnique({
         where: { branchId },
@@ -105,9 +112,13 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
           where: { id: branchId },
           select: { id: true, tenantId: true, slug: true },
         });
-        if (!branch || branch.tenantId !== user.tenantId) {
-          throw new NotFoundException('Şube bulunamadı');
-        }
+        assertTenantOwnership(branch, {
+          resourceType: 'Branch',
+          resourceId: branchId,
+          user,
+          notFoundMessage: 'Şube bulunamadı',
+          securityEvents: this.securityEvents,
+        });
         portal = await tx.branchSupplierPortal.create({
           data: { tenantId: user.tenantId, branchId, subdomain: branch.slug },
         });
@@ -280,9 +291,13 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
       }
 
       const upload = await tx.supplierPortalUpload.findUnique({ where: { id: uploadId } });
-      if (!upload || upload.tenantId !== tenantId) {
-        throw new NotFoundException('Yükleme bulunamadı');
-      }
+      assertTenantOwnership(upload, {
+        resourceType: 'SupplierPortalUpload',
+        resourceId: uploadId,
+        user: { tenantId, userId: reviewerId },
+        notFoundMessage: 'Yükleme bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       // Auto-create supplier for NEW_SUPPLIER uploads
       let supplierId = upload.supplierId;
@@ -378,9 +393,13 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
       }
 
       const upload = await tx.supplierPortalUpload.findUnique({ where: { id: uploadId } });
-      if (!upload || upload.tenantId !== tenantId) {
-        throw new NotFoundException('Yükleme bulunamadı');
-      }
+      assertTenantOwnership(upload, {
+        resourceType: 'SupplierPortalUpload',
+        resourceId: uploadId,
+        user: { tenantId, userId: reviewerId },
+        notFoundMessage: 'Yükleme bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       return tx.supplierPortalUpload.update({
         where: { id: uploadId },
@@ -409,9 +428,13 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
         include: { supplier: { select: { id: true, name: true } } },
       });
 
-      if (!upload || upload.tenantId !== tenantId) {
-        throw new NotFoundException('Yükleme bulunamadı');
-      }
+      assertTenantOwnership(upload, {
+        resourceType: 'SupplierPortalUpload',
+        resourceId: uploadId,
+        user: { tenantId },
+        notFoundMessage: 'Yükleme bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       return upload;
     });
@@ -434,9 +457,13 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
       }
 
       const upload = await tx.supplierPortalUpload.findUnique({ where: { id: uploadId } });
-      if (!upload || upload.tenantId !== tenantId) {
-        throw new NotFoundException('Yükleme bulunamadı');
-      }
+      assertTenantOwnership(upload, {
+        resourceType: 'SupplierPortalUpload',
+        resourceId: uploadId,
+        user: { tenantId },
+        notFoundMessage: 'Yükleme bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       const existingItems = Array.isArray(upload.parsedItems)
         ? (upload.parsedItems as unknown as ParsedItem[])

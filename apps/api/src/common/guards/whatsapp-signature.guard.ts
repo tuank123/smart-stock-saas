@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import * as crypto from 'crypto';
+import { SecurityEventLogger } from '../security-event/security-event.service';
 
 const SIGNATURE_PREFIX = 'sha256=';
 
@@ -20,7 +21,10 @@ const SIGNATURE_PREFIX = 'sha256=';
 export class WhatsappSignatureGuard implements CanActivate {
   private readonly logger = new Logger(WhatsappSignatureGuard.name);
 
-  constructor(private config: ConfigService) {}
+  constructor(
+    private config: ConfigService,
+    private securityEvents: SecurityEventLogger,
+  ) {}
 
   canActivate(context: ExecutionContext): boolean {
     const request = context
@@ -43,6 +47,12 @@ export class WhatsappSignatureGuard implements CanActivate {
 
     const signatureHeader = request.header('x-hub-signature-256');
     if (!signatureHeader || !signatureHeader.startsWith(SIGNATURE_PREFIX)) {
+      this.securityEvents.log({
+        eventType: 'WHATSAPP_SIGNATURE_INVALID',
+        message: 'X-Hub-Signature-256 header eksik veya geçersiz biçimde',
+        ip: request.ip,
+        path: request.originalUrl ?? request.url,
+      });
       throw new UnauthorizedException('X-Hub-Signature-256 header eksik veya geçersiz biçimde');
     }
 
@@ -51,6 +61,12 @@ export class WhatsappSignatureGuard implements CanActivate {
       // Middleware sırası bozulmuş/rawBody yakalanmamış olabilir — güvenli
       // tarafta kal, imzasız hiçbir isteği kabul etme.
       this.logger.error('[WhatsApp Webhook] rawBody yakalanamadı — istek reddedildi');
+      this.securityEvents.log({
+        eventType: 'WHATSAPP_SIGNATURE_INVALID',
+        message: 'rawBody yakalanamadı — istek doğrulanamadı',
+        ip: request.ip,
+        path: request.originalUrl ?? request.url,
+      });
       throw new UnauthorizedException('İstek doğrulanamadı');
     }
 
@@ -58,6 +74,12 @@ export class WhatsappSignatureGuard implements CanActivate {
     const provided = safeHexDecode(signatureHeader.slice(SIGNATURE_PREFIX.length));
 
     if (!provided || provided.length !== expected.length || !crypto.timingSafeEqual(expected, provided)) {
+      this.securityEvents.log({
+        eventType: 'WHATSAPP_SIGNATURE_INVALID',
+        message: 'İmza doğrulaması başarısız (uyuşmayan/geçersiz imza)',
+        ip: request.ip,
+        path: request.originalUrl ?? request.url,
+      });
       throw new UnauthorizedException('Geçersiz imza');
     }
 

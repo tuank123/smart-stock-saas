@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
+import { SecurityEventLogger } from '../security-event/security-event.service';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -10,6 +11,7 @@ export class JwtAuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly securityEvents: SecurityEventLogger,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -31,6 +33,12 @@ export class JwtAuthGuard implements CanActivate {
     const token = this.extractToken(request);
 
     if (!token) {
+      this.securityEvents.log({
+        eventType: 'JWT_REJECTED',
+        message: 'Erişim token\'ı eksik',
+        ip: request.ip,
+        path: request.originalUrl ?? request.url,
+      });
       throw new UnauthorizedException('Access token is missing');
     }
 
@@ -45,6 +53,12 @@ export class JwtAuthGuard implements CanActivate {
 
       return true;
     } catch (error) {
+      this.securityEvents.log({
+        eventType: 'JWT_REJECTED',
+        message: 'Geçersiz veya süresi dolmuş erişim token\'ı',
+        ip: request.ip,
+        path: request.originalUrl ?? request.url,
+      });
       throw new UnauthorizedException('Invalid or expired access token');
     }
   }

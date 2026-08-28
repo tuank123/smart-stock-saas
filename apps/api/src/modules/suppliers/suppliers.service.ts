@@ -1,10 +1,15 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { CreateSupplierDto, LinkBranchSupplierDto, UpdateSupplierDto } from './dto/supplier.dto';
 
 @Injectable()
 export class SuppliersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private securityEvents: SecurityEventLogger,
+  ) {}
 
   async createSupplier(dto: CreateSupplierDto, user: { tenantId: string }) {
     return this.prisma.$transaction(async (tx) => {
@@ -37,17 +42,25 @@ export class SuppliersService {
         where: { id: supplierId },
         select: { tenantId: true },
       });
-      if (!supplier || supplier.tenantId !== user.tenantId) {
-        throw new NotFoundException('Tedarikçi bulunamadı');
-      }
+      assertTenantOwnership(supplier, {
+        resourceType: 'Supplier',
+        resourceId: supplierId,
+        user,
+        notFoundMessage: 'Tedarikçi bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       const branch = await tx.branch.findUnique({
         where: { id: branchId },
         select: { tenantId: true },
       });
-      if (!branch || branch.tenantId !== user.tenantId) {
-        throw new NotFoundException('Şube bulunamadı');
-      }
+      assertTenantOwnership(branch, {
+        resourceType: 'Branch',
+        resourceId: branchId,
+        user,
+        notFoundMessage: 'Şube bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       try {
         return await tx.branchSupplier.create({
@@ -77,9 +90,13 @@ export class SuppliersService {
         },
       });
 
-      if (!supplier || supplier.tenantId !== user.tenantId) {
-        throw new NotFoundException('Tedarikçi bulunamadı');
-      }
+      assertTenantOwnership(supplier, {
+        resourceType: 'Supplier',
+        resourceId: supplierId,
+        user,
+        notFoundMessage: 'Tedarikçi bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       return supplier;
     });
@@ -103,9 +120,13 @@ export class SuppliersService {
         select: { tenantId: true },
       });
 
-      if (!existing || existing.tenantId !== user.tenantId) {
-        throw new NotFoundException('Tedarikçi bulunamadı');
-      }
+      assertTenantOwnership(existing, {
+        resourceType: 'Supplier',
+        resourceId: supplierId,
+        user,
+        notFoundMessage: 'Tedarikçi bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       return tx.supplier.update({
         where: { id: supplierId },

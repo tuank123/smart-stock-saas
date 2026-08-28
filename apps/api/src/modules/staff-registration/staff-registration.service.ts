@@ -7,6 +7,8 @@ import {
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import {
   AssignRoleDto,
   CompleteRegistrationDto,
@@ -15,7 +17,10 @@ import { UserRole } from '@prisma/client';
 
 @Injectable()
 export class StaffRegistrationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private securityEvents: SecurityEventLogger,
+  ) {}
 
   // ─── STEP 1: manager mints a code for their branch ───────────────────────
   async generateCode(user: {
@@ -110,7 +115,7 @@ export class StaffRegistrationService {
   async assignRole(
     userId: string,
     dto: AssignRoleDto,
-    user: { tenantId: string },
+    user: { userId: string; tenantId: string },
   ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
@@ -121,13 +126,13 @@ export class StaffRegistrationService {
         select: { id: true, tenantId: true },
       });
 
-      // Diğer servislerle (debts/orders/transfers/portal/branches) aynı
-      // desen: RLS'e ek olarak, başka tenant'ın kullanıcısı burada da
-      // "bulunamadı" sayılır — var/yok bilgisini sızdırmamak için 403
-      // yerine 404.
-      if (!target || target.tenantId !== user.tenantId) {
-        throw new NotFoundException('Kullanıcı bulunamadı');
-      }
+      assertTenantOwnership(target, {
+        resourceType: 'User',
+        resourceId: userId,
+        user,
+        notFoundMessage: 'Kullanıcı bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       await tx.user.update({
         where: { id: userId },

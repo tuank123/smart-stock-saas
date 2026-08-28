@@ -2,9 +2,10 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import {
   CreateDebtDto,
@@ -39,7 +40,10 @@ const PAID_VISIBLE_DAYS = 3;
 
 @Injectable()
 export class DebtsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private securityEvents: SecurityEventLogger,
+  ) {}
 
   // PATRON yalnızca tek şubeli (STARTER) ise borç işlemi yapabilir.
   private assertAllowed(user: DebtUser) {
@@ -147,9 +151,13 @@ export class DebtsService {
       this.assertAllowed(user);
 
       const existing = await tx.debt.findFirst({ where: { id } });
-      if (!existing) {
-        throw new NotFoundException('Borç kaydı bulunamadı');
-      }
+      assertTenantOwnership(existing, {
+        resourceType: 'Debt',
+        resourceId: id,
+        user,
+        notFoundMessage: 'Borç kaydı bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       return tx.debt.update({
         where: { id },
@@ -172,9 +180,13 @@ export class DebtsService {
       this.assertAllowed(user);
 
       const existing = await tx.debt.findFirst({ where: { id } });
-      if (!existing) {
-        throw new NotFoundException('Borç kaydı bulunamadı');
-      }
+      assertTenantOwnership(existing, {
+        resourceType: 'Debt',
+        resourceId: id,
+        user,
+        notFoundMessage: 'Borç kaydı bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (existing.debtType !== 'CASH') {
         throw new BadRequestException('Bu kayıt nakit türünde değil');
       }
@@ -253,9 +265,13 @@ export class DebtsService {
       this.assertAllowed(user);
 
       const existing = await tx.debt.findFirst({ where: { id } });
-      if (!existing) {
-        throw new NotFoundException('Borç kaydı bulunamadı');
-      }
+      assertTenantOwnership(existing, {
+        resourceType: 'Debt',
+        resourceId: id,
+        user,
+        notFoundMessage: 'Borç kaydı bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (existing.debtType !== 'PRODUCT') {
         throw new BadRequestException('Bu kayıt ürün türünde değil');
       }
@@ -366,9 +382,13 @@ export class DebtsService {
       this.assertAllowed(user);
 
       const branch = await tx.branch.findFirst({ where: { id: branchId } });
-      if (!branch) {
-        throw new NotFoundException('Şube bulunamadı');
-      }
+      assertTenantOwnership(branch, {
+        resourceType: 'Branch',
+        resourceId: branchId,
+        user,
+        notFoundMessage: 'Şube bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       await tx.branch.update({
         where: { id: branchId },
@@ -388,9 +408,13 @@ export class DebtsService {
       const now = new Date();
 
       const branch = await tx.branch.findFirst({ where: { id: branchId } });
-      if (!branch) {
-        throw new NotFoundException('Şube bulunamadı');
-      }
+      assertTenantOwnership(branch, {
+        resourceType: 'Branch',
+        resourceId: branchId,
+        user,
+        notFoundMessage: 'Şube bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       // Hatırlatmalar kapalıysa hiçbir hesaplama yapmadan erken çık.
       if (branch.debtRemindersEnabled === false) {

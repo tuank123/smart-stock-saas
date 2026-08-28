@@ -2,15 +2,19 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { CreateProductDto, PatchUnitsPerCaseDto, ProductQueryDto } from './dto/product.dto';
 
 @Injectable()
 export class ProductsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private securityEvents: SecurityEventLogger,
+  ) {}
 
   async createProduct(dto: CreateProductDto, user: { tenantId: string }) {
     return this.prisma.$transaction(async (tx) => {
@@ -78,9 +82,15 @@ export class ProductsService {
         include: { category: { select: { id: true, name: true } } },
       });
 
-      if (!product || product.tenantId !== user.tenantId || product.deletedAt) {
-        throw new NotFoundException('Ürün bulunamadı');
-      }
+      // Yumuşak-silinmiş ürün gerçekten "yok" sayılır (cross-tenant değil) —
+      // assertTenantOwnership'e bu durumda null geçilir ki loglanmasın.
+      assertTenantOwnership(product?.deletedAt ? null : product, {
+        resourceType: 'Product',
+        resourceId: id,
+        user,
+        notFoundMessage: 'Ürün bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       return product;
     });
@@ -103,9 +113,13 @@ export class ProductsService {
       await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
 
       const product = await tx.product.findUnique({ where: { id: productId } });
-      if (!product || product.tenantId !== user.tenantId || product.deletedAt) {
-        throw new NotFoundException('Ürün bulunamadı');
-      }
+      assertTenantOwnership(product?.deletedAt ? null : product, {
+        resourceType: 'Product',
+        resourceId: productId,
+        user,
+        notFoundMessage: 'Ürün bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       return tx.product.update({
         where: { id: productId },

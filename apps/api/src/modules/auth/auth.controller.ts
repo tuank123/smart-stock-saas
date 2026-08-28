@@ -29,10 +29,11 @@ export class AuthController {
   async login(
     @Body() loginDto: LoginDto,
     @Headers('x-client-platform') clientPlatform: string | undefined,
+    @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
     const { accessToken, refreshToken, user } =
-      await this.authService.login(loginDto);
+      await this.authService.login(loginDto, request.ip);
 
     // Cookie is always set (web relies on it; harmless for native).
     setRefreshTokenCookie(response, refreshToken);

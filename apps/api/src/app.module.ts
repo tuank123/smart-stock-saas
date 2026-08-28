@@ -3,8 +3,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
+import { SecurityEventModule } from './common/security-event/security-event.module';
+import { SecurityEventLogger } from './common/security-event/security-event.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
@@ -25,6 +27,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { LoggingThrottlerGuard } from './common/guards/logging-throttler.guard';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { validateEnv } from './config/env.validation';
@@ -55,6 +58,7 @@ import { validateEnv } from './config/env.validation';
     // DATABASE
     // ============================================
     PrismaModule,
+    SecurityEventModule,
 
     // ============================================
     // FEATURE MODULES
@@ -84,13 +88,17 @@ import { validateEnv } from './config/env.validation';
   providers: [
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: LoggingThrottlerGuard,
     },
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector, jwtService: JwtService, configService: ConfigService) =>
-        new JwtAuthGuard(reflector, jwtService, configService),
-      inject: [Reflector, JwtService, ConfigService],
+      useFactory: (
+        reflector: Reflector,
+        jwtService: JwtService,
+        configService: ConfigService,
+        securityEvents: SecurityEventLogger,
+      ) => new JwtAuthGuard(reflector, jwtService, configService, securityEvents),
+      inject: [Reflector, JwtService, ConfigService, SecurityEventLogger],
     },
     {
       provide: APP_GUARD,

@@ -1,9 +1,14 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private securityEvents: SecurityEventLogger,
+  ) {}
 
   async listByBranch(
     branchId: string,
@@ -22,9 +27,13 @@ export class UsersService {
         select: { tenantId: true },
       });
 
-      if (!branch || branch.tenantId !== user.tenantId) {
-        throw new NotFoundException('Şube bulunamadı');
-      }
+      assertTenantOwnership(branch, {
+        resourceType: 'Branch',
+        resourceId: branchId,
+        user,
+        notFoundMessage: 'Şube bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       return tx.user.findMany({
         where: {

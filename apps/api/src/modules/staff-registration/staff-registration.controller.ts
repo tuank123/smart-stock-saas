@@ -43,7 +43,7 @@ export class StaffRegistrationController {
   assignRole(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Body() dto: AssignRoleDto,
-    @CurrentUser() user: { tenantId: string },
+    @CurrentUser() user: { userId: string; tenantId: string },
   ) {
     return this.service.assignRole(userId, dto, user);
   }

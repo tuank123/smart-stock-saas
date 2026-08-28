@@ -5,6 +5,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { createClient, RedisClientType } from 'redis';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { EmailService } from '../email/email.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -24,6 +25,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     private jwtService: JwtService,
     private configService: ConfigService,
     private emailService: EmailService,
+    private securityEvents: SecurityEventLogger,
   ) {}
 
   async onModuleInit() {
@@ -63,7 +65,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
    * Login user with email and password
    * Returns access token (in response body) + refresh token (in HttpOnly cookie)
    */
-  async login(loginDto: LoginDto): Promise<AuthResponse> {
+  async login(loginDto: LoginDto, ip?: string | null): Promise<AuthResponse> {
     const { email, password } = loginDto;
 
     // Check rate limiting (5 attempts per 15 minutes)
@@ -106,17 +108,41 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       users.length === 1 ? users[0] : (users.find((u) => u.isActive) ?? null);
 
     if (!user || !user.isActive) {
+      // DİKKAT: loginDto.password ASLA loglanmaz — yalnızca email+IP (brute-
+      // force paterni tespiti için yeterli, sır içermiyor).
+      this.securityEvents.log({
+        eventType: 'LOGIN_FAILED',
+        message: 'Başarısız giriş denemesi (kullanıcı yok/pasif)',
+        ip,
+        email,
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
+      this.securityEvents.log({
+        eventType: 'LOGIN_FAILED',
+        message: 'Başarısız giriş denemesi (yanlış şifre)',
+        ip,
+        email,
+        userId: user.id,
+        tenantId: user.tenantId,
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
     // Tenant sonlandırılmışsa (DELETED/SUSPENDED) girişi engelle.
     if (user.tenant?.status !== 'ACTIVE') {
+      this.securityEvents.log({
+        eventType: 'LOGIN_FAILED',
+        message: 'Başarısız giriş denemesi (tenant kapatılmış)',
+        ip,
+        email,
+        userId: user.id,
+        tenantId: user.tenantId,
+      });
       throw new UnauthorizedException('Bu hesap kapatılmış. Giriş yapılamıyor.');
     }
 

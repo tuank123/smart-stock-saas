@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { UserRole } from '@prisma/client';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { SecurityEventLogger } from '../security-event/security-event.service';
 
 /**
  * RolesGuard enforces role-based access control (RBAC)
@@ -18,7 +19,10 @@ import { ROLES_KEY } from '../decorators/roles.decorator';
  */
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(
+    private reflector: Reflector,
+    private securityEvents: SecurityEventLogger,
+  ) {}
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
@@ -56,6 +60,15 @@ export class RolesGuard implements CanActivate {
 
     // Reject users with null role (unassigned workers cannot access protected resources)
     if (user.role === null) {
+      this.securityEvents.log({
+        eventType: 'ROLE_NOT_ASSIGNED',
+        message: 'Rolü atanmamış kullanıcı korumalı bir uca erişmeye çalıştı',
+        ip: request.ip,
+        userId: user.userId,
+        tenantId: user.tenantId,
+        path: request.originalUrl ?? request.url,
+        context: { requiredRoles },
+      });
       throw new ForbiddenException(
         'User role not assigned. Please contact administrator.',
       );
@@ -70,6 +83,21 @@ export class RolesGuard implements CanActivate {
     const hasRequiredRole = requiredRoles.includes(user.role);
 
     if (!hasRequiredRole) {
+      // NOT: Bu yalnızca "kendi tenant'ında yanlış rol" reddini yakalar
+      // (JWT'deki role, @Roles() ile uyuşmuyor). "Başka bir tenant'ın
+      // KAYNAĞINA erişim" (ör. GET /branches/:id başka tenant'a ait) bu
+      // guard'da AYIRT EDİLEMEZ — o kontrol servis katmanında (onlarca
+      // yerde `resource.tenantId !== user.tenantId` → 404) yapılıyor ve
+      // bilinçli olarak bu görevin kapsamı dışında bırakıldı.
+      this.securityEvents.log({
+        eventType: 'FORBIDDEN_ROLE',
+        message: `Yetkisiz rol ile erişim denemesi (gerekli: ${requiredRoles.join(', ')}, mevcut: ${user.role})`,
+        ip: request.ip,
+        userId: user.userId,
+        tenantId: user.tenantId,
+        path: request.originalUrl ?? request.url,
+        context: { requiredRoles, actualRole: user.role },
+      });
       throw new ForbiddenException(
         `Access denied. Required roles: ${requiredRoles.join(', ')}. Your role: ${user.role}`,
       );

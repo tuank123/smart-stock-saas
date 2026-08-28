@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { SyncService } from '../sync/sync.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { CheckThresholdsDto, CreateOrderDto, OrderQueryDto, PatchOrderDto, ReceiveOrderDto, UpdateOrderItemDto } from './dto/order.dto';
@@ -32,6 +34,7 @@ export class OrdersService {
     private prisma: PrismaService,
     private whatsapp: WhatsappService,
     private sync: SyncService,
+    private securityEvents: SecurityEventLogger,
   ) {}
 
   async createOrder(dto: CreateOrderDto, user: { tenantId: string; userId: string }) {
@@ -100,9 +103,13 @@ export class OrdersService {
         select: { id: true, tenantId: true, status: true },
       });
 
-      if (!order || order.tenantId !== user.tenantId) {
-        throw new NotFoundException('Sipariş bulunamadı');
-      }
+      assertTenantOwnership(order, {
+        resourceType: 'PurchaseOrder',
+        resourceId: orderId,
+        user,
+        notFoundMessage: 'Sipariş bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (order.status !== 'DRAFT') {
         throw new BadRequestException('Sadece taslak siparişler düzenlenebilir');
       }
@@ -145,9 +152,13 @@ export class OrdersService {
         select: { id: true, tenantId: true, status: true },
       });
 
-      if (!order || order.tenantId !== user.tenantId) {
-        throw new NotFoundException('Sipariş bulunamadı');
-      }
+      assertTenantOwnership(order, {
+        resourceType: 'PurchaseOrder',
+        resourceId: orderId,
+        user,
+        notFoundMessage: 'Sipariş bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (order.status !== 'DRAFT') {
         throw new BadRequestException(`Yalnızca DRAFT siparişler onaylanabilir (mevcut: ${order.status})`);
       }
@@ -194,9 +205,13 @@ export class OrdersService {
         select: { id: true, tenantId: true, status: true },
       });
 
-      if (!order || order.tenantId !== user.tenantId) {
-        throw new NotFoundException('Sipariş bulunamadı');
-      }
+      assertTenantOwnership(order, {
+        resourceType: 'PurchaseOrder',
+        resourceId: orderId,
+        user,
+        notFoundMessage: 'Sipariş bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (!CANCELLABLE.includes(order.status)) {
         throw new BadRequestException(`Bu sipariş iptal edilemez (mevcut: ${order.status})`);
       }
@@ -218,7 +233,13 @@ export class OrdersService {
         where: { id: orderId },
         include: ORDER_INCLUDE,
       });
-      if (!o || o.tenantId !== user.tenantId) throw new NotFoundException('Sipariş bulunamadı');
+      assertTenantOwnership(o, {
+        resourceType: 'PurchaseOrder',
+        resourceId: orderId,
+        user,
+        notFoundMessage: 'Sipariş bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (o.status !== 'APPROVED') {
         throw new BadRequestException(`Yalnızca APPROVED siparişlerde tekrar gönderilebilir (mevcut: ${o.status})`);
       }
@@ -344,9 +365,13 @@ export class OrdersService {
         include: ORDER_INCLUDE,
       });
 
-      if (!order || order.tenantId !== user.tenantId) {
-        throw new NotFoundException('Sipariş bulunamadı');
-      }
+      assertTenantOwnership(order, {
+        resourceType: 'PurchaseOrder',
+        resourceId: orderId,
+        user,
+        notFoundMessage: 'Sipariş bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (!['APPROVED', 'SENT', 'PARTIAL'].includes(order.status)) {
         throw new BadRequestException(
           `Yalnızca APPROVED, SENT veya PARTIAL siparişler teslim alınabilir (mevcut: ${order.status})`,
@@ -451,9 +476,13 @@ export class OrdersService {
         select: { id: true, tenantId: true, status: true },
       });
 
-      if (!order || order.tenantId !== user.tenantId) {
-        throw new NotFoundException('Sipariş bulunamadı');
-      }
+      assertTenantOwnership(order, {
+        resourceType: 'PurchaseOrder',
+        resourceId: orderId,
+        user,
+        notFoundMessage: 'Sipariş bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (order.status !== 'DRAFT') {
         throw new BadRequestException(`Yalnızca DRAFT siparişler düzenlenebilir (mevcut: ${order.status})`);
       }

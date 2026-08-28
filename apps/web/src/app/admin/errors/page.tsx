@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -26,6 +26,7 @@ const SOURCE_LABELS: Record<string, string> = {
   SYNC_JOB: 'Senkronizasyon',
   OCR_SCAN: 'OCR',
   WHATSAPP_WEBHOOK: 'WhatsApp',
+  SECURITY_EVENT: 'Güvenlik Olayı',
 };
 
 // "5 dakika önce" tarzı göreli zaman.
@@ -40,6 +41,26 @@ function timeAgo(dateStr: string): string {
   const day = Math.floor(hr / 24);
   if (day < 30) return `${day} gün önce`;
   return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium' }).format(new Date(dateStr));
+}
+
+// SECURITY_EVENT kayıtları diğer hata kaynaklarından görsel olarak ayırt
+// edilsin diye (mor/indigo + kalkan ikonu) — API_EXCEPTION/SYNC_JOB/OCR_SCAN/
+// WHATSAPP_WEBHOOK hepsi nötr gri kalır.
+function SourceBadge({ source }: { source: string }) {
+  const label = SOURCE_LABELS[source] ?? source;
+  if (source === 'SECURITY_EVENT') {
+    return (
+      <Badge className="gap-1 border-indigo-200 bg-indigo-100 text-indigo-800 hover:bg-indigo-100">
+        <ShieldAlert className="h-3 w-3" />
+        {label}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="border-slate-200 bg-slate-100 text-slate-700">
+      {label}
+    </Badge>
+  );
 }
 
 function SeverityBadge({ severity }: { severity: string }) {
@@ -101,6 +122,7 @@ export default function AdminErrorsPage() {
             <SelectItem value="SYNC_JOB">Senkronizasyon</SelectItem>
             <SelectItem value="OCR_SCAN">OCR</SelectItem>
             <SelectItem value="WHATSAPP_WEBHOOK">WhatsApp</SelectItem>
+            <SelectItem value="SECURITY_EVENT">Güvenlik Olayı</SelectItem>
           </SelectContent>
         </Select>
         <Select value={severity} onValueChange={(v) => resetAndSet(() => setSeverity(v))}>
@@ -148,9 +170,7 @@ export default function AdminErrorsPage() {
               <Card key={err.id} className={err.resolved ? 'opacity-60' : undefined}>
                 <CardContent className="space-y-2 p-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline" className="border-slate-200 bg-slate-100 text-slate-700">
-                      {SOURCE_LABELS[err.source] ?? err.source}
-                    </Badge>
+                    <SourceBadge source={err.source} />
                     <SeverityBadge severity={err.severity} />
                     {err.resolved && (
                       <Badge className="border-green-200 bg-green-100 text-green-800 hover:bg-green-100">

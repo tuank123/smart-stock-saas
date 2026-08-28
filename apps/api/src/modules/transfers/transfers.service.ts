@@ -2,10 +2,11 @@ import {
   BadRequestException,
   Injectable,
   Logger,
-  NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { SyncService } from '../sync/sync.service';
 import { CreateTransferDto, TransferQueryDto } from './dto/transfer.dto';
 
@@ -26,6 +27,7 @@ export class TransfersService {
   constructor(
     private prisma: PrismaService,
     private sync: SyncService,
+    private securityEvents: SecurityEventLogger,
   ) {}
 
   async createTransfer(
@@ -45,8 +47,20 @@ export class TransfersService {
         tx.branch.findUnique({ where: { id: dto.toBranchId }, select: { tenantId: true } }),
       ]);
 
-      if (!from || from.tenantId !== user.tenantId) throw new NotFoundException('Kaynak şube bulunamadı');
-      if (!to || to.tenantId !== user.tenantId) throw new NotFoundException('Hedef şube bulunamadı');
+      assertTenantOwnership(from, {
+        resourceType: 'Branch',
+        resourceId: dto.fromBranchId,
+        user,
+        notFoundMessage: 'Kaynak şube bulunamadı',
+        securityEvents: this.securityEvents,
+      });
+      assertTenantOwnership(to, {
+        resourceType: 'Branch',
+        resourceId: dto.toBranchId,
+        user,
+        notFoundMessage: 'Hedef şube bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       return tx.stockTransfer.create({
         data: {
@@ -97,7 +111,13 @@ export class TransfersService {
         select: { id: true, tenantId: true, fromBranchId: true, status: true },
       });
 
-      if (!transfer || transfer.tenantId !== user.tenantId) throw new NotFoundException('Transfer bulunamadı');
+      assertTenantOwnership(transfer, {
+        resourceType: 'StockTransfer',
+        resourceId: transferId,
+        user,
+        notFoundMessage: 'Transfer bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (transfer.status !== 'REQUESTED') {
         throw new BadRequestException(`Yalnızca REQUESTED transferler onaylanabilir (mevcut: ${transfer.status})`);
       }
@@ -123,7 +143,13 @@ export class TransfersService {
         select: { id: true, tenantId: true, fromBranchId: true, status: true },
       });
 
-      if (!transfer || transfer.tenantId !== user.tenantId) throw new NotFoundException('Transfer bulunamadı');
+      assertTenantOwnership(transfer, {
+        resourceType: 'StockTransfer',
+        resourceId: transferId,
+        user,
+        notFoundMessage: 'Transfer bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (transfer.status !== 'REQUESTED') {
         throw new BadRequestException(`Yalnızca REQUESTED transferler reddedilebilir (mevcut: ${transfer.status})`);
       }
@@ -152,7 +178,13 @@ export class TransfersService {
         },
       });
 
-      if (!transfer || transfer.tenantId !== user.tenantId) throw new NotFoundException('Transfer bulunamadı');
+      assertTenantOwnership(transfer, {
+        resourceType: 'StockTransfer',
+        resourceId: transferId,
+        user,
+        notFoundMessage: 'Transfer bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (transfer.status !== 'APPROVED') {
         throw new BadRequestException(`Yalnızca APPROVED transferler gönderilebilir (mevcut: ${transfer.status})`);
       }
@@ -217,7 +249,13 @@ export class TransfersService {
         },
       });
 
-      if (!transfer || transfer.tenantId !== user.tenantId) throw new NotFoundException('Transfer bulunamadı');
+      assertTenantOwnership(transfer, {
+        resourceType: 'StockTransfer',
+        resourceId: transferId,
+        user,
+        notFoundMessage: 'Transfer bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (transfer.status !== 'IN_TRANSIT') {
         throw new BadRequestException(`Yalnızca IN_TRANSIT transferler teslim alınabilir (mevcut: ${transfer.status})`);
       }
