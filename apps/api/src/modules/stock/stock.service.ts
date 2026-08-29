@@ -11,6 +11,7 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SmsService } from '../sms/sms.service';
+import { withTenantContext } from '../../common/utils/tenant-context';
 import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import {
   DailyReportQueryDto,
@@ -46,9 +47,7 @@ export class StockService {
   ) {}
 
   async initializeStock(dto: InitializeStockDto, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const existing = await tx.stockLevel.findFirst({
         where: {
@@ -90,9 +89,7 @@ export class StockService {
     query: StockQueryDto,
     user: { tenantId: string },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const levels = await tx.stockLevel.findMany({
         where: { branchId, tenantId: user.tenantId },
@@ -117,9 +114,7 @@ export class StockService {
     productId: string,
     user: { tenantId: string },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const level = await tx.stockLevel.findUnique({
         where: { productId_branchId: { productId, branchId } },
@@ -146,9 +141,7 @@ export class StockService {
       throw new BadRequestException('barcode, sku veya search parametresi gereklidir');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const OR: Prisma.ProductWhereInput[] = [];
       if (query.barcode) OR.push({ barcode: query.barcode });
@@ -173,9 +166,7 @@ export class StockService {
     query: MovementQueryDto,
     user: { tenantId: string },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const where: Prisma.StockMovementWhereInput = { tenantId: user.tenantId, branchId };
       if (query.type) where.movementType = query.type;
@@ -197,9 +188,7 @@ export class StockService {
     dto: WasteStockDto,
     user: { tenantId: string; userId: string },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const level = await tx.stockLevel.findUnique({
         where: { productId_branchId: { productId: dto.productId, branchId } },
@@ -266,9 +255,7 @@ export class StockService {
       include: { product: { select: { id: true; sku: true; name: true; unit: true } } };
     }>;
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    const result = await withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       if (user.role === 'PATRON' && user.planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -442,9 +429,7 @@ export class StockService {
     branchId: string,
     user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       if (user.role === 'PATRON' && user.planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -471,9 +456,7 @@ export class StockService {
     sessionId: string,
     user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       if (user.role === 'PATRON' && user.planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -500,9 +483,7 @@ export class StockService {
     branchId: string,
     user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       if (user.role === 'PATRON' && user.planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -633,9 +614,7 @@ export class StockService {
     dto: DailyReportQueryDto,
     user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       if (user.role === 'PATRON' && user.planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -755,9 +734,7 @@ export class StockService {
     days: number,
     user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       if (user.role === 'PATRON' && user.planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -825,9 +802,7 @@ export class StockService {
     query: PriceChangeQueryDto,
     user: { tenantId: string },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       return tx.priceChangeLog.findMany({
         where: { tenantId: user.tenantId, branchId },
@@ -852,9 +827,7 @@ export class StockService {
       throw new BadRequestException('En az bir eşik değeri girilmelidir');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const level = await tx.stockLevel.findUnique({
         where: { productId_branchId: { productId, branchId } },

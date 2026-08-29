@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { withTenantContext } from '../../common/utils/tenant-context';
 
 @Injectable()
 export class ReportsService {
@@ -34,9 +35,7 @@ export class ReportsService {
     const reportDate = this.toDateOnly(date);
     const range = this.dayRange(date);
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       const branches = await tx.branch.findMany({
         where: { tenantId, isActive: true, deletedAt: null },
@@ -137,9 +136,7 @@ export class ReportsService {
     const reportDate = this.toDateOnly(new Date(Date.UTC(year, month - 1, 1)));
     const range = this.monthRange(year, month);
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       const branches = await tx.branch.findMany({
         where: { tenantId, isActive: true, deletedAt: null },
@@ -198,9 +195,7 @@ export class ReportsService {
   // ─── LIST / DETAIL ───────────────────────────────────────────────────────
 
   async listReports(tenantId: string, type?: string, unreadOnly?: boolean) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       const where: Prisma.ScheduledReportWhereInput = { tenantId };
       if (type) where.reportType = type;
@@ -218,9 +213,7 @@ export class ReportsService {
   }
 
   async getReport(reportId: string, tenantId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       const report = await tx.scheduledReport.findUnique({ where: { id: reportId } });
       if (!report || report.tenantId !== tenantId) return null;
@@ -238,9 +231,7 @@ export class ReportsService {
   // ─── ANOMALIES ───────────────────────────────────────────────────────────
 
   async detectPriceAnomalies(tenantId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 30);
@@ -256,8 +247,7 @@ export class ReportsService {
   // ─── SCHEDULER HELPER ────────────────────────────────────────────────────
 
   async generateDailyForAllTenants(date?: Date): Promise<number> {
-    const tenants = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    const tenants = await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       return tx.tenant.findMany({
         where: { status: 'ACTIVE', deletedAt: null },
         select: { id: true },
@@ -277,8 +267,7 @@ export class ReportsService {
   }
 
   async generateMonthlyForAllTenants(year: number, month: number): Promise<number> {
-    const tenants = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    const tenants = await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       return tx.tenant.findMany({
         where: { status: 'ACTIVE', deletedAt: null },
         select: { id: true },

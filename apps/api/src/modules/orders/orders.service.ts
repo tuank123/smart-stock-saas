@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
+import { withTenantContext } from '../../common/utils/tenant-context';
 import { SyncService } from '../sync/sync.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { CheckThresholdsDto, CreateOrderDto, OrderQueryDto, PatchOrderDto, ReceiveOrderDto, UpdateOrderItemDto } from './dto/order.dto';
@@ -38,9 +39,7 @@ export class OrdersService {
   ) {}
 
   async createOrder(dto: CreateOrderDto, user: { tenantId: string; userId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       return tx.purchaseOrder.create({
         data: {
@@ -64,9 +63,7 @@ export class OrdersService {
   }
 
   async listOrders(branchId: string, query: OrderQueryDto, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const where: { tenantId: string; branchId: string; status?: string } = {
         tenantId: user.tenantId,
@@ -94,9 +91,7 @@ export class OrdersService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const order = await tx.purchaseOrder.findUnique({
         where: { id: orderId },
@@ -143,9 +138,7 @@ export class OrdersService {
       );
     }
 
-    const approved = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    const approved = await withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const order = await tx.purchaseOrder.findUnique({
         where: { id: orderId },
@@ -196,9 +189,7 @@ export class OrdersService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const order = await tx.purchaseOrder.findUnique({
         where: { id: orderId },
@@ -225,9 +216,7 @@ export class OrdersService {
   }
 
   async resendWhatsapp(orderId: string, user: { tenantId: string }): Promise<{ success: boolean }> {
-    const order = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    const order = await withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const o = await tx.purchaseOrder.findUnique({
         where: { id: orderId },
@@ -251,9 +240,7 @@ export class OrdersService {
   }
 
   async listWhatsappLogs(orderId: string, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       return tx.whatsappMessageLog.findMany({
         where: { poId: orderId, tenantId: user.tenantId },
@@ -266,10 +253,7 @@ export class OrdersService {
     tenantId: string,
     dto?: CheckThresholdsDto,
   ): Promise<number> {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
-
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
       const levels = await tx.stockLevel.findMany({
         where: {
           tenantId,
@@ -335,9 +319,7 @@ export class OrdersService {
   }
 
   async listStationOrders(branchId: string, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       return tx.purchaseOrder.findMany({
         where: {
@@ -356,9 +338,7 @@ export class OrdersService {
     dto: ReceiveOrderDto,
     user: { tenantId: string; userId: string },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const order = await tx.purchaseOrder.findUnique({
         where: { id: orderId },
@@ -449,9 +429,7 @@ export class OrdersService {
   }
 
   async listDraftOrders(branchId: string, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       return tx.purchaseOrder.findMany({
         where: { tenantId: user.tenantId, branchId, status: 'DRAFT' },
@@ -467,9 +445,7 @@ export class OrdersService {
     dto: UpdateOrderItemDto,
     user: { tenantId: string },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const order = await tx.purchaseOrder.findUnique({
         where: { id: orderId },
@@ -568,10 +544,7 @@ export class OrdersService {
     });
 
     try {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-        await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
-
+      await withTenantContext(this.prisma, { tenantId }, async (tx) => {
         await tx.whatsappMessageLog.create({
           data: {
             tenantId,

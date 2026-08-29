@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import { createClient, RedisClientType } from 'redis';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { withTenantContext } from '../../common/utils/tenant-context';
 import { EmailService } from '../email/email.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -94,8 +95,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     }
 
     // E-postaya göre global kullanıcı araması (tenant bağlamı yok → super-admin RLS).
-    const users = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    const users = await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       return tx.user.findMany({
         where: { email, deletedAt: null },
         include: { tenant: true, branch: true },
@@ -149,9 +149,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     // Update last login — RLS altında; getMe'deki düzeltmeyle aynı gerekçe:
     // bağlam kurulmadan çağrılırsa, havuzlanmış bağlantıda kalan BAŞKA bir
     // tenant'ın app.tenant_id'si yüzünden bu update sessizce 0 satır etkileyebilir.
-    await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    await withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       await tx.user.update({
         where: { id: user.id },
         data: { lastLoginAt: new Date() },
@@ -217,8 +215,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       // userId/email taşır); login()'in ilk e-posta aramasıyla ve
       // findUserByIdGlobal ile aynı gerekçeyle super-admin RLS bypass'ı
       // kullanılıyor (tenant-agnostic, id ile tekil arama).
-      const user = await this.prisma.$transaction(async (tx) => {
-        await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+      const user = await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
         return tx.user.findUnique({
           where: { id: payload.userId },
           include: {
@@ -302,10 +299,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     // gibi transaction'a değil SESSION'a/bağlantıya bağlıdır) rastgele
     // "kullanıcı bulunamadı" (404) sonucuna yol açabiliyordu. Yerelde RLS
     // bypass edildiği (stok_user superuser/sahip) için bu hiç görünmüyordu.
-    const [user, tenant] = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
-
+    const [user, tenant] = await withTenantContext(this.prisma, { tenantId }, async (tx) => {
       return Promise.all([
         tx.user.findUnique({
           where: { id: userId },
@@ -343,9 +337,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
    * PATCH /auth/change-password
    */
   async changePassword(userId: string, tenantId: string, dto: ChangePasswordDto) {
-    const user = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    const user = await withTenantContext(this.prisma, { tenantId }, async (tx) => {
       return tx.user.findUnique({ where: { id: userId } });
     });
     if (!user) throw new NotFoundException('User not found');
@@ -355,9 +347,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
 
     const rounds = process.env.BCRYPT_ROUNDS ? parseInt(process.env.BCRYPT_ROUNDS, 10) : 12;
     const hash = await bcrypt.hash(dto.newPassword, rounds);
-    await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    await withTenantContext(this.prisma, { tenantId }, async (tx) => {
       await tx.user.update({
         where: { id: userId },
         data: { passwordHash: hash },
@@ -372,9 +362,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
    * Yanlış şifrede exception fırlatmaz — { valid: false } döner.
    */
   async verifyPassword(userId: string, tenantId: string, password: string): Promise<{ valid: boolean }> {
-    const user = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    const user = await withTenantContext(this.prisma, { tenantId }, async (tx) => {
       return tx.user.findUnique({ where: { id: userId } });
     });
     if (!user) throw new NotFoundException('User not found');
@@ -395,8 +383,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   async forgotPassword(email: string): Promise<{ message: string }> {
     // E-postaya göre global arama (tenant bağlamı yok → super-admin RLS bypass),
     // login'deki desenle aynı.
-    const users = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    const users = await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       return tx.user.findMany({
         where: { email, deletedAt: null },
         select: { id: true, email: true, isActive: true },
@@ -448,10 +435,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     const rounds = process.env.BCRYPT_ROUNDS ? parseInt(process.env.BCRYPT_ROUNDS, 10) : 12;
     const hash = await bcrypt.hash(newPassword, rounds);
 
-    await this.prisma.$transaction(async (tx) => {
-      // users tablosu RLS altında; oturum açmamış akış olduğu için bypass gerekiyor.
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
-
+    await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       await tx.user.update({
         where: { id: record.userId },
         data: { passwordHash: hash },
@@ -512,9 +496,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Geçersiz veya süresi dolmuş doğrulama bağlantısı');
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
-
+    await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       await tx.user.update({
         where: { id: record.userId },
         data: { emailVerified: true },
@@ -561,8 +543,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     userId: string,
     extraSelect: T,
   ): Promise<({ id: string; email: string } & Record<keyof T, any>) | null> {
-    const users = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    const users = await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       return tx.user.findMany({
         where: { id: userId, deletedAt: null },
         select: { id: true, email: true, ...extraSelect },

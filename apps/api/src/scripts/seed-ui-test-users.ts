@@ -18,6 +18,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') }); // fallback, üz
 
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { withTenantContext } from '../common/utils/tenant-context';
 
 const TAX_NUMBER = 'UI-TEST-0000000001';
 const COMPANY_NAME = 'UI Test Ltd';
@@ -32,9 +33,7 @@ async function main() {
   const rounds = process.env.BCRYPT_ROUNDS ? parseInt(process.env.BCRYPT_ROUNDS, 10) : 4;
 
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
-
+    await withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {
       let tenant = await tx.tenant.findUnique({
         where: { taxNumber: TAX_NUMBER },
         select: { id: true },

@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
+import { withTenantContext } from '../../common/utils/tenant-context';
 
 @Injectable()
 export class UsersService {
@@ -14,10 +15,7 @@ export class UsersService {
     branchId: string,
     user: { tenantId: string; branchId?: string | null; role?: string | null },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
-
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       if (user.role === 'SUBE_MUDURU' && user.branchId !== branchId) {
         throw new ForbiddenException('Bu şubenin personeline erişim yetkiniz yok');
       }

@@ -14,6 +14,7 @@ import { createClient, RedisClientType } from 'redis';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
+import { withTenantContext } from '../../common/utils/tenant-context';
 import { UpdatePriceItemsDto, UploadDto } from './dto/portal.dto';
 
 const MOCK_OTP = '123456';
@@ -59,9 +60,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
   // ─── PORTAL ──────────────────────────────────────────────────────────────
 
   async createPortal(branchId: string, tenantId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       const branch = await tx.branch.findUnique({
         where: { id: branchId },
@@ -97,9 +96,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     branchId: string,
     user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       if (user.role === 'PATRON' && user.planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -223,9 +220,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     const ocrExtractedPhone = ocrEnabled ? null : dto.phone;
     const uploadType = dto.supplierId ? 'PRICE_UPDATE' : 'NEW_SUPPLIER';
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${portal.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: portal.tenantId }, async (tx) => {
 
       return tx.supplierPortalUpload.create({
         data: {
@@ -255,9 +250,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     role?: string | null,
     planId?: string | null,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
       if (role === 'PATRON' && planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -281,9 +274,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     role?: string | null,
     planId?: string | null,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
       if (role === 'PATRON' && planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -383,9 +374,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     role?: string | null,
     planId?: string | null,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
       if (role === 'PATRON' && planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -414,9 +403,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     role?: string | null,
     planId?: string | null,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
       if (role === 'PATRON' && planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -447,9 +434,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     role?: string | null,
     planId?: string | null,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
       if (role === 'PATRON' && planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',

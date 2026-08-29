@@ -12,6 +12,7 @@
  * AppModule'de APP_GUARD/APP_FILTER ile tanımlı olduğu için otomatik gelir.
  */
 import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
@@ -37,10 +38,37 @@ function allowedOrigins(): string[] {
   );
 }
 
-export async function createTestApp(): Promise<TestContext> {
-  const moduleRef = await Test.createTestingModule({
+/**
+ * singleConnection: true iken PrismaService, DATABASE_URL'e
+ * `connection_limit=1` ekleyerek kurulur — Prisma'nın bu app instance'ı
+ * boyunca AYNI fiziksel Postgres bağlantısını yeniden kullanmak ZORUNDA
+ * kalmasını sağlar. Bağlantı-havuzu sızıntı senaryolarını (bkz.
+ * tenant-context.e2e-spec.ts) deterministik test etmek için kullanılır —
+ * normal (havuzlu) bir app'te sızıntı şansa bağlı olur, burada garantiye alınır.
+ */
+export async function createTestApp(
+  options: { singleConnection?: boolean } = {},
+): Promise<TestContext> {
+  let testModuleBuilder = Test.createTestingModule({
     imports: [AppModule],
-  }).compile();
+  });
+
+  if (options.singleConnection) {
+    testModuleBuilder = testModuleBuilder.overrideProvider(PrismaService).useFactory({
+      factory: (configService: ConfigService) => {
+        const baseUrl = configService.get<string>('DATABASE_URL') as string;
+        const singleConnUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}connection_limit=1`;
+        const patchedConfig = {
+          get: (key: string, def?: unknown) =>
+            key === 'DATABASE_URL' ? singleConnUrl : configService.get(key, def as never),
+        } as ConfigService;
+        return new PrismaService(patchedConfig);
+      },
+      inject: [ConfigService],
+    });
+  }
+
+  const moduleRef = await testModuleBuilder.compile();
 
   // bodyParser:false — main.ts ile aynı gerekçe: Nest'in kendi varsayılan
   // body-parser'ı devre dışı, aşağıdaki manuel json()/urlencoded() çağrıları

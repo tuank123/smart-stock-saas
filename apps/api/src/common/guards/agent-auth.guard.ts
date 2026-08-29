@@ -8,6 +8,7 @@ import { Request } from 'express';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../security-event/security-event.service';
+import { withTenantContext } from '../utils/tenant-context';
 
 export interface AgentContext {
   branchId: string;
@@ -41,8 +42,7 @@ export class AgentAuthGuard implements CanActivate {
     }
 
     // super-admin RLS: Agent'ın tenant bağlamı yok, global arama gerekli.
-    const integration = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    const integration = await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       return tx.branchIntegration.findFirst({
         where: { agentId, connectionStatus: 'CONNECTED' },
         select: {

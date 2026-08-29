@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService, type RawOcrLine } from '../ocr/ocr.service';
 import { findBestFuzzyMatch } from '../../common/utils/fuzzyMatch';
+import { withTenantContext } from '../../common/utils/tenant-context';
 
 export interface WhatsappSendParams {
   poId: string;
@@ -183,10 +184,7 @@ export class WhatsappService {
    * SupplierPortalUpload (WHATSAPP_PRICE_UPDATE) oluşturur.
    */
   private async persistPriceUpload(from: string, lines: PriceLine[]): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      // Tenant bağlamı yok → tüm tedarikçileri süper-admin ile ara.
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
-
+    await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       const fromDigits = normalizePhone(from);
       const suppliers = await tx.supplier.findMany({
         where: { deletedAt: null },

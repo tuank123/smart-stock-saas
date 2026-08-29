@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OrdersService } from './orders.service';
+import { withTenantContext } from '../../common/utils/tenant-context';
 
 @Injectable()
 export class OrdersScheduler {
@@ -16,8 +17,7 @@ export class OrdersScheduler {
   async handleAutoPoCreation() {
     this.logger.log('[AutoPO] Otomatik sipariş kontrolü başladı');
 
-    const tenants = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    const tenants = await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       return tx.tenant.findMany({
         where: { status: 'ACTIVE', deletedAt: null },
         select: { id: true, companyName: true },

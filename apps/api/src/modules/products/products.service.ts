@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
+import { withTenantContext } from '../../common/utils/tenant-context';
 import { CreateProductDto, PatchUnitsPerCaseDto, ProductQueryDto } from './dto/product.dto';
 
 @Injectable()
@@ -17,9 +18,7 @@ export class ProductsService {
   ) {}
 
   async createProduct(dto: CreateProductDto, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       try {
         return await tx.product.create({
@@ -44,9 +43,7 @@ export class ProductsService {
   }
 
   async listProducts(query: ProductQueryDto, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const where: Prisma.ProductWhereInput = {
         tenantId: user.tenantId,
@@ -73,9 +70,7 @@ export class ProductsService {
   }
 
   async getProduct(id: string, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const product = await tx.product.findUnique({
         where: { id },
@@ -108,9 +103,7 @@ export class ProductsService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const product = await tx.product.findUnique({ where: { id: productId } });
       assertTenantOwnership(product?.deletedAt ? null : product, {

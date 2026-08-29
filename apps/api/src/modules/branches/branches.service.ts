@@ -9,6 +9,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
+import { withTenantContext } from '../../common/utils/tenant-context';
 import { encrypt, decryptSafe } from '../../common/utils/encryption';
 import {
   CreateBranchDto,
@@ -25,9 +26,7 @@ export class BranchesService {
   ) {}
 
   async createBranch(dto: CreateBranchDto, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       try {
         const created = await tx.branch.create({
@@ -54,9 +53,7 @@ export class BranchesService {
   }
 
   async listBranches(user: { tenantId: string; branchId?: string | null; role?: string | null }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const where = {
         tenantId: user.tenantId,
@@ -75,9 +72,7 @@ export class BranchesService {
     branchId: string,
     user: { tenantId: string; branchId?: string | null; role?: string | null },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       if (user.role === 'SUBE_MUDURU' && user.branchId !== branchId) {
         throw new ForbiddenException('Bu şubeye erişim yetkiniz yok');
@@ -122,9 +117,7 @@ export class BranchesService {
     dto: GenerateSetupCodeDto,
     user: { tenantId: string },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const adapter = await tx.integrationAdapter.findUnique({
         where: { adapterType: dto.adapterType, isActive: true },
@@ -180,9 +173,7 @@ export class BranchesService {
    * bağlamı yok; token global olarak aranır (super-admin RLS).
    */
   async connectAgent(dto: ConnectAgentDto) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
-
+    return withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       const setup = await tx.agentSetupToken.findUnique({
         where: { token: dto.token },
         select: { id: true, status: true, branchId: true },
@@ -218,9 +209,7 @@ export class BranchesService {
   }
 
   async getIntegration(branchId: string, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const integration = await tx.branchIntegration.findUnique({
         where: { branchId },
@@ -258,9 +247,7 @@ export class BranchesService {
     dto: UpdateBranchDto,
     user: { tenantId: string; branchId?: string | null; role?: string | null },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       // SUBE_MUDURU yalnızca kendi şubesini güncelleyebilir.
       if (user.role === 'SUBE_MUDURU' && user.branchId !== branchId) {

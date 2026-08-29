@@ -16,6 +16,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') }); // fallback, üz
 
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { withTenantContext } from '../common/utils/tenant-context';
 
 const PLATFORM_TAX_NUMBER = 'PLATFORM-0000000000';
 const PLATFORM_COMPANY_NAME = 'Platform';
@@ -38,10 +39,7 @@ async function main() {
   const passwordHash = await bcrypt.hash(password, rounds);
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      // RLS bypass: tenant/kullanıcı oluşturma için tenant bağlamı yok.
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
-
+    const result = await withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {
       // Platform tenant'ı (idempotent).
       let platform = await tx.tenant.findUnique({
         where: { taxNumber: PLATFORM_TAX_NUMBER },

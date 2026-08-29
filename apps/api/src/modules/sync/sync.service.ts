@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { withTenantContext } from '../../common/utils/tenant-context';
 
 const MAX_ATTEMPTS = 3;
 
@@ -23,9 +24,7 @@ export class SyncService {
   ) {}
 
   async addToQueue(params: AddToQueueParams) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${params.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: params.tenantId }, async (tx) => {
 
       return tx.syncQueue.create({
         data: {
@@ -46,8 +45,7 @@ export class SyncService {
 
     // Fetch all PENDING jobs that haven't exceeded max attempts
     // Use super-admin RLS to read across all tenants
-    const jobs = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    const jobs = await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       return tx.syncQueue.findMany({
         where: { status: 'PENDING', attemptCount: { lt: MAX_ATTEMPTS } },
         orderBy: { createdAt: 'asc' },
@@ -60,8 +58,7 @@ export class SyncService {
     for (const job of jobs) {
       try {
         // Mark PROCESSING
-        await this.prisma.$transaction(async (tx) => {
-          await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+        await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
           await tx.syncQueue.update({
             where: { id: job.id },
             data: { status: 'PROCESSING', lastAttemptAt: new Date() },
@@ -95,9 +92,7 @@ export class SyncService {
         const nextAttempt = job.attemptCount + 1;
         const maxed = nextAttempt >= MAX_ATTEMPTS;
 
-        await this.prisma.$transaction(async (tx) => {
-          await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
-
+        await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
           await tx.syncQueue.update({
             where: { id: job.id },
             data: {
@@ -155,9 +150,7 @@ export class SyncService {
   }
 
   async getFailedJobs(branchId: string, tenantId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       return tx.syncQueue.findMany({
         where: {
@@ -173,9 +166,7 @@ export class SyncService {
   }
 
   async retryJob(queueId: string, tenantId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       await tx.syncQueue.update({
         where: { id: queueId },
@@ -187,9 +178,7 @@ export class SyncService {
   async getStatus(branchId: string, tenantId: string) {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       const [pending, processing, success, failed] = await Promise.all([
         tx.syncQueue.count({ where: { tenantId, branchId, status: 'PENDING',    createdAt: { gte: since } } }),

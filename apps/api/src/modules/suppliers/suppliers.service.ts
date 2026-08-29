@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable } from '@nestjs/comm
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
+import { withTenantContext } from '../../common/utils/tenant-context';
 import { CreateSupplierDto, LinkBranchSupplierDto, UpdateSupplierDto } from './dto/supplier.dto';
 
 @Injectable()
@@ -12,9 +13,7 @@ export class SuppliersService {
   ) {}
 
   async createSupplier(dto: CreateSupplierDto, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       return tx.supplier.create({
         data: {
@@ -34,9 +33,7 @@ export class SuppliersService {
     dto: LinkBranchSupplierDto,
     user: { tenantId: string },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const supplier = await tx.supplier.findUnique({
         where: { id: supplierId },
@@ -77,9 +74,7 @@ export class SuppliersService {
   }
 
   async getSupplier(supplierId: string, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const supplier = await tx.supplier.findUnique({
         where: { id: supplierId },
@@ -111,9 +106,7 @@ export class SuppliersService {
       throw new BadRequestException('En az bir alan güncellenmelidir');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const existing = await tx.supplier.findUnique({
         where: { id: supplierId },
@@ -146,9 +139,7 @@ export class SuppliersService {
   }
 
   async listSuppliers(user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       return tx.supplier.findMany({
         where: { tenantId: user.tenantId, isActive: true, deletedAt: null },

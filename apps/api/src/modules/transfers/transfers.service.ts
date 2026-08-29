@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
+import { withTenantContext } from '../../common/utils/tenant-context';
 import { SyncService } from '../sync/sync.service';
 import { CreateTransferDto, TransferQueryDto } from './dto/transfer.dto';
 
@@ -38,9 +39,7 @@ export class TransfersService {
       throw new BadRequestException('Kaynak ve hedef şube aynı olamaz');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const [from, to] = await Promise.all([
         tx.branch.findUnique({ where: { id: dto.fromBranchId }, select: { tenantId: true } }),
@@ -83,9 +82,7 @@ export class TransfersService {
     query: TransferQueryDto,
     user: { tenantId: string },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const where: Prisma.StockTransferWhereInput = {
         tenantId: user.tenantId,
@@ -102,9 +99,7 @@ export class TransfersService {
   }
 
   async approveTransfer(transferId: string, user: { tenantId: string; userId: string; branchId?: string | null }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const transfer = await tx.stockTransfer.findUnique({
         where: { id: transferId },
@@ -134,9 +129,7 @@ export class TransfersService {
   }
 
   async rejectTransfer(transferId: string, user: { tenantId: string; userId: string; branchId?: string | null }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const transfer = await tx.stockTransfer.findUnique({
         where: { id: transferId },
@@ -166,9 +159,7 @@ export class TransfersService {
   }
 
   async dispatchTransfer(transferId: string, user: { tenantId: string; userId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const transfer = await tx.stockTransfer.findUnique({
         where: { id: transferId },
@@ -236,9 +227,7 @@ export class TransfersService {
   }
 
   async receiveTransfer(transferId: string, user: { tenantId: string; userId: string }) {
-    const delivered = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    const delivered = await withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const transfer = await tx.stockTransfer.findUnique({
         where: { id: transferId },

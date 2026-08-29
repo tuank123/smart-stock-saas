@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AckJobDto, HeartbeatDto, InboundProductDto } from './dto/agent.dto';
+import { withTenantContext } from '../../common/utils/tenant-context';
 
 @Injectable()
 export class AgentService {
@@ -10,9 +11,7 @@ export class AgentService {
 
   // Agent için bekleyen OUTBOUND işler (en eski önce).
   async getPendingQueue(branchId: string, tenantId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       return tx.syncQueue.findMany({
         where: { tenantId, branchId, status: 'PENDING', direction: 'OUTBOUND' },
@@ -31,9 +30,7 @@ export class AgentService {
 
   // Agent bir işi tamamladığında sonucu bildirir.
   async ackJob(id: string, dto: AckJobDto, branchId: string, tenantId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       const job = await tx.syncQueue.findFirst({
         where: { id, branchId, tenantId },
@@ -62,9 +59,7 @@ export class AgentService {
     branchId: string,
     tenantId: string,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       let updated = 0;
       const notFound: string[] = [];
@@ -107,9 +102,7 @@ export class AgentService {
 
   // Agent canlılık bildirimi: hata varsa yaz, yoksa temizle (updatedAt otomatik).
   async heartbeat(dto: HeartbeatDto, branchId: string, tenantId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       await tx.branchIntegration.updateMany({
         where: { branchId, tenantId },

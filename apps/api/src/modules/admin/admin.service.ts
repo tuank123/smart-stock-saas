@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TenantPlan, TenantStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { decryptSafe } from '../../common/utils/encryption';
+import { withTenantContext } from '../../common/utils/tenant-context';
 import {
   ListErrorsQueryDto,
   ListTenantsQueryDto,
@@ -35,8 +36,7 @@ export class AdminService {
     if (query.status) where.status = query.status as TenantStatus;
     if (query.planId) where.planId = query.planId as TenantPlan;
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    return withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
 
       const [items, total] = await Promise.all([
         tx.tenant.findMany({
@@ -74,8 +74,7 @@ export class AdminService {
 
   // Tek tenant detayı: tüm alanlar + kullanıcılar + şubeler.
   async getTenantDetail(tenantId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    return withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
 
       const tenant = await tx.tenant.findUnique({
         where: { id: tenantId },
@@ -114,8 +113,7 @@ export class AdminService {
   // Tenant durumunu günceller. SUSPENDED/DELETED olunca kullanıcılar pasifleşir;
   // ACTIVE'e dönüşte kullanıcılar bilinçli olarak yeniden aktive EDİLMEZ.
   async updateTenantStatus(tenantId: string, dto: UpdateTenantStatusDto) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    return withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
 
       const existing = await tx.tenant.findUnique({
         where: { id: tenantId },
@@ -150,8 +148,7 @@ export class AdminService {
 
   // Platform geneli istatistikler.
   async getStats() {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    return withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
 
       const since7d = new Date(Date.now() - 7 * DAY_MS);
       // Platform VE test hesapları tüm istatistiklerden hariç.

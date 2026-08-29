@@ -9,6 +9,7 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
+import { setTenantContext, withTenantContext } from '../../common/utils/tenant-context';
 import {
   AssignRoleDto,
   CompleteRegistrationDto,
@@ -34,10 +35,7 @@ export class StaffRegistrationService {
 
     const tokenString = this.generateToken();
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
-
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       const token = await tx.staffRegistrationToken.create({
         data: {
           tenantId: user.tenantId,
@@ -60,7 +58,7 @@ export class StaffRegistrationService {
 
     return this.prisma.$transaction(async (tx) => {
       // Look the token up globally (no tenant context yet)
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+      await setTenantContext(tx, { isSuperAdmin: true });
 
       const token = await tx.staffRegistrationToken.findUnique({
         where: { token: dto.token },
@@ -72,8 +70,7 @@ export class StaffRegistrationService {
       }
 
       // Scope the rest of the work to the token's tenant
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${token.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      await setTenantContext(tx, { tenantId: token.tenantId });
 
       const existing = await tx.user.findFirst({
         where: { tenantId: token.tenantId, email: dto.email },
@@ -117,10 +114,7 @@ export class StaffRegistrationService {
     dto: AssignRoleDto,
     user: { userId: string; tenantId: string },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
-
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       const target = await tx.user.findUnique({
         where: { id: userId },
         select: { id: true, tenantId: true },

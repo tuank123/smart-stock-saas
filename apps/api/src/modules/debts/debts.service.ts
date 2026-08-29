@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
+import { withTenantContext } from '../../common/utils/tenant-context';
 import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import {
   CreateDebtDto,
@@ -55,9 +56,7 @@ export class DebtsService {
   }
 
   async listDebts(branchId: string, user: DebtUser) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       this.assertAllowed(user);
 
       // OPEN kayıtlar + son 3 gün içinde tam kapanmış (PAID) kayıtlar gösterilir.
@@ -91,9 +90,7 @@ export class DebtsService {
       throw new BadRequestException('Ürün kayıtları için en az bir ürün satırı zorunludur');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       this.assertAllowed(user);
 
       // PRODUCT ise: ürün adlarını çekip yapılandırılmış productLines + özet metin kur.
@@ -145,9 +142,7 @@ export class DebtsService {
   // Sade alan güncelleyici — durum/ödeme değişiklikleri artık
   // recordCashPayment / recordProductReceipt üzerinden yapılır.
   async updateDebt(id: string, dto: UpdateDebtDto, user: DebtUser) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       this.assertAllowed(user);
 
       const existing = await tx.debt.findFirst({ where: { id } });
@@ -174,9 +169,7 @@ export class DebtsService {
 
   // Nakit borca kısmi/tam ödeme kaydeder.
   async recordCashPayment(id: string, dto: RecordCashPaymentDto, user: DebtUser) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       this.assertAllowed(user);
 
       const existing = await tx.debt.findFirst({ where: { id } });
@@ -259,9 +252,7 @@ export class DebtsService {
 
   // Ürün borcuna kısmi/tam teslim alma kaydeder; affectsStock ise farkı stoka ekler.
   async recordProductReceipt(id: string, dto: RecordProductReceiptDto, user: DebtUser) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       this.assertAllowed(user);
 
       const existing = await tx.debt.findFirst({ where: { id } });
@@ -376,9 +367,7 @@ export class DebtsService {
   }
 
   async markViewed(branchId: string, user: DebtUser) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       this.assertAllowed(user);
 
       const branch = await tx.branch.findFirst({ where: { id: branchId } });
@@ -400,9 +389,7 @@ export class DebtsService {
   }
 
   async getReminders(branchId: string, user: DebtUser) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       this.assertAllowed(user);
 
       const now = new Date();

@@ -3,6 +3,7 @@ import * as bcrypt from 'bcrypt';
 import { TenantPlan } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
+import { setTenantContext, withTenantContext } from '../../common/utils/tenant-context';
 import { AuthResponse } from '../auth/dto/auth-response.dto';
 import { SignupDto, UpdateTenantDto } from './dto/tenant.dto';
 
@@ -41,7 +42,7 @@ export class TenantsService {
 
     const user = await this.prisma.$transaction(async (tx) => {
       // Yeni tenant oluşturulacağı için henüz bir tenant bağlamı yok.
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+      await setTenantContext(tx, { isSuperAdmin: true });
 
       // Vergi numarası tekliği
       const existing = await tx.tenant.findUnique({
@@ -82,8 +83,7 @@ export class TenantsService {
       }
 
       // Bundan sonrası tenant bağlamında
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${tenant.id}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+      await setTenantContext(tx, { tenantId: tenant.id });
 
       const branch = await tx.branch.create({
         data: {
@@ -139,10 +139,7 @@ export class TenantsService {
 
   // Oturum açan PATRON'un kendi işletme bilgilerini günceller (plan farkı yok).
   async updateMyTenant(dto: UpdateTenantDto, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
-
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       const tenant = await tx.tenant.update({
         where: { id: user.tenantId },
         data: {
@@ -164,10 +161,7 @@ export class TenantsService {
 
   // Üyeliği sonlandırır (soft-close): tenant DELETED + tüm kullanıcılar pasif.
   async closeMyMembership(user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
-
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       await tx.tenant.update({
         where: { id: user.tenantId },
         data: { status: 'DELETED', closedAt: new Date() },

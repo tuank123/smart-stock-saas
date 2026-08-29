@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SyncService } from '../sync/sync.service';
+import { withTenantContext } from '../../common/utils/tenant-context';
 import { findBestFuzzyMatch } from '../../common/utils/fuzzyMatch';
 import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import { ConfirmReturnDto, ConfirmScanDto, ScanDto } from './dto/ocr.dto';
@@ -64,9 +65,7 @@ export class OcrService {
   ) {
     const enabled = this.config.get<string>('OCR_ENABLED') === 'true';
 
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       if (user.role === 'PATRON' && user.planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca yetkili roller veya tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -163,9 +162,7 @@ export class OcrService {
     dto: ConfirmScanDto,
     user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       if (user.role === 'PATRON' && user.planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca yetkili roller veya tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -390,9 +387,7 @@ export class OcrService {
     dto: ConfirmReturnDto,
     user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       if (user.role === 'PATRON' && user.planId !== 'STARTER') {
         throw new ForbiddenException(
           'Bu işlem yalnızca yetkili roller veya tek şubeli işletme sahipleri tarafından yapılabilir',
@@ -513,9 +508,7 @@ export class OcrService {
   }
 
   async listScans(branchId: string, user: { tenantId: string }) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.tenant_id = '${user.tenantId}'`);
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'false'`);
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       return tx.ocrScan.findMany({
         where: { tenantId: user.tenantId, branchId },

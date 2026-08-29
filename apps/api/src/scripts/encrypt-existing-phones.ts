@@ -17,6 +17,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') }); // fallback, üz
 
 import { PrismaClient } from '@prisma/client';
 import { encrypt, isEncrypted } from '../common/utils/encryption';
+import { withTenantContext } from '../common/utils/tenant-context';
 
 async function main() {
   const dryRun = process.argv.includes('--dry-run');
@@ -26,8 +27,7 @@ async function main() {
   encrypt('kontrol');
 
   try {
-    const branches = await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    const branches = await withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {
       return tx.branch.findMany({ select: { id: true, name: true, phone: true } });
     });
 
@@ -51,8 +51,7 @@ async function main() {
       return;
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    await withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {
       for (const branch of pending) {
         await tx.branch.update({
           where: { id: branch.id },
