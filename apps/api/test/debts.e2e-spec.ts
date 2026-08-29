@@ -21,6 +21,7 @@ import {
   type SignedUpContext,
 } from './setup';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { withTenantContext } from '../src/common/utils/tenant-context';
 
 describe('Debts / Alacak Verecek (e2e)', () => {
   let app: INestApplication;
@@ -260,15 +261,13 @@ describe('Debts / Alacak Verecek (e2e)', () => {
     });
 
     async function readDebtGlobal(debtId: string) {
-      return prisma.$transaction(async (tx) => {
-        await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+      return withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {
         return tx.debt.findUnique({ where: { id: debtId } });
       });
     }
 
     async function readBranchGlobal(branchId: string) {
-      return prisma.$transaction(async (tx) => {
-        await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+      return withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {
         return tx.branch.findUnique({ where: { id: branchId } });
       });
     }

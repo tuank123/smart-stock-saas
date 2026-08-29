@@ -14,6 +14,7 @@ import {
   uniqueSuffix,
 } from './setup';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { withTenantContext } from '../src/common/utils/tenant-context';
 
 // Şifre kuralı: en az 8 karakter, 1 büyük harf, 1 rakam.
 const PASSWORD_RULE_TEXT = 'Şifre en az 8 karakter, 1 büyük harf ve 1 rakam içermelidir.';
@@ -123,8 +124,7 @@ describe('Auth (e2e)', () => {
     expect(res.body.data.user.role).toBe('PATRON');
 
     // Yeni kullanıcı doğrulanmamış e-posta ile başlar.
-    const user = await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    const user = await withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {
       return tx.user.findFirst({
         where: { email: payload.email },
         select: { emailVerified: true },
@@ -199,8 +199,7 @@ describe('Auth (e2e)', () => {
     // Var olan e-posta, olmayanla birebir aynı mesajı döner (sızıntı yok).
     expect(forgot.body.message).toBe(GENERIC_FORGOT_MESSAGE);
 
-    const record = await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    const record = await withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {
       const user = await tx.user.findFirst({
         where: { email: payload.email },
         select: { id: true },
@@ -270,8 +269,7 @@ describe('Auth (e2e)', () => {
       .expect(201);
     createdTaxNumbers.push(payload.taxNumber);
 
-    const record = await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    const record = await withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {
       const user = await tx.user.findFirst({
         where: { email: payload.email },
         select: { id: true },

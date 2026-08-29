@@ -17,6 +17,7 @@ import {
   type SignedUpContext,
 } from './setup';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { withTenantContext } from '../src/common/utils/tenant-context';
 
 describe('Tenant Kendi-Hesap Yönetimi (e2e)', () => {
   let app: INestApplication;
@@ -48,8 +49,7 @@ describe('Tenant Kendi-Hesap Yönetimi (e2e)', () => {
   });
 
   async function readTenantGlobal(tenantId: string) {
-    return prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+    return withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {
       const tenant = await tx.tenant.findUnique({ where: { id: tenantId } });
       const users = await tx.user.findMany({ where: { tenantId }, select: { isActive: true } });
       return { tenant, users };

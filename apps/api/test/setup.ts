@@ -23,6 +23,7 @@ import { UserRole } from '@prisma/client';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuthService } from '../src/modules/auth/auth.service';
+import { withTenantContext } from '../src/common/utils/tenant-context';
 
 export interface TestContext {
   app: INestApplication;
@@ -167,9 +168,7 @@ export async function deleteTenantByTaxNumber(
   prisma: PrismaService,
   taxNumber: string,
 ): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
-
+  await withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {
     const tenant = await tx.tenant.findUnique({
       where: { taxNumber },
       select: { id: true },
@@ -321,8 +320,7 @@ export async function createRoleUser(
   const email = `e2e-${params.role.toLowerCase()}-${suffix}@example.test`;
   const passwordHash = await bcrypt.hash('Test1234', 4);
 
-  const user = await prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(`SET app.is_super_admin = 'true'`);
+  const user = await withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {
     return tx.user.create({
       data: {
         tenantId: params.tenantId,
