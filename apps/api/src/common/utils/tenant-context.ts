@@ -33,12 +33,44 @@ export interface TenantContext {
 }
 
 /**
+ * tenantId verilmeyen (isSuperAdmin-only) çağrılarda app.tenant_id'ye
+ * atanan sabit, geçerli-UUID-biçimli "boş" değer. Gerçek bir tenant'a hiç
+ * karşılık gelmez (nil UUID) — yalnızca RLS policy'sindeki
+ * `id = current_setting('app.tenant_id')::uuid` ifadesinin GEÇERLİ bir uuid
+ * ile karşılaşmasını garanti eder. Neden gerekli, aşağıdaki ana yorumda.
+ */
+const NIL_TENANT_ID = '00000000-0000-0000-0000-000000000000';
+
+/**
  * RLS bağlamını (app.tenant_id / app.is_super_admin) mevcut bir transaction
- * İÇİNDE, SET LOCAL ile kurar — SET'in aksine COMMIT/ROLLBACK'te otomatik
- * sıfırlanır, bağlantı havuzunda başka bir transaction'a SIZAMAZ (yerel
- * psql deneyiyle doğrulandı: aynı fiziksel bağlantıda TX1'de SET LOCAL,
- * COMMIT sonrası TX2'de current_setting(...) NULL döner; düz SET aynı
- * senaryoda TX2'ye sızar).
+ * İÇİNDE, SET LOCAL ile kurar.
+ *
+ * KRİTİK — SET LOCAL'in gerçek davranışı, custom (app.* gibi yerleşik
+ * olmayan) GUC'larda beklenenden FARKLI: bir bağlantıda app.tenant_id İLK
+ * KEZ SET LOCAL ile atandığında, bu transaction COMMIT olsa BİLE (ROLLBACK
+ * bile gerekmiyor) current_setting('app.tenant_id', true) bir daha ASLA
+ * gerçek NULL'a dönmüyor — o bağlantı kapanana kadar KALICI OLARAK boş
+ * string ('') döndürüyor. Ne RESET app.tenant_id, ne SET LOCAL ... TO
+ * DEFAULT, ne sonraki başarılı SET LOCAL + COMMIT'ler bunu düzeltiyor.
+ * (Yerelde superuser/RLS-bypass olmayan kısıtlı bir rolle ampirik olarak
+ * doğrulandı — bkz. test/tenant-context.e2e-spec.ts'teki regresyon testi.)
+ *
+ * Sonuç: tenantId verilmeden yalnızca is_super_admin SET LOCAL edilen bir
+ * çağrı (login/forgotPassword/findUserByIdGlobal gibi ~15 çağrı noktası),
+ * DAHA ÖNCE aynı bağlantıda BİR KEZ bile gerçek bir tenant bağlamı
+ * kurulmuşsa (ki normal kullanımda kaçınılmaz), RLS policy'sinin
+ * `id = current_setting('app.tenant_id')::uuid OR is_super_admin='true'`
+ * ifadesinin SOL tarafında ''::uuid cast hatasıyla çöküyordu — is_super_admin
+ * doğru şekilde 'true' olsa BİLE (Postgres OR'da short-circuit garantisi
+ * yok, sol taraf yine değerlendirilip patlıyor).
+ *
+ * DÜZELTME: tenantId verilmediğinde bile app.tenant_id HER ZAMAN açıkça
+ * SET LOCAL edilir — geçerli ama gerçek hiçbir tenant'a karşılık gelmeyen
+ * NIL_TENANT_ID ile. Böylece sol taraf her zaman GEÇERLİ bir uuid'e cast
+ * olur (false'a eşitlenir, hata fırlatmaz), sağ taraftaki is_super_admin
+ * kontrolü normal şekilde devreye girer. Bu garanti merkezi olarak BURADA
+ * veriliyor — çağıranların tenantId'yi unutup unutmadığını hesaba katmaya
+ * gerek yok.
  *
  * Mevcut $transaction bloklarına minimum değişiklikle entegre olması için
  * tasarlandı: önceki iki `tx.$executeRawUnsafe('SET app.xxx = ...')` satırı
@@ -65,8 +97,9 @@ export async function setTenantContext(
   }
   if (ctx.tenantId) {
     assertValidTenantId(ctx.tenantId);
-    await tx.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${ctx.tenantId}'`);
   }
+  const tenantIdToSet = ctx.tenantId || NIL_TENANT_ID;
+  await tx.$executeRawUnsafe(`SET LOCAL app.tenant_id = '${tenantIdToSet}'`);
   await tx.$executeRawUnsafe(`SET LOCAL app.is_super_admin = '${isSuperAdmin}'`);
 }
 

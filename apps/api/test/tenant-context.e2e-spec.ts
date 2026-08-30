@@ -71,14 +71,17 @@ describe('tenant-context (setTenantContext / withTenantContext)', () => {
     });
   });
 
-  it('setTenantContext: isSuperAdmin=true, tenantId verilmezse yalnızca is_super_admin set edilir', async () => {
+  it('setTenantContext: isSuperAdmin=true, tenantId verilmezse is_super_admin=true VE tenant_id nil-UUID olarak set edilir', async () => {
     await prisma.$transaction(async (tx) => {
       await setTenantContext(tx, { isSuperAdmin: true });
       const ctx = await readContext(tx);
       expect(ctx.is_super_admin).toBe('true');
-      // tenant_id bu transaction'da hiç set edilmedi — önceki testin sızıntı
-      // yapıp yapmadığını da dolaylı doğruluyor (bir sonraki testte asıl kanıt).
-      expect(ctx.tenant_id).toBeFalsy();
+      // tenant_id "boş/unset" BIRAKILMAZ — CI run #19 regresyonu (bkz. dosya
+      // sonu): SET LOCAL, custom bir GUC'u COMMIT sonrası bile gerçek NULL'a
+      // değil kalıcı boş string'e döndürüyor; tenantId verilmediğinde bile
+      // HER ZAMAN geçerli bir nil-UUID set edilerek bu tuzak merkezi olarak
+      // engellenir.
+      expect(ctx.tenant_id).toBe('00000000-0000-0000-0000-000000000000');
     });
   });
 
@@ -153,6 +156,41 @@ describe('tenant-context (setTenantContext / withTenantContext)', () => {
       );
       const ctx = await readContext(tx);
       expect(ctx.is_super_admin).toBeFalsy();
+    });
+  });
+
+  // ── CI run #19 regresyonu ────────────────────────────────────────────────
+  //
+  // Kök neden (ampirik olarak kısıtlı, RLS-bypass'sız bir rolle doğrulandı):
+  // SET LOCAL app.tenant_id = X, transaction COMMIT olsa BİLE (ROLLBACK bile
+  // gerekmiyor), current_setting('app.tenant_id', true)'ü bir daha ASLA
+  // gerçek NULL'a döndürmüyor — bağlantı kapanana kadar KALICI olarak boş
+  // string ('') döndürüyor. tenantId verilmeyen (isSuperAdmin-only) sonraki
+  // bir çağrı bu boş string'i ASLA resetlemediği için, RLS policy'sindeki
+  // `id = current_setting('app.tenant_id')::uuid OR is_super_admin='true'`
+  // ifadesinin SOL tarafı ''::uuid cast hatasıyla çöküyordu — is_super_admin
+  // doğru şekilde 'true' olsa bile (Postgres OR'da short-circuit garantisi
+  // yok). Bu, CI'da 20/21 test suite'inin aynı anda çökmesine yol açtı.
+  it('setTenantContext: tenantId verilmeyen (isSuperAdmin-only) çağrı, AYNI bağlantıda ÖNCEDEN gerçek bir tenant bağlamı kurulmuş olsa bile ASLA uuid cast hatası vermez', async () => {
+    // 1) Önce GERÇEK bir tenant-scoped çağrı — normal signup/login akışıyla
+    //    birebir aynı, başarıyla COMMIT olur.
+    await prisma.$transaction(async (tx) => {
+      await setTenantContext(tx, { tenantId: FAKE_TENANT_ID, isSuperAdmin: false });
+    });
+
+    // 2) SONRA, AYNI (tek, connection_limit=1) bağlantıda, tenantId
+    //    VERİLMEDEN yalnızca isSuperAdmin ile bir çağrı — login/
+    //    findUserByIdGlobal/forgotPassword deseninin birebir aynısı.
+    await prisma.$transaction(async (tx) => {
+      await setTenantContext(tx, { isSuperAdmin: true });
+
+      // Asıl kanıt: RLS policy'sinin birebir yaptığı şeyi (current_setting
+      // sonucunu ::uuid'e cast etmeyi) doğrudan tetikliyoruz. Eski kodda bu
+      // satır "invalid input syntax for type uuid" ile PATLIYORDU.
+      const rows = await tx.$queryRawUnsafe<{ tenant_id_as_uuid: string }[]>(
+        `SELECT current_setting('app.tenant_id', true)::uuid AS tenant_id_as_uuid`,
+      );
+      expect(rows[0].tenant_id_as_uuid).toBe('00000000-0000-0000-0000-000000000000');
     });
   });
 });

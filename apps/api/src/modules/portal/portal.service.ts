@@ -129,10 +129,16 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getPortalBySubdomain(subdomain: string) {
-    // Public — no RLS context needed (subdomain is a global unique lookup)
-    const portal = await this.prisma.branchSupplierPortal.findUnique({
-      where: { subdomain },
-      include: { branch: { select: { name: true } } },
+    // Public (subdomain ile global lookup, kimlik doğrulaması yok, tenantId
+    // önceden bilinmiyor) — ama include:{branch} RLS'li branches tablosuna
+    // JOIN yapıyor, bu yüzden "context'e hiç gerek yok" YANLIŞTI: bağlantı
+    // havuzunda önceki bir tenant-scoped işlemden kalan durum varsa RLS
+    // policy'si çöküyordu (bkz. findUserByIdGlobal ile aynı gerekçe).
+    const portal = await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
+      return tx.branchSupplierPortal.findUnique({
+        where: { subdomain },
+        include: { branch: { select: { name: true } } },
+      });
     });
     if (!portal || !portal.isActive) {
       throw new NotFoundException('Portal bulunamadı veya aktif değil');
