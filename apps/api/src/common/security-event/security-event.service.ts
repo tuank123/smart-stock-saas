@@ -16,7 +16,8 @@ export type SecurityEventType =
   | 'INVALID_AGENT_KEY'
   | 'WHATSAPP_SIGNATURE_INVALID'
   | 'RATE_LIMITED'
-  | 'CROSS_TENANT_ACCESS_ATTEMPT';
+  | 'CROSS_TENANT_ACCESS_ATTEMPT'
+  | 'REDIS_CONNECTION_FAILED';
 
 export interface SecurityEventParams {
   eventType: SecurityEventType;
@@ -27,6 +28,14 @@ export interface SecurityEventParams {
   tenantId?: string | null;
   branchId?: string | null;
   path?: string | null;
+  /**
+   * Varsayılan 'WARNING' — reddetme olayları (login/JWT/rol/rate-limit) için
+   * doğru seviye. REDIS_CONNECTION_FAILED gibi bir güvenlik KONTROLÜNÜN
+   * (rate-limit/token blacklist) SESSİZCE devre dışı kaldığı durumlar için
+   * 'ERROR' ya da 'CRITICAL' geçilerek diğer (reddetme) olaylarından admin
+   * panelinde ayırt edilebilir kılınır.
+   */
+  severity?: 'WARNING' | 'ERROR' | 'CRITICAL';
   /** Ek, şüpheye yer bırakmayan bağlam — ASLA şifre/API-key/token gibi sır içermemeli. */
   context?: Record<string, unknown>;
 }
@@ -58,7 +67,7 @@ export class SecurityEventLogger {
       .create({
         data: {
           source: SECURITY_EVENT_SOURCE,
-          severity: 'WARNING',
+          severity: params.severity ?? 'WARNING',
           message: params.message,
           tenantId: params.tenantId ?? null,
           branchId: params.branchId ?? null,

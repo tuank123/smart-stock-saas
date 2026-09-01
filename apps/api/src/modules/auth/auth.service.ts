@@ -59,6 +59,23 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error('❌ Redis connection failed:', error);
       // Continue even if Redis fails - fallback mode
+
+      // Bu SESSİZCE devam ediyor olması ÖNEMLİ — Redis yoksa login rate-limit
+      // ve refresh-token blacklist kontrolleri fiilen devre dışı kalır (bkz.
+      // bu servisteki ilgili metotlar: `if (this.redisClient)` ile atlanıyor).
+      // Yalnızca Logger'a düşerse bir güvenlik kontrolünün sessizce devre
+      // dışı kaldığı fark edilmeyebilir — admin panelinde görünür olmalı.
+      // Henüz bir istek bağlamı yok (uygulama başlangıcı) — tenantId/userId
+      // bilinmiyor, severity CRITICAL ile diğer (reddetme) olaylarından
+      // ayırt edilir.
+      this.securityEvents.log({
+        eventType: 'REDIS_CONNECTION_FAILED',
+        message: 'Redis bağlantısı kurulamadı — login rate-limit ve refresh-token blacklist kontrolleri devre dışı',
+        severity: 'CRITICAL',
+        context: {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
     }
   }
 

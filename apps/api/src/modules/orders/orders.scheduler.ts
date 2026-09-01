@@ -35,6 +35,21 @@ export class OrdersScheduler {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         this.logger.error(`[AutoPO] ${tenant.companyName} hata: ${msg}`);
+
+        // Sessizce yalnızca Logger'a düşerse, hiç DRAFT PO oluşmayan bir gün
+        // kimse fark etmeden geçer — admin panelinde görünür olsun.
+        this.prisma.errorLog
+          .create({
+            data: {
+              source: 'SCHEDULED_JOB',
+              severity: 'ERROR',
+              message: `Otomatik sipariş oluşturma başarısız: ${tenant.companyName}`,
+              stackTrace: err instanceof Error ? (err.stack ?? null) : null,
+              tenantId: tenant.id,
+              context: { job: 'AutoPoCreation', tenantId: tenant.id, error: msg },
+            },
+          })
+          .catch(() => undefined);
       }
     }
 

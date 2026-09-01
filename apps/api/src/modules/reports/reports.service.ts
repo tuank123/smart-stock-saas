@@ -260,7 +260,21 @@ export class ReportsService {
         await this.generateDailyReport(t.id, date?.toISOString().slice(0, 10));
         generated++;
       } catch (err) {
-        this.logger.error(`[DailyReport] tenant=${t.id}: ${(err as Error).message}`);
+        const e = err as Error;
+        this.logger.error(`[DailyReport] tenant=${t.id}: ${e.message}`);
+
+        this.prisma.errorLog
+          .create({
+            data: {
+              source: 'SCHEDULED_JOB',
+              severity: 'ERROR',
+              message: `Günlük rapor oluşturma başarısız: tenant=${t.id}`,
+              stackTrace: e.stack ?? null,
+              tenantId: t.id,
+              context: { job: 'DailyReport', tenantId: t.id, error: e.message },
+            },
+          })
+          .catch(() => undefined);
       }
     }
     return generated;
@@ -280,7 +294,21 @@ export class ReportsService {
         await this.generateMonthlyReport(t.id, year, month);
         generated++;
       } catch (err) {
-        this.logger.error(`[MonthlyReport] tenant=${t.id}: ${(err as Error).message}`);
+        const e = err as Error;
+        this.logger.error(`[MonthlyReport] tenant=${t.id}: ${e.message}`);
+
+        this.prisma.errorLog
+          .create({
+            data: {
+              source: 'SCHEDULED_JOB',
+              severity: 'ERROR',
+              message: `Aylık rapor oluşturma başarısız: tenant=${t.id}`,
+              stackTrace: e.stack ?? null,
+              tenantId: t.id,
+              context: { job: 'MonthlyReport', tenantId: t.id, year, month, error: e.message },
+            },
+          })
+          .catch(() => undefined);
       }
     }
     return generated;

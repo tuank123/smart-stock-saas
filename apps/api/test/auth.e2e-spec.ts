@@ -431,4 +431,10 @@ describe('Auth (e2e)', () => {
       expect(verifyAUnchanged.body.valid).toBe(true);
     });
   });
+
 });
+
+// Faz C — Redis bağlantı hatası testi: bkz. auth-redis-failure.e2e-spec.ts
+// (ayrı, hafif bir dosya — gerçek app/DB/Redis bootstrap'ı gerektirmeyen,
+// yalnızca AuthService'i izole Test.createTestingModule ile kuran bir unit-
+// seviyesi kontrol; bu dosyanın ağır createTestApp() akışına dahil edilmedi).

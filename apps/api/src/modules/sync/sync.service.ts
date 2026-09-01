@@ -143,6 +143,28 @@ export class SyncService {
       } catch (err: unknown) {
         const e = err as Error;
         this.logger.error(`[SyncQueue] job=${job.id} error: ${e.message}`);
+
+        // Bu, normal "3 denemeden sonra FAILED" akışının DIŞINDA kalan bir
+        // hata (ör. DB yazımı sırasında beklenmeyen bir istisna) — mevcut
+        // SYNC_JOB kategorisiyle tutarlı, ayrı context.stage ile ayrıştırılır.
+        this.prisma.errorLog
+          .create({
+            data: {
+              source: 'SYNC_JOB',
+              severity: 'ERROR',
+              message: `Sync job işlenirken beklenmeyen hata: ${e.message}`,
+              stackTrace: e.stack ?? null,
+              tenantId: job.tenantId,
+              branchId: job.branchId,
+              context: {
+                stage: 'PROCESS_QUEUE_UNEXPECTED',
+                queueId: job.id,
+                adapterType: job.adapterType,
+                operationType: job.operationType,
+              },
+            },
+          })
+          .catch(() => undefined);
       }
     }
 
