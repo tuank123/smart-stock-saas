@@ -10,9 +10,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { withTenantContext } from '../../common/utils/tenant-context';
+import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import { SyncService } from '../sync/sync.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { CheckThresholdsDto, CreateOrderDto, OrderQueryDto, PatchOrderDto, ReceiveOrderDto, UpdateOrderItemDto } from './dto/order.dto';
+
+// Miktarlarda kabul edilen ondalık tolerans (ocr.service.ts'teki
+// QUANTITY_TOLERANCE ile aynı — Decimal(12,3) hassasiyetiyle uyumlu).
+const QUANTITY_TOLERANCE = 0.001;
 
 const ORDER_INCLUDE = {
   supplier: { select: { id: true, name: true, whatsappNumber: true } },
@@ -380,6 +385,37 @@ export class OrdersService {
         const alreadyReceived = new Prisma.Decimal(item.quantityReceived).toNumber();
         const totalReceived = alreadyReceived + nowQty;
         const ordered = new Prisma.Decimal(item.quantityOrdered).toNumber();
+
+        // ── Bütünlük kontrolü: kabul edilen toplam miktar, sipariş edilen
+        // miktarı aşamaz — debts.service.ts:recordProductReceipt'teki
+        // receivedQuantity > quantity kontrolüyle aynı gerekçe, ama orada
+        // sessizce Math.min ile sınırlanıyordu; burada tedarik zincirinde
+        // yanlış/eksik veri girişini (ör. çift kabul, yanlış miktar) sessizce
+        // yutmak yerine reddedip ErrorLog'a kaydediyoruz.
+        if (totalReceived - ordered > QUANTITY_TOLERANCE) {
+          await this.prisma.errorLog
+            .create({
+              data: {
+                source: 'DATA_INTEGRITY',
+                severity: 'ERROR',
+                message: 'Mal kabul miktarı sipariş edilen miktarı aşıyor',
+                tenantId: user.tenantId,
+                branchId: order.branchId,
+                context: {
+                  orderId,
+                  productId: item.productId,
+                  orderItemId: item.id,
+                  ordered,
+                  alreadyReceived,
+                  nowReceiving: nowQty,
+                  totalReceived,
+                },
+              },
+            })
+            .catch(() => undefined);
+
+          throw new DataIntegrityException('receive quantity exceeds ordered quantity');
+        }
 
         await tx.purchaseOrderItem.update({
           where: { id: item.id },

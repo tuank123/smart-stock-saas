@@ -237,6 +237,39 @@ export class StockService {
         }),
       ]);
 
+      // ── Bütünlük kontrolü: recordSale ile aynı gerekçe — yukarıdaki
+      // ön-kontrol (level.quantity < dto.quantity) tek başına yarış durumuna
+      // karşı yeterli değil: iki eşzamanlı fire kaydı aynı başlangıç miktarını
+      // okuyup ikisi de geçebilir, ardından ikisi de düşer ve sonuç negatif
+      // olabilir. Asıl garanti, düşüşten SONRA gerçek DB değeri yeniden
+      // okunarak alınır.
+      const finalLevel = await tx.stockLevel.findUnique({
+        where: { id: level.id },
+        select: { quantity: true },
+      });
+
+      if (finalLevel && Number(finalLevel.quantity) < 0) {
+        await this.prisma.errorLog
+          .create({
+            data: {
+              source: 'DATA_INTEGRITY',
+              severity: 'ERROR',
+              message: 'Fire kaydı sonrası stok negatife düştü',
+              tenantId: user.tenantId,
+              branchId,
+              context: {
+                productId: dto.productId,
+                wasteQuantity: dto.quantity,
+                stockLevelId: level.id,
+                quantityAfter: Number(finalLevel.quantity),
+              },
+            },
+          })
+          .catch(() => undefined);
+
+        throw new DataIntegrityException('waste caused negative stock level');
+      }
+
       return movement;
     });
   }

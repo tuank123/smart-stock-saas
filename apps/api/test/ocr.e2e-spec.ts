@@ -298,4 +298,62 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     // paidAmount=0 → remainingAmount amount'tan etkilenmemeli, ona eşit kalmalı.
     expect(Number(debt.remainingAmount)).toBe(8000);
   });
+
+  // ── (g) Bütünlük kontrolü — ödenen tutar fatura tutarını aşarsa ──────────
+  //
+  // Düzeltmeden önce: paidAmount > invoiceTotal olduğunda diff negatif
+  // olduğu için `if (diff > 0)` bloğu sessizce atlanırdı — hiçbir borç/kayıt
+  // oluşmadan fazladan ödeme kaybolurdu. Artık 409 + DATA_INTEGRITY log ile
+  // reddediliyor; hiçbir stok/borç değişikliği kalıcı olmamalı (rollback).
+
+  it('POST /ocr/scan/:scanId/confirm — paidAmount invoiceTotal\'ı aşarsa 409 döner, DATA_INTEGRITY loglanır, hiçbir şey kalıcı olmaz', async () => {
+    const scan = await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId })
+      .expect(201);
+
+    const beforeQty = await queryStockQuantity();
+    const beforeErrorCount = await prisma.errorLog.count({
+      where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+    });
+    const beforeDebtCount = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200)
+      .then((r) => r.body.length as number);
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/ocr/scan/${scan.body.scanId}/confirm`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        allItemsReceived: true,
+        lines: [{ productId, qty: 1, unit: 'adet' }],
+        invoiceTotal: 1000,
+        paidAmount: 1500, // fatura tutarından fazla ödendi — veri girişi hatası
+      })
+      .expect(409);
+
+    expect(res.body.message).toContain('tutarsızlık');
+
+    // Rollback doğrulaması: stok HİÇ değişmemiş olmalı (satır işlenmeden
+    // önce kontrol devreye girip transaction'ı geri almalı).
+    expect(await queryStockQuantity()).toBe(beforeQty);
+
+    // Bu taramaya bağlı YENİ hiçbir borç oluşmamış olmalı (borç sayısı sabit).
+    const debtsRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(debtsRes.body.length).toBe(beforeDebtCount);
+
+    const errorLogs = await prisma.errorLog.findMany({
+      where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(errorLogs.length).toBe(beforeErrorCount + 1);
+    expect(errorLogs[0].message).toContain('ödenen tutar');
+    expect((errorLogs[0].context as { scanId?: string })?.scanId).toBe(scan.body.scanId);
+  });
 });

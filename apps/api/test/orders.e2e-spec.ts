@@ -209,4 +209,59 @@ describe('Satın Alma Siparişleri / Orders (e2e)', () => {
     expect(res.body.status).toBe('CANCELLED');
     expect(await getQuantity()).toBe(before);
   });
+
+  // ── (e) Bütünlük kontrolü — kabul edilen miktar sipariş edileni aşarsa ───
+
+  it('PATCH /orders/:id/receive — kabul edilen miktar sipariş edileni aşarsa 409 döner, DATA_INTEGRITY loglanır, stok/durum değişmez', async () => {
+    const OVER_ORDER_QTY = 10;
+
+    const createRes = await request(app.getHttpServer())
+      .post('/api/v1/orders')
+      .set('Authorization', subeMuduruAuthHeader)
+      .send({
+        branchId: ctx.branchId,
+        supplierId,
+        items: [{ productId, quantityOrdered: OVER_ORDER_QTY }],
+      })
+      .expect(201);
+    const overOrderId = createRes.body.id;
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/orders/${overOrderId}/approve`)
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(200);
+
+    const beforeQty = await getQuantity();
+    const beforeErrorCount = await prisma.errorLog.count({
+      where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+    });
+
+    // 10 sipariş edildi, 15 kabul edilmeye çalışılıyor (5 fazla).
+    const res = await request(app.getHttpServer())
+      .patch(`/api/v1/orders/${overOrderId}/receive`)
+      .set('Authorization', subeMuduruAuthHeader)
+      .send({ items: [{ productId, quantityReceived: OVER_ORDER_QTY + 5 }] })
+      .expect(409);
+
+    expect(res.body.message).toContain('tutarsızlık');
+
+    // Rollback doğrulaması: stok HİÇ değişmemiş, sipariş hâlâ APPROVED olmalı.
+    expect(await getQuantity()).toBe(beforeQty);
+
+    const listRes = await request(app.getHttpServer())
+      .get(`/api/v1/orders/${ctx.branchId}`)
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(200);
+    const overOrder = listRes.body.find((o: { id: string }) => o.id === overOrderId);
+    expect(overOrder).toBeDefined();
+    expect(overOrder.status).toBe('APPROVED');
+
+    const errorLogs = await prisma.errorLog.findMany({
+      where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(errorLogs.length).toBe(beforeErrorCount + 1);
+    expect(errorLogs[0].message).toContain('aşıyor');
+    expect((errorLogs[0].context as { orderId?: string })?.orderId).toBe(overOrderId);
+  });
 });

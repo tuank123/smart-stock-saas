@@ -8,8 +8,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { withTenantContext } from '../../common/utils/tenant-context';
+import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import { SyncService } from '../sync/sync.service';
 import { CreateTransferDto, TransferQueryDto } from './dto/transfer.dto';
+
+// Miktarlarda kabul edilen ondalık tolerans (ocr.service.ts'teki
+// QUANTITY_TOLERANCE ile aynı — Decimal(12,3) hassasiyetiyle uyumlu).
+const QUANTITY_TOLERANCE = 0.001;
 
 const TRANSFER_INCLUDE = {
   fromBranch: { select: { id: true, name: true } },
@@ -218,6 +223,47 @@ export class TransfersService {
         },
       });
 
+      // ── Bütünlük kontrolü (konservasyon): kaynak şubenin stoğu TAM OLARAK
+      // transfer miktarı kadar düşmüş ve negatife düşmemiş olmalı. Yukarıdaki
+      // ön-kontrol (fromLevel.quantity < transfer.quantity) tek başına yarış
+      // durumuna karşı yeterli değil — ör. AYNI transfer'in eşzamanlı çift
+      // dispatch'i (çift tıklama/ağ tekrar denemesi) ikinci isteğin stoğu
+      // TEKRAR düşürmesine yol açabilir. Asıl garanti, düşüşten SONRA gerçek
+      // DB değeri yeniden okunarak alınır (recordSale/recordWaste ile aynı desen).
+      const fromLevelAfter = await tx.stockLevel.findUnique({
+        where: { id: fromLevel.id },
+        select: { quantity: true },
+      });
+      const expectedAfter = fromLevel.quantity.minus(transfer.quantity);
+      const actualAfter = fromLevelAfter?.quantity ?? new Prisma.Decimal(0);
+
+      if (
+        actualAfter.lessThan(0) ||
+        actualAfter.minus(expectedAfter).abs().greaterThan(QUANTITY_TOLERANCE)
+      ) {
+        await this.prisma.errorLog
+          .create({
+            data: {
+              source: 'DATA_INTEGRITY',
+              severity: 'ERROR',
+              message: 'Transfer dispatch sonrası kaynak şube stoğu tutarsız',
+              tenantId: user.tenantId,
+              branchId: transfer.fromBranchId,
+              context: {
+                transferId,
+                productId: transfer.productId,
+                transferQuantity: transfer.quantity.toNumber(),
+                quantityBefore: fromLevel.quantity.toNumber(),
+                expectedAfter: expectedAfter.toNumber(),
+                actualAfter: actualAfter.toNumber(),
+              },
+            },
+          })
+          .catch(() => undefined);
+
+        throw new DataIntegrityException('transfer dispatch stock conservation mismatch');
+      }
+
       return tx.stockTransfer.update({
         where: { id: transferId },
         data: { status: 'IN_TRANSIT', dispatchedBy: user.userId, dispatchedAt: new Date() },
@@ -252,6 +298,13 @@ export class TransfersService {
       // fromBranch stoğu zaten dispatchTransfer'da düşürüldü — burada tekrar
       // düşülmez (çifte düşüş olmasın). Yalnızca toBranch stok artır — hedef
       // şubede kayıt yoksa oluştur.
+      const toLevelBefore = await tx.stockLevel.findUnique({
+        where: {
+          productId_branchId: { productId: transfer.productId, branchId: transfer.toBranchId },
+        },
+        select: { quantity: true },
+      });
+
       await tx.stockLevel.upsert({
         where: {
           productId_branchId: {
@@ -288,6 +341,44 @@ export class TransfersService {
           createdBy: user.userId,
         },
       });
+
+      // ── Bütünlük kontrolü (konservasyon): hedef şubenin stoğu TAM OLARAK
+      // transfer miktarı kadar artmış olmalı — dispatchTransfer'daki aynı
+      // gerekçe (ör. çift receive race'i). Upsert'ten SONRA gerçek DB değeri
+      // yeniden okunarak doğrulanır.
+      const toLevelAfter = await tx.stockLevel.findUnique({
+        where: {
+          productId_branchId: { productId: transfer.productId, branchId: transfer.toBranchId },
+        },
+        select: { quantity: true },
+      });
+      const toBeforeQty = toLevelBefore?.quantity ?? new Prisma.Decimal(0);
+      const expectedToAfter = toBeforeQty.plus(transfer.quantity);
+      const actualToAfter = toLevelAfter?.quantity ?? new Prisma.Decimal(0);
+
+      if (actualToAfter.minus(expectedToAfter).abs().greaterThan(QUANTITY_TOLERANCE)) {
+        await this.prisma.errorLog
+          .create({
+            data: {
+              source: 'DATA_INTEGRITY',
+              severity: 'ERROR',
+              message: 'Transfer receive sonrası hedef şube stoğu tutarsız',
+              tenantId: user.tenantId,
+              branchId: transfer.toBranchId,
+              context: {
+                transferId,
+                productId: transfer.productId,
+                transferQuantity: transfer.quantity.toNumber(),
+                quantityBefore: toBeforeQty.toNumber(),
+                expectedAfter: expectedToAfter.toNumber(),
+                actualAfter: actualToAfter.toNumber(),
+              },
+            },
+          })
+          .catch(() => undefined);
+
+        throw new DataIntegrityException('transfer receive stock conservation mismatch');
+      }
 
       // Transfer tamamla
       return tx.stockTransfer.update({

@@ -201,4 +201,149 @@ describe('Transferler / Stock Transfers (e2e)', () => {
     expect(await getQuantity(fromBranchId)).toBe(fromBefore);
     expect(await getQuantity(toBranchId)).toBe(toBefore);
   });
+
+  // ── (f) Bütünlük kontrolü — dispatch sırasında konservasyon ihlali ───────
+  //
+  // stock.e2e-spec.ts'teki yarış durumu testiyle aynı desen: gerçek eşzamanlı
+  // HTTP istekleriyle bu yarışı güvenilir biçimde tetiklemek zamanlamaya
+  // bağlı (kırılgan) olacağından, Prisma middleware ile TEK SEFERLİK,
+  // deterministik bir "eşzamanlı başka bir işlem kaynak şubenin stoğunu
+  // zaten düşürdü" senaryosu simüle ediliyor.
+  it('PATCH /transfers/:id/dispatch — yarış durumu kaynak şube stoğunu tutarsız bırakırsa 409 döner, DATA_INTEGRITY loglanır, transfer IN_TRANSIT\'e geçmez', async () => {
+    const createRes = await request(app.getHttpServer())
+      .post('/api/v1/transfers')
+      .set('Authorization', subeMuduruAuthHeader)
+      .send({ fromBranchId, toBranchId, productId, quantity: 5 })
+      .expect(201);
+    const raceTransferId = createRes.body.id;
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/transfers/${raceTransferId}/approve`)
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(200);
+
+    const beforeErrorCount = await prisma.errorLog.count({
+      where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+    });
+
+    let fired = false;
+    const middleware: Parameters<PrismaService['$use']>[0] = async (params, next) => {
+      if (
+        !fired &&
+        params.model === 'StockLevel' &&
+        params.action === 'update' &&
+        (params.args?.data?.quantity as { decrement?: number } | undefined)?.decrement != null
+      ) {
+        fired = true;
+        // Kaynak şubenin stoğunu, dispatch KENDİ düşüşünü uygulamadan HEMEN
+        // önce, başka bir (hayali) eşzamanlı işlem gibi ekstra düşür.
+        await prisma.$executeRawUnsafe(
+          `UPDATE stock_levels SET quantity = quantity - 1000 WHERE product_id = '${productId}' AND branch_id = '${fromBranchId}'`,
+        );
+      }
+      return next(params);
+    };
+    prisma.$use(middleware);
+
+    try {
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/transfers/${raceTransferId}/dispatch`)
+        .set('Authorization', subeMuduruAuthHeader)
+        .expect(409);
+
+      expect(res.body.message).toContain('tutarsızlık');
+
+      const errorLogs = await prisma.errorLog.findMany({
+        where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(errorLogs.length).toBe(beforeErrorCount + 1);
+      expect(errorLogs[0].message).toContain('kaynak şube stoğu tutarsız');
+      expect((errorLogs[0].context as { transferId?: string })?.transferId).toBe(raceTransferId);
+
+      // Rollback doğrulaması: transfer hâlâ APPROVED, IN_TRANSIT'e geçmedi.
+      const listRes = await request(app.getHttpServer())
+        .get(`/api/v1/transfers/${fromBranchId}`)
+        .set('Authorization', subeMuduruAuthHeader)
+        .expect(200);
+      const raceTransfer = listRes.body.find((t: { id: string }) => t.id === raceTransferId);
+      expect(raceTransfer.status).toBe('APPROVED');
+    } finally {
+      fired = true;
+      // Enjekte edilen -1000'i telafi et ki bu suite'teki SONRAKİ hiçbir
+      // testi (ve afterAll'daki temizliği) etkilemesin.
+      await prisma.$executeRawUnsafe(
+        `UPDATE stock_levels SET quantity = quantity + 1000 WHERE product_id = '${productId}' AND branch_id = '${fromBranchId}'`,
+      );
+    }
+  });
+
+  // ── (g) Bütünlük kontrolü — receive sırasında konservasyon ihlali ────────
+
+  it('PATCH /transfers/:id/receive — yarış durumu hedef şube stoğunu tutarsız bırakırsa 409 döner, DATA_INTEGRITY loglanır, transfer DELIVERED\'a geçmez', async () => {
+    const createRes = await request(app.getHttpServer())
+      .post('/api/v1/transfers')
+      .set('Authorization', subeMuduruAuthHeader)
+      .send({ fromBranchId, toBranchId, productId, quantity: 5 })
+      .expect(201);
+    const raceTransferId = createRes.body.id;
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/transfers/${raceTransferId}/approve`)
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/transfers/${raceTransferId}/dispatch`)
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(200);
+
+    const beforeErrorCount = await prisma.errorLog.count({
+      where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+    });
+
+    let fired = false;
+    const middleware: Parameters<PrismaService['$use']>[0] = async (params, next) => {
+      if (!fired && params.model === 'StockLevel' && params.action === 'upsert') {
+        fired = true;
+        // Hedef şubenin stoğunu, receive KENDİ artışını uygulamadan HEMEN
+        // önce, başka bir (hayali) eşzamanlı işlem gibi ekstra artır.
+        await prisma.$executeRawUnsafe(
+          `UPDATE stock_levels SET quantity = quantity + 1000 WHERE product_id = '${productId}' AND branch_id = '${toBranchId}'`,
+        );
+      }
+      return next(params);
+    };
+    prisma.$use(middleware);
+
+    try {
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/transfers/${raceTransferId}/receive`)
+        .set('Authorization', subeMuduruAuthHeader)
+        .expect(409);
+
+      expect(res.body.message).toContain('tutarsızlık');
+
+      const errorLogs = await prisma.errorLog.findMany({
+        where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(errorLogs.length).toBe(beforeErrorCount + 1);
+      expect(errorLogs[0].message).toContain('hedef şube stoğu tutarsız');
+      expect((errorLogs[0].context as { transferId?: string })?.transferId).toBe(raceTransferId);
+
+      // Rollback doğrulaması: transfer hâlâ IN_TRANSIT, DELIVERED'a geçmedi.
+      const listRes = await request(app.getHttpServer())
+        .get(`/api/v1/transfers/${fromBranchId}`)
+        .set('Authorization', subeMuduruAuthHeader)
+        .expect(200);
+      const raceTransfer = listRes.body.find((t: { id: string }) => t.id === raceTransferId);
+      expect(raceTransfer.status).toBe('IN_TRANSIT');
+    } finally {
+      fired = true;
+      // Enjekte edilen +1000'i telafi et.
+      await prisma.$executeRawUnsafe(
+        `UPDATE stock_levels SET quantity = quantity - 1000 WHERE product_id = '${productId}' AND branch_id = '${toBranchId}'`,
+      );
+    }
+  });
 });

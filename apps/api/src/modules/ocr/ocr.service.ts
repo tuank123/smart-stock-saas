@@ -15,6 +15,9 @@ import { ConfirmReturnDto, ConfirmScanDto, ScanDto } from './dto/ocr.dto';
 
 // Miktarlarda kabul edilen ondalık tolerans (Decimal(12,3) hassasiyetiyle uyumlu).
 const QUANTITY_TOLERANCE = 0.001;
+// Parasal tutarlarda kabul edilen ondalık tolerans (stock.service.ts/
+// debts.service.ts'teki AMOUNT_TOLERANCE ile aynı — kuruş altı yuvarlama).
+const AMOUNT_TOLERANCE = 0.01;
 
 export interface RawOcrLine {
   name: string;
@@ -246,6 +249,34 @@ export class OcrService {
 
       // 1) Nakit borç: fatura tutarı > ödenen tutar ise fark kadar PAYABLE.
       if (dto.invoiceTotal != null && dto.paidAmount != null) {
+        // ── Bütünlük kontrolü: ödenen tutar, onaylanan fatura tutarını
+        // aşamaz. Aşarsa `diff < 0` olur ve aşağıdaki `if (diff > 0)` bloğu
+        // sessizce atlanır — yani fazladan ödeme HİÇBİR borç/kayıt
+        // oluşturmadan sessizce kaybolurdu. Bu, kullanıcının paidAmount'ta
+        // yaptığı bir veri girişi hatasının (ör. rakam kayması) fark
+        // edilmeden yutulmasıdır — recordSale/recordWaste'teki "sessiz
+        // tutarsızlık" ile aynı sınıf hata, aynı desenle ele alınır.
+        if (dto.paidAmount - dto.invoiceTotal > AMOUNT_TOLERANCE) {
+          await this.prisma.errorLog
+            .create({
+              data: {
+                source: 'DATA_INTEGRITY',
+                severity: 'ERROR',
+                message: 'OCR fatura onayı: ödenen tutar fatura tutarını aşıyor',
+                tenantId: user.tenantId,
+                branchId: scan.branchId,
+                context: {
+                  scanId,
+                  invoiceTotal: dto.invoiceTotal,
+                  paidAmount: dto.paidAmount,
+                },
+              },
+            })
+            .catch(() => undefined);
+
+          throw new DataIntegrityException('paid amount exceeds invoice total');
+        }
+
         const diff = dto.invoiceTotal - dto.paidAmount;
         if (diff > 0) {
           const cashDebt = await tx.debt.create({

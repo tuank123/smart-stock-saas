@@ -181,6 +181,99 @@ describe('Stok (e2e)', () => {
     expect(await getQuantity()).toBe(before);
   });
 
+  // ── (c-2) Bütünlük kontrolü — yarış durumu (post-hoc negatif stok) ───────
+  //
+  // Yukarıdaki (400) kontrolü YALNIZCA istek ANINDA okunan miktara bakıyor —
+  // iki eşzamanlı fire kaydı aynı başlangıç miktarını okuyup ikisi de ön-
+  // kontrolü geçebilir. Gerçek eşzamanlılığı HTTP seviyesinde güvenilir
+  // biçimde tetiklemek zamanlamaya bağlı (kırılgan) olacağından, Prisma
+  // middleware ile TEK SEFERLİK, deterministik bir "eşzamanlı başka bir
+  // işlem stoğu zaten düşürdü" senaryosu simüle ediliyor: recordWaste kendi
+  // decrement'ini uygularken, ARADA ham SQL ile stoğu ekstra düşürüyoruz —
+  // sonuç negatife düşüyor ve post-hoc kontrol (düşüşten SONRA yeniden okuma)
+  // bunu yakalamalı.
+  it('POST /stock/:branchId/waste — post-hoc kontrol: yarış durumu negatif stoğa yol açarsa 409 döner, DATA_INTEGRITY loglanır, işlem rollback olur', async () => {
+    const raceProductRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader)
+      .send({
+        sku: `E2E-STOK-RACE-${uniqueSuffix()}`,
+        name: 'E2E Yarış Durumu Ürünü',
+        unit: 'adet',
+        categoryId: (await createCategory(prisma, ctx.tenantId, 'E2E Yarış Kategorisi')).id,
+      })
+      .expect(201);
+    const raceProductId = raceProductRes.body.id;
+
+    await request(app.getHttpServer())
+      .post('/api/v1/stock/initialize')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId, items: [{ productId: raceProductId, quantity: 10 }] })
+      .expect(201);
+
+    const beforeErrorCount = await prisma.errorLog.count({
+      where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+    });
+
+    // Tek seferlik middleware: recordWaste'in KENDİ decrement'i uygulanmadan
+    // hemen ÖNCE, aynı satırı ham SQL ile 8 birim daha düşür (başka bir
+    // eşzamanlı işlemi simüle eder). Ardından kendini devre dışı bırakır.
+    let fired = false;
+    const middleware: Parameters<PrismaService['$use']>[0] = async (params, next) => {
+      if (
+        !fired &&
+        params.model === 'StockLevel' &&
+        params.action === 'update' &&
+        (params.args?.data?.quantity as { decrement?: number } | undefined)?.decrement != null
+      ) {
+        fired = true;
+        await prisma.$executeRawUnsafe(
+          `UPDATE stock_levels SET quantity = quantity - 8 WHERE product_id = '${raceProductId}' AND branch_id = '${ctx.branchId}'`,
+        );
+      }
+      return next(params);
+    };
+    prisma.$use(middleware);
+
+    try {
+      // Ön-kontrolü geçer (5 <= 10), ama araya giren -8 yüzünden gerçek
+      // sonuç 10 - 8 - 5 = -3 olur.
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/stock/${ctx.branchId}/waste`)
+        .set('Authorization', subeMuduruAuthHeader)
+        .send({
+          productId: raceProductId,
+          quantity: 5,
+          reason: 'Yarış durumu testi',
+          photoBase64: 'data:image/jpeg;base64,ZmFrZS1waG90bw==',
+        })
+        .expect(409);
+
+      expect(res.body.message).toContain('tutarsızlık');
+
+      const errorLogs = await prisma.errorLog.findMany({
+        where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(errorLogs.length).toBe(beforeErrorCount + 1);
+      expect(errorLogs[0].message).toContain('negatife düştü');
+      expect((errorLogs[0].context as { productId?: string })?.productId).toBe(raceProductId);
+
+      // Rollback doğrulaması: BU isteğin kendi -5 düşüşü geri alınmış olmalı
+      // (recordWaste transaction'ı DataIntegrityException ile rollback eder).
+      // Enjekte edilen -8 ise BAŞKA (hayali) bir transaction'a ait olduğu
+      // için (prisma üzerinden, tx dışında, otomatik commit) kalıcıdır —
+      // gerçek bir eşzamanlı işlemi doğru şekilde simüle eder: 10 - 8 = 2.
+      const raceQtyRes = await request(app.getHttpServer())
+        .get(`/api/v1/stock/${ctx.branchId}/${raceProductId}`)
+        .set('Authorization', authHeader)
+        .expect(200);
+      expect(Number(raceQtyRes.body.quantity)).toBe(2);
+    } finally {
+      fired = true; // güvenlik: middleware artık hiçbir şeye müdahale etmesin
+    }
+  });
+
   // ── (d) Kritik eşik güncelleme ───────────────────────────────────────────
 
   it('PATCH /stock/:branchId/:productId/threshold — yeni eşik değerleri doğru kaydedilir', async () => {
