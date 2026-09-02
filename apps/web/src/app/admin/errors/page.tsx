@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, ShieldAlert } from 'lucide-react';
+import { AlertOctagon, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Info, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,6 +27,8 @@ const SOURCE_LABELS: Record<string, string> = {
   OCR_SCAN: 'OCR',
   WHATSAPP_WEBHOOK: 'WhatsApp',
   SECURITY_EVENT: 'Güvenlik Olayı',
+  DATA_INTEGRITY: 'Veri Tutarlılığı',
+  SCHEDULED_JOB: 'Zamanlanmış İş',
 };
 
 // "5 dakika önce" tarzı göreli zaman.
@@ -63,12 +65,42 @@ function SourceBadge({ source }: { source: string }) {
   );
 }
 
+// Kategoriden (SourceBadge — "ne") bağımsız, önem derecesini ("ne kadar ciddi")
+// gösteren ayrı bir rozet. CRITICAL, ERROR'dan da (dolu/koyu kırmızı + ikon)
+// belirgin şekilde ayrışır — sessizce ERROR ile aynı görünüp gözden kaçmasın.
 function SeverityBadge({ severity }: { severity: string }) {
-  if (severity === 'ERROR')
-    return <Badge className="border-red-200 bg-red-100 text-red-800 hover:bg-red-100">HATA</Badge>;
-  return (
-    <Badge className="border-amber-200 bg-amber-100 text-amber-800 hover:bg-amber-100">UYARI</Badge>
-  );
+  switch (severity) {
+    case 'CRITICAL':
+      return (
+        <Badge className="gap-1 border-red-700 bg-red-600 text-white hover:bg-red-600">
+          <AlertOctagon className="h-3 w-3" />
+          KRİTİK
+        </Badge>
+      );
+    case 'ERROR':
+      return (
+        <Badge className="border-red-200 bg-red-100 text-red-800 hover:bg-red-100">HATA</Badge>
+      );
+    case 'WARNING':
+      return (
+        <Badge className="border-amber-200 bg-amber-100 text-amber-800 hover:bg-amber-100">
+          UYARI
+        </Badge>
+      );
+    case 'INFO':
+      return (
+        <Badge className="gap-1 border-green-200 bg-green-100 text-green-800 hover:bg-green-100">
+          <Info className="h-3 w-3" />
+          BİLGİ
+        </Badge>
+      );
+    default:
+      return (
+        <Badge variant="outline" className="border-slate-200 bg-slate-100 text-slate-700">
+          {severity}
+        </Badge>
+      );
+  }
 }
 
 export default function AdminErrorsPage() {
@@ -123,6 +155,8 @@ export default function AdminErrorsPage() {
             <SelectItem value="OCR_SCAN">OCR</SelectItem>
             <SelectItem value="WHATSAPP_WEBHOOK">WhatsApp</SelectItem>
             <SelectItem value="SECURITY_EVENT">Güvenlik Olayı</SelectItem>
+            <SelectItem value="DATA_INTEGRITY">Veri Tutarlılığı</SelectItem>
+            <SelectItem value="SCHEDULED_JOB">Zamanlanmış İş</SelectItem>
           </SelectContent>
         </Select>
         <Select value={severity} onValueChange={(v) => resetAndSet(() => setSeverity(v))}>
@@ -131,6 +165,7 @@ export default function AdminErrorsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>Tüm Önemler</SelectItem>
+            <SelectItem value="CRITICAL">Kritik</SelectItem>
             <SelectItem value="ERROR">Hata</SelectItem>
             <SelectItem value="WARNING">Uyarı</SelectItem>
           </SelectContent>

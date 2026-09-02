@@ -15,7 +15,8 @@
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./jest-e2e.json --runInBand",
     "type-check": "tsc --noEmit",
-    "create-super-admin": "ts-node src/scripts/create-super-admin.ts"
+    "create-super-admin": "ts-node src/scripts/create-super-admin.ts",
+    "seed:sample-errors": "ts-node src/scripts/seed-sample-errors.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.3",

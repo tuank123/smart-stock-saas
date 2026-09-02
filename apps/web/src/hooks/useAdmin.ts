@@ -131,7 +131,7 @@ export function useUpdateTenantStatus() {
 export interface AdminErrorLog {
   id: string;
   source: string;
-  severity: string; // ERROR | WARNING
+  severity: string; // CRITICAL | ERROR | WARNING (DB'de serbest string, enum zorlanmıyor)
   message: string;
   stackTrace: string | null;
   tenantId: string | null;
