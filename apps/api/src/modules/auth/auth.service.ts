@@ -1,20 +1,31 @@
-import { Injectable, BadRequestException, UnauthorizedException, Logger, OnModuleInit, OnModuleDestroy, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, UnauthorizedException, ServiceUnavailableException, Logger, OnModuleInit, OnModuleDestroy, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { createClient, RedisClientType } from 'redis';
+import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { withTenantContext } from '../../common/utils/tenant-context';
 import { EmailService } from '../email/email.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
-import { AuthResponse } from './dto/auth-response.dto';
+import { AuthResponse, TwoFaRequiredResponse } from './dto/auth-response.dto';
 
 /** Şifre sıfırlama isteğinde her zaman dönen genel mesaj (e-posta varlığını sızdırmaz). */
 const FORGOT_PASSWORD_GENERIC_MESSAGE =
   'Eğer bu e-posta adresi kayıtlıysa, şifre sıfırlama bağlantısı gönderildi.';
+
+// ── E-posta 2FA (yalnızca PATRON/SUPER_ADMIN için ZORUNLU) ──────────────────
+// Kod TTL'i portal.service.ts'teki OTP_TTL_SECONDS (300) ile aynı; tempToken
+// biraz daha uzun ömürlü (kod süresi dolduktan sonra da kullanıcı "kodu
+// tekrar gönder"e basmadan aynı ekranda bir süre daha kalabilsin diye) — ama
+// gerçek zaman aşımını asıl Redis'teki kod TTL'i belirliyor.
+const TWO_FA_CODE_TTL_SECONDS = 300; // 5 dakika
+const TWO_FA_TEMP_TOKEN_TTL_SECONDS = 600; // 10 dakika
+const TWO_FA_MAX_ATTEMPTS = 5;
+const TWO_FA_ROLES: ReadonlyArray<UserRole> = [UserRole.PATRON, UserRole.SUPER_ADMIN];
 
 @Injectable()
 export class AuthService implements OnModuleInit, OnModuleDestroy {
@@ -83,7 +94,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
    * Login user with email and password
    * Returns access token (in response body) + refresh token (in HttpOnly cookie)
    */
-  async login(loginDto: LoginDto, ip?: string | null): Promise<AuthResponse> {
+  async login(loginDto: LoginDto, ip?: string | null): Promise<AuthResponse | TwoFaRequiredResponse> {
     const { email, password } = loginDto;
 
     // Check rate limiting (5 attempts per 15 minutes)
@@ -163,17 +174,9 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       throw new UnauthorizedException('Bu hesap kapatılmış. Giriş yapılamıyor.');
     }
 
-    // Update last login — RLS altında; getMe'deki düzeltmeyle aynı gerekçe:
-    // bağlam kurulmadan çağrılırsa, havuzlanmış bağlantıda kalan BAŞKA bir
-    // tenant'ın app.tenant_id'si yüzünden bu update sessizce 0 satır etkileyebilir.
-    await withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
-      await tx.user.update({
-        where: { id: user.id },
-        data: { lastLoginAt: new Date() },
-      });
-    });
-
-    // Clear rate limit on successful login
+    // Clear rate limit on successful login — kimlik bilgileri doğrulandı;
+    // bundan sonraki risk (2FA gereken roller için) kod brute-force'u, kendi
+    // ayrı sayacıyla (verifyTwoFa → TWO_FA_MAX_ATTEMPTS) korunuyor.
     if (this.redisClient) {
       try {
         const rateLimitKey = `rate_limit:login:${email}`;
@@ -183,11 +186,200 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // PATRON/SUPER_ADMIN için e-posta 2FA ZORUNLU — tam token yerine kısa
+    // ömürlü bir tempToken döner, koda ise e-posta ile ayrıca ulaşılır.
+    // "Giriş tamamlandı" sayılan her şey (lastLoginAt, tam access/refresh
+    // token) yalnızca verifyTwoFa() başarıyla tamamlanınca gerçekleşir —
+    // burada henüz gerçekleşmez. Diğer roller (SUBE_MUDURU/KASIYER/DEPO) bu
+    // bloğu hiç görmez, aşağıdaki tek-adımlı akış AYNEN önceki gibi çalışır.
+    if (user.role && TWO_FA_ROLES.includes(user.role)) {
+      const tempToken = await this.issueTempTwoFaToken(user.id);
+      await this.sendTwoFaCode(user.id, user.email);
+      this.logger.log(`🔐 2FA kodu gönderildi: ${user.email}`);
+      return { requires2fa: true, tempToken };
+    }
+
+    await this.updateLastLogin(user.id, user.tenantId);
+
     // Generate tokens
     const accessToken = await this.generateAccessToken(user);
     const refreshToken = await this.generateRefreshToken(user);
 
     this.logger.log(`✅ User logged in: ${user.email}`);
+
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        tenantId: user.tenantId,
+        branchId: user.branchId ?? null,
+        planId: user.tenant?.planId ?? null,
+      },
+    };
+  }
+
+  /**
+   * RLS altında; getMe'deki düzeltmeyle aynı gerekçe: bağlam kurulmadan
+   * çağrılırsa, havuzlanmış bağlantıda kalan BAŞKA bir tenant'ın
+   * app.tenant_id'si yüzünden bu update sessizce 0 satır etkileyebilir.
+   */
+  private async updateLastLogin(userId: string, tenantId: string): Promise<void> {
+    await withTenantContext(this.prisma, { tenantId }, async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { lastLoginAt: new Date() },
+      });
+    });
+  }
+
+  // ============================================
+  // E-posta 2FA (yalnızca PATRON/SUPER_ADMIN)
+  // ============================================
+
+  /**
+   * type:'temp_2fa' claim'i taşır — JwtAuthGuard bunu normal (type:'access')
+   * token'lardan ayırt edip her zaman reddeder (bkz. jwt-auth.guard.ts).
+   * Yalnızca verifyTwoFa() tarafından kabul edilir.
+   */
+  private async issueTempTwoFaToken(userId: string): Promise<string> {
+    return this.jwtService.signAsync(
+      { userId, type: 'temp_2fa' },
+      {
+        secret: this.configService.get('JWT_SECRET'),
+        expiresIn: TWO_FA_TEMP_TOKEN_TTL_SECONDS,
+      },
+    );
+  }
+
+  /**
+   * 6 haneli kodu üretir, Redis'e TTL'li yazar (portal.service.ts'teki OTP
+   * deseniyle aynı: `key + EX`) ve e-postayla gönderir. EmailService kendi
+   * içinde EMAIL_ENABLED'a göre mock/gerçek modu ayırt ediyor — burada ayrıca
+   * bir kontrol GEREKMİYOR (forgot-password'deki desenle aynı).
+   *
+   * Yeni kod, önceki denemeler sayacını da SIFIRLAR — her login denemesi
+   * kendi taze TWO_FA_MAX_ATTEMPTS bütçesiyle başlar.
+   */
+  private async sendTwoFaCode(userId: string, email: string): Promise<void> {
+    const code = crypto.randomInt(100000, 1000000).toString();
+
+    if (this.redisClient) {
+      await this.redisClient.set(`2fa:code:${userId}`, code, {
+        EX: TWO_FA_CODE_TTL_SECONDS,
+      });
+      await this.redisClient.del(`2fa:attempts:${userId}`);
+    }
+
+    await this.emailService.sendEmail(
+      email,
+      'StokPilot Giriş Doğrulama Kodu',
+      `Giriş için doğrulama kodunuz: ${code}\n\n` +
+        `Bu kod ${TWO_FA_CODE_TTL_SECONDS / 60} dakika geçerlidir. Bu girişi siz yapmadıysanız bu e-postayı yok sayabilirsiniz.`,
+    );
+  }
+
+  /**
+   * POST /auth/verify-2fa
+   * tempToken + kod doğrulanır; başarılıysa login()'in normal yolunun
+   * ürettiğiyle BİREBİR aynı şekilde tam access/refresh token döner.
+   *
+   * Redis çökükse (this.redisClient null) kasıtlı olarak FAIL CLOSED: kod
+   * hiç saklanamadığı/doğrulanamadığı için 2FA'yı sessizce atlamak yerine
+   * (bu, "PATRON/SUPER_ADMIN için ZORUNLU" gereksinimini ihlal ederdi) 503
+   * döner. AuthService.initRedis()'teki REDIS_CONNECTION_FAILED olayıyla aynı
+   * kök nedene işaret ettiği için aynı eventType'la, ayırt edici context'le
+   * loglanır.
+   */
+  async verifyTwoFa(tempToken: string, code: string, ip?: string | null): Promise<AuthResponse> {
+    let payload: { userId: string; type: string };
+    try {
+      payload = await this.jwtService.verifyAsync(tempToken, {
+        secret: this.configService.get('JWT_SECRET'),
+      });
+    } catch (error) {
+      throw new UnauthorizedException('Geçersiz veya süresi dolmuş doğrulama token\'ı');
+    }
+
+    if (payload.type !== 'temp_2fa') {
+      throw new UnauthorizedException('Geçersiz doğrulama token\'ı');
+    }
+
+    const userId = payload.userId;
+
+    if (!this.redisClient) {
+      this.securityEvents.log({
+        eventType: 'REDIS_CONNECTION_FAILED',
+        message: 'Redis bağlantısı yok — 2FA kod doğrulaması yapılamadı, giriş engellendi',
+        severity: 'CRITICAL',
+        ip,
+        userId,
+        context: { blockedFlow: 'verify_2fa' },
+      });
+      throw new ServiceUnavailableException(
+        'Doğrulama servisi şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.',
+      );
+    }
+
+    const attemptsKey = `2fa:attempts:${userId}`;
+    const attempts = await this.redisClient.incr(attemptsKey);
+    if (attempts === 1) {
+      await this.redisClient.expire(attemptsKey, TWO_FA_CODE_TTL_SECONDS);
+    }
+
+    if (attempts > TWO_FA_MAX_ATTEMPTS) {
+      this.securityEvents.log({
+        eventType: 'TWO_FA_FAILED',
+        message: '2FA kod doğrulama deneme limiti aşıldı',
+        ip,
+        userId,
+        context: { reason: 'rate_limited', attempts },
+      });
+      throw new UnauthorizedException('Çok fazla hatalı deneme. Lütfen tekrar giriş yapın.');
+    }
+
+    const codeKey = `2fa:code:${userId}`;
+    const storedCode = await this.redisClient.get(codeKey);
+
+    if (!storedCode || storedCode !== code) {
+      this.securityEvents.log({
+        eventType: 'TWO_FA_FAILED',
+        message: 'Yanlış veya süresi dolmuş 2FA kodu girişi',
+        ip,
+        userId,
+        context: { reason: storedCode ? 'invalid_code' : 'expired_or_missing_code', attempts },
+      });
+      throw new UnauthorizedException('Kod hatalı veya süresi dolmuş');
+    }
+
+    // Tek kullanımlık: doğru kod bir daha kullanılamaz.
+    await this.redisClient.del(codeKey);
+    await this.redisClient.del(attemptsKey);
+
+    // Global arama (tenant bağlamı yok) — login()'in ilk e-posta aramasıyla
+    // aynı gerekçe (super-admin RLS bypass, id ile tekil arama).
+    const user = await withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
+      return tx.user.findUnique({
+        where: { id: userId },
+        include: { tenant: true, branch: true },
+      });
+    });
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Kullanıcı bulunamadı veya pasif');
+    }
+    if (user.tenant?.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Bu hesap kapatılmış. Giriş yapılamıyor.');
+    }
+
+    await this.updateLastLogin(user.id, user.tenantId);
+
+    const accessToken = await this.generateAccessToken(user);
+    const refreshToken = await this.generateRefreshToken(user);
+
+    this.logger.log(`✅ 2FA doğrulandı, giriş tamamlandı: ${user.email}`);
 
     return {
       accessToken,

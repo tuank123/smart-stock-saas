@@ -52,17 +52,23 @@ describe('Auth (e2e)', () => {
 
   // ── (a) Geçerli kimlik bilgileriyle giriş ───────────────────────────────────
 
-  it('POST /auth/login — geçerli kimlik bilgileriyle 200 ve accessToken döner', async () => {
+  // signup her zaman bir PATRON oluşturur ve PATRON için e-posta 2FA ZORUNLU
+  // (bkz. auth-2fa.e2e-spec.ts) — bu yüzden doğru kimlik bilgileriyle bile
+  // artık tam token DEĞİL, requires2fa+tempToken döner. Diğer rollerin
+  // (SUBE_MUDURU/KASIYER/DEPO) tek-adımlı eski davranışı HİÇ değişmedi —
+  // bkz. auth-2fa.e2e-spec.ts'teki regresyon testi.
+  it('POST /auth/login — PATRON için geçerli kimlik bilgileriyle bile 2FA gerekir (tam token DEĞİL, tempToken döner)', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email: account.email, password: account.password })
       .expect(200);
 
-    expect(res.body.message).toBe('Login successful');
-    expect(typeof res.body.data.accessToken).toBe('string');
-    expect(res.body.data.accessToken.length).toBeGreaterThan(0);
-    expect(res.body.data.user.email).toBe(account.email);
-    expect(res.body.data.user.role).toBe('PATRON');
+    expect(res.body.message).toBe('Doğrulama kodu e-posta adresinize gönderildi');
+    expect(res.body.data.requires2fa).toBe(true);
+    expect(typeof res.body.data.tempToken).toBe('string');
+    expect(res.body.data.tempToken.length).toBeGreaterThan(0);
+    expect(res.body.data).not.toHaveProperty('accessToken');
+    expect(res.body.data).not.toHaveProperty('user');
   });
 
   // ── (b) Yanlış şifre ────────────────────────────────────────────────────────

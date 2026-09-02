@@ -17,7 +17,8 @@ export type SecurityEventType =
   | 'WHATSAPP_SIGNATURE_INVALID'
   | 'RATE_LIMITED'
   | 'CROSS_TENANT_ACCESS_ATTEMPT'
-  | 'REDIS_CONNECTION_FAILED';
+  | 'REDIS_CONNECTION_FAILED'
+  | 'TWO_FA_FAILED';
 
 export interface SecurityEventParams {
   eventType: SecurityEventType;

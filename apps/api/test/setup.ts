@@ -19,6 +19,7 @@ import request from 'supertest';
 import * as bodyParser from 'body-parser';
 import type { IncomingMessage } from 'http';
 import * as bcrypt from 'bcrypt';
+import { createClient } from 'redis';
 import { UserRole } from '@prisma/client';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -377,4 +378,38 @@ export async function setProductSalePrice(
   salePrice: number,
 ) {
   return prisma.product.update({ where: { id: productId }, data: { salePrice } });
+}
+
+/**
+ * Redis'te tutulan bir değeri (ör. auth.service.ts'teki 2FA kodu) doğrudan
+ * okur — DB-saklı token'ları (passwordResetToken/emailVerificationToken)
+ * withTenantContext ile okuyan diğer testlerle aynı gerekçe: mock e-posta
+ * yalnızca loglandığı için asıl değere uygulama koduyla AYNI kaynaktan
+ * (burada Redis, oradaysa DB) ulaşılması gerekiyor. Her çağrı kısa ömürlü
+ * kendi bağlantısını açıp kapatır — AuthService'in kendi Redis client'ına
+ * karışmaz.
+ */
+export async function readRedisValue(key: string): Promise<string | null> {
+  const client = createClient({ url: process.env.REDIS_URL });
+  await client.connect();
+  try {
+    return await client.get(key);
+  } finally {
+    await client.quit();
+  }
+}
+
+/**
+ * Redis'te tutulan bir anahtarı siler — TTL sonrası davranışıyla (anahtar
+ * artık yok) birebir aynı sonucu deterministik şekilde tetiklemek için
+ * (ör. auth-2fa.e2e-spec.ts'teki "süresi dolmuş kod" testi).
+ */
+export async function deleteRedisValue(key: string): Promise<void> {
+  const client = createClient({ url: process.env.REDIS_URL });
+  await client.connect();
+  try {
+    await client.del(key);
+  } finally {
+    await client.quit();
+  }
 }

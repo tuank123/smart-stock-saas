@@ -42,16 +42,11 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Access token is missing');
     }
 
+    let payload: any;
     try {
-      const payload = await this.jwtService.verifyAsync(token, {
+      payload = await this.jwtService.verifyAsync(token, {
         secret: this.configService.get('JWT_SECRET'),
       });
-
-      // Attach user info to request
-      request.user = payload;
-      request.tenantId = payload.tenantId;
-
-      return true;
     } catch (error) {
       this.securityEvents.log({
         eventType: 'JWT_REJECTED',
@@ -61,6 +56,31 @@ export class JwtAuthGuard implements CanActivate {
       });
       throw new UnauthorizedException('Invalid or expired access token');
     }
+
+    // 2FA akışının tempToken'ı (type:'temp_2fa', bkz. auth.service.ts) da
+    // AYNI JWT_SECRET ile imzalanıyor — imza doğrulaması tek başına yeterli
+    // DEĞİL. Normal API erişimi yalnızca type:'access' token'larla mümkün;
+    // her başka değer (temp_2fa dahil) burada açıkça reddedilir.
+    if (payload.type !== 'access') {
+      this.securityEvents.log({
+        eventType: 'JWT_REJECTED',
+        message:
+          payload.type === 'temp_2fa'
+            ? 'Geçici 2FA token\'ı normal API erişiminde reddedildi'
+            : 'Beklenmeyen token tipi ile erişim denemesi',
+        ip: request.ip,
+        userId: payload.userId ?? null,
+        path: request.originalUrl ?? request.url,
+        context: { tokenType: payload.type ?? null },
+      });
+      throw new UnauthorizedException('Invalid or expired access token');
+    }
+
+    // Attach user info to request
+    request.user = payload;
+    request.tenantId = payload.tenantId;
+
+    return true;
   }
 
   private extractToken(request: Request): string | undefined {

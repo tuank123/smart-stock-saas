@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { VerifyPasswordDto } from './dto/verify-password.dto';
+import { VerifyTwoFaDto } from './dto/verify-two-fa.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -32,10 +33,52 @@ export class AuthController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const { accessToken, refreshToken, user } =
-      await this.authService.login(loginDto, request.ip);
+    const result = await this.authService.login(loginDto, request.ip);
+
+    // PATRON/SUPER_ADMIN: kimlik bilgileri doğru ama 2FA gerekiyor — tam
+    // token YOK, yalnızca tempToken (kod e-postayla ayrıca gönderildi).
+    if ('requires2fa' in result) {
+      return {
+        statusCode: 200,
+        message: 'Doğrulama kodu e-posta adresinize gönderildi',
+        data: { requires2fa: true, tempToken: result.tempToken },
+      };
+    }
+
+    const { accessToken, refreshToken, user } = result;
 
     // Cookie is always set (web relies on it; harmless for native).
+    setRefreshTokenCookie(response, refreshToken);
+
+    return {
+      statusCode: 200,
+      message: 'Login successful',
+      data: buildAuthData(accessToken, refreshToken, user, clientPlatform),
+    };
+  }
+
+  /**
+   * POST /api/v1/auth/verify-2fa
+   * login()'in requires2fa yanıtından alınan tempToken + e-postayla gönderilen
+   * 6 haneli kodu doğrular. Başarılıysa /auth/login ile birebir aynı şekilde
+   * tam access/refresh token döner.
+   */
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 900_000 } })
+  @Post('verify-2fa')
+  @HttpCode(200)
+  async verifyTwoFa(
+    @Body() dto: VerifyTwoFaDto,
+    @Headers('x-client-platform') clientPlatform: string | undefined,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const { accessToken, refreshToken, user } = await this.authService.verifyTwoFa(
+      dto.tempToken,
+      dto.code,
+      request.ip,
+    );
+
     setRefreshTokenCookie(response, refreshToken);
 
     return {
