@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/store/auth.store';
 import { useAuth } from '@/hooks/useAuth';
 import { FullPageSpinner } from '@/components/shared/LoadingSpinner';
+import { HelpCenter } from '@/components/help/HelpCenter';
 
 // Tek Şubeli (STARTER) PATRON'un MOBİL (native) istasyon deneyimi.
 export default function IsletmeAppLayout({ children }: { children: React.ReactNode }) {
@@ -48,6 +49,9 @@ export default function IsletmeAppLayout({ children }: { children: React.ReactNo
       </header>
 
       <main className="p-4 lg:p-6">{children}</main>
+
+      {/* Sabit yardım butonu — tüm /isletme-app/* sayfalarında görünür. */}
+      <HelpCenter />
     </div>
   );
 }

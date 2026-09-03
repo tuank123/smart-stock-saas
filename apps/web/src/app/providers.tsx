@@ -28,7 +28,11 @@ export function Providers({ children }: { children: ReactNode }) {
           },
         }}
       />
-      <ReactQueryDevtools initialIsOpen={false} />
+      {/* buttonPosition="bottom-left": varsayılan (bottom-right) isletme-app'teki
+          sabit Yardım butonuyla (bkz. HelpCenter.tsx) çakışıyordu — bu araç
+          yalnızca development'ta render edilir, üretimde/gerçek uygulamada
+          hiç yok, bu yüzden bu ayar kullanıcıları etkilemez. */}
+      <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />
     </QueryClientProvider>
   );
 }

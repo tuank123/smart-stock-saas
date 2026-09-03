@@ -14,6 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useDebtReminders } from '@/hooks/useMudur';
+import { OnboardingTour } from '@/components/onboarding/OnboardingTour';
 
 // İleride yeni istasyon eklemek için bu diziye bir satır eklemek yeterli.
 interface StationAction {
@@ -42,6 +43,8 @@ export default function IsletmeAppDashboardPage() {
 
   return (
     <div className="mx-auto w-full max-w-lg">
+      <OnboardingTour />
+
       {showReminderCard && (
         <Link
           href="/isletme-app/alacak-verecek"
