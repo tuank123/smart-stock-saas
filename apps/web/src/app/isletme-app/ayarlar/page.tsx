@@ -8,6 +8,7 @@ import {
   BarChart3,
   Bell,
   FileText,
+  MessageSquare,
   ChevronRight,
   LogOut,
   Trash2,
@@ -34,12 +35,18 @@ interface SettingsLink {
   icon: LucideIcon;
 }
 
+// Not: bu sayfanın tamamı (ve dolayısıyla aşağıdaki her link) zaten yalnızca
+// STARTER planındaki PATRON'a açık — IsletmeAppLayout (üst layout) bunu
+// role==='PATRON' && planId==='STARTER' guard'ıyla zorunlu kılıyor, başka
+// hiçbir rol/plan buraya hiç ulaşamıyor. Geri Bildirim linki için ayrıca bir
+// planId kontrolüne gerek yok.
 const links: SettingsLink[] = [
   { href: '/isletme-app/ayarlar/isletme', label: 'İşletme Bilgileri', icon: Building2 },
   { href: '/isletme-app/ayarlar/sube', label: 'Şube Bilgileri', icon: Store },
   { href: '/isletme-app/ayarlar/hesap', label: 'Hesap Bilgileri', icon: User },
   { href: '/isletme-app/ayarlar/rapor', label: 'Rapor Ayarları', icon: BarChart3 },
   { href: '/isletme-app/ayarlar/bildirimler', label: 'Bildirim Tercihleri', icon: Bell },
+  { href: '/isletme-app/ayarlar/geri-bildirim', label: 'Geri Bildirim', icon: MessageSquare },
   { href: '/isletme-app/ayarlar/yasal', label: 'Yasal', icon: FileText },
 ];
 

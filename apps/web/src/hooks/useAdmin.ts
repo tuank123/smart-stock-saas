@@ -195,3 +195,66 @@ export function useResolveError() {
     onError: () => toast.error('İşaretleme başarısız'),
   });
 }
+
+// ── Geri Bildirim / Şikayet (UserFeedback) ─────────────────────────────────
+// ErrorLog'dan AYRI bir veri modeli — desen (page/pageSize, unread-count,
+// mark-as-X) aynı ama tipler/endpoint'ler kendine ait, karıştırılmıyor.
+
+export interface AdminFeedbackItem {
+  id: string;
+  subject: string;
+  message: string;
+  status: string; // 'NEW' | 'READ'
+  createdAt: string;
+  readAt: string | null;
+  tenant: { id: string; companyName: string };
+  user: { id: string; email: string; fullName: string | null };
+}
+
+export interface AdminFeedbackResponse {
+  items: AdminFeedbackItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface AdminFeedbackParams {
+  page?: number;
+}
+
+export function useUnreadFeedbackCount() {
+  return useQuery<{ count: number }>({
+    queryKey: ['admin', 'feedback', 'unread-count'],
+    queryFn: () =>
+      api.get<{ count: number }>('/admin/feedback/unread-count').then((r) => r.data),
+    refetchInterval: 12000,
+  });
+}
+
+export function useAdminFeedback(params: AdminFeedbackParams) {
+  return useQuery<AdminFeedbackResponse>({
+    queryKey: ['admin', 'feedback', params],
+    queryFn: () =>
+      api
+        .get<AdminFeedbackResponse>('/admin/feedback', {
+          params: {
+            ...(params.page ? { page: params.page } : {}),
+          },
+        })
+        .then((r) => r.data),
+    refetchInterval: 12000,
+  });
+}
+
+export function useMarkFeedbackRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.patch(`/admin/feedback/${id}/read`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'feedback'] });
+      toast.success('Okundu olarak işaretlendi');
+    },
+    onError: () => toast.error('İşaretleme başarısız'),
+  });
+}

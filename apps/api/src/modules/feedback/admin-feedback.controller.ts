@@ -13,6 +13,13 @@ import { FeedbackService } from './feedback.service';
 export class AdminFeedbackController {
   constructor(private service: FeedbackService) {}
 
+  // Statik 'unread-count' route'u dinamik segmentlerden önce (errors ile aynı desen).
+  @Roles(UserRole.SUPER_ADMIN)
+  @Get('unread-count')
+  getUnreadCount() {
+    return this.service.getUnreadCount();
+  }
+
   @Roles(UserRole.SUPER_ADMIN)
   @Get()
   list(@Query() query: ListFeedbackQueryDto) {

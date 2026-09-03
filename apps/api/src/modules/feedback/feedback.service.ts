@@ -97,4 +97,11 @@ export class FeedbackService {
       data: { status: 'READ', readAt: new Date() },
     });
   }
+
+  // Sidebar badge'i için hafif sorgu — admin.service.ts:getUnresolvedErrorCount
+  // ile aynı desen. JOIN yok, RLS'li tabloya dokunmuyor — wrapper gerekmiyor.
+  async getUnreadCount() {
+    const count = await this.prisma.userFeedback.count({ where: { status: 'NEW' } });
+    return { count };
+  }
 }

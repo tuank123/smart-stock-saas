@@ -188,6 +188,39 @@ describe('Geri Bildirim / Şikayet (UserFeedback) (e2e)', () => {
       .expect(404);
   });
 
+  // ── (d.1) Sidebar rozeti — unread-count ──────────────────────────────────
+
+  it('GET /admin/feedback/unread-count — yeni gönderim sonrası artar, okundu işaretlenince azalır', async () => {
+    const before = await request(app.getHttpServer())
+      .get('/api/v1/admin/feedback/unread-count')
+      .set('Authorization', superAdminAuthHeader)
+      .expect(200);
+    expect(typeof before.body.count).toBe('number');
+
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/feedback')
+      .set('Authorization', starterAuthHeader)
+      .send({ subject: 'Unread count testi', message: 'Bu kayıt sayaç testi için oluşturuldu.' })
+      .expect(201);
+
+    const afterCreate = await request(app.getHttpServer())
+      .get('/api/v1/admin/feedback/unread-count')
+      .set('Authorization', superAdminAuthHeader)
+      .expect(200);
+    expect(afterCreate.body.count).toBe(before.body.count + 1);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/feedback/${created.body.id}/read`)
+      .set('Authorization', superAdminAuthHeader)
+      .expect(200);
+
+    const afterRead = await request(app.getHttpServer())
+      .get('/api/v1/admin/feedback/unread-count')
+      .set('Authorization', superAdminAuthHeader)
+      .expect(200);
+    expect(afterRead.body.count).toBe(before.body.count);
+  });
+
   // ── (e) Normal kullanıcılar admin uçlarına erişemez ─────────────────────
 
   it('GET /admin/feedback — PATRON (SUPER_ADMIN olmayan) 403 alır', async () => {

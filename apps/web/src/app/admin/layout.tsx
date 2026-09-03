@@ -3,11 +3,11 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Building2, AlertTriangle, type LucideIcon } from 'lucide-react';
+import { LayoutDashboard, Building2, AlertTriangle, MessageSquare, type LucideIcon } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 import { FullPageSpinner } from '@/components/shared/LoadingSpinner';
-import { useUnresolvedErrorCount } from '@/hooks/useAdmin';
+import { useUnresolvedErrorCount, useUnreadFeedbackCount } from '@/hooks/useAdmin';
 
 interface NavItem {
   href: string;
@@ -19,6 +19,7 @@ const navItems: NavItem[] = [
   { href: '/admin/dashboard', label: 'Genel Bakış', icon: LayoutDashboard },
   { href: '/admin/tenants', label: 'İşletmeler', icon: Building2 },
   { href: '/admin/errors', label: 'Hatalar & Uyarılar', icon: AlertTriangle },
+  { href: '/admin/feedback', label: 'Geri Bildirimler', icon: MessageSquare },
 ];
 
 // Yalnız SUPER_ADMIN erişebilir; diğer roller /login'e yönlendirilir
@@ -32,6 +33,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const { data: errorCount } = useUnresolvedErrorCount();
   const unresolved = errorCount?.count ?? 0;
+  const { data: feedbackCount } = useUnreadFeedbackCount();
+  const unreadFeedback = feedbackCount?.count ?? 0;
+
+  // href → o rota için gösterilecek rozet sayısı (0/undefined ise rozet yok).
+  const badgeCountFor = (href: string): number => {
+    if (href === '/admin/errors') return unresolved;
+    if (href === '/admin/feedback') return unreadFeedback;
+    return 0;
+  };
 
   useEffect(() => {
     if (!hasHydrated) return;
@@ -65,7 +75,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
           {navItems.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(href + '/');
-            const showBadge = href === '/admin/errors' && unresolved > 0;
+            const badgeCount = badgeCountFor(href);
+            const showBadge = badgeCount > 0;
             return (
               <Link
                 key={href}
@@ -81,7 +92,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   {/* Daraltılmış menüde (yalnız ikon) rozet ikonun üstünde */}
                   {showBadge && (
                     <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-destructive-foreground lg:hidden">
-                      {unresolved > 99 ? '99+' : unresolved}
+                      {badgeCount > 99 ? '99+' : badgeCount}
                     </span>
                   )}
                 </span>
@@ -89,7 +100,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 {/* Genişletilmiş menüde rozet etiketin sağında */}
                 {showBadge && (
                   <span className="ml-auto hidden h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-xs font-bold text-destructive-foreground lg:flex">
-                    {unresolved > 99 ? '99+' : unresolved}
+                    {badgeCount > 99 ? '99+' : badgeCount}
                   </span>
                 )}
               </Link>
