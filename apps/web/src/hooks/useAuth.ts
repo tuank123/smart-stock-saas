@@ -22,6 +22,18 @@ interface LoginResponse {
   user: StoredUser;
 }
 
+/**
+ * PATRON/SUPER_ADMIN için login()'in döndürdüğü ara yanıt — tam token
+ * İÇERMEZ. tempToken yalnızca POST /auth/verify-2fa'da kullanılır ve URL'e
+ * DEĞİL, çağıranın (LoginPage) React state'ine yazılır.
+ */
+export interface TwoFaRequiredResponse {
+  requires2fa: true;
+  tempToken: string;
+}
+
+type LoginResult = LoginResponse | TwoFaRequiredResponse;
+
 // Turn an axios/network error into a message worth showing on screen.
 function getLoginErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
@@ -40,12 +52,18 @@ export function useAuth() {
   const { user, isAuthenticated, setAuth, clearAuth } = useAuthStore();
 
   const loginMutation = useMutation({
-    mutationFn: async (payload: LoginPayload) => {
-      const res = await api.post<{ data: LoginResponse }>('/auth/login', payload);
+    mutationFn: async (payload: LoginPayload): Promise<LoginResult> => {
+      const res = await api.post<{ data: LoginResult }>('/auth/login', payload);
       // Backend envelope: { statusCode, message, data: { accessToken, user } }
+      // ya da (PATRON/SUPER_ADMIN) { requires2fa: true, tempToken }.
       return res.data.data;
     },
     onSuccess: (data) => {
+      // 2FA gerekiyor — tam token YOK, henüz oturum açılmadı. Bu dalı ele
+      // almak çağıranın (LoginPage, mutate()'e kendi onSuccess'ini geçerek)
+      // sorumluluğunda; burada setAuth/redirect YAPILMAZ.
+      if ('requires2fa' in data) return;
+
       setAuth(data.user, data.accessToken);
       // Native: persist the body refresh token (web keeps using the cookie).
       if (isNative() && data.refreshToken) {
@@ -76,6 +94,70 @@ export function useAuth() {
     isLoggingOut: logoutMutation.isPending,
     loginError: loginMutation.error ? getLoginErrorMessage(loginMutation.error) : null,
   };
+}
+
+// ── E-posta 2FA (yalnızca PATRON/SUPER_ADMIN) ───────────────────────────────
+
+interface VerifyTwoFaPayload {
+  tempToken: string;
+  code: string;
+}
+
+/**
+ * verify-2fa hatasını yorumlar: tempToken'ın kendisi geçersiz/süresi
+ * dolmuşsa ya da deneme limiti aşıldıysa (backend'in mesajı bunu zaten
+ * söylüyor: "...tekrar giriş yapın") kullanıcı login ekranına geri
+ * yönlendirilmeli ('session_expired'); yanlış kod ise 2FA ekranında kalıp
+ * yalnızca input temizlenmeli ('invalid_code').
+ */
+export function getTwoFaErrorInfo(error: unknown): {
+  kind: 'invalid_code' | 'session_expired' | 'unknown';
+  message: string;
+} {
+  if (axios.isAxiosError(error)) {
+    if (!error.response) {
+      return { kind: 'unknown', message: `Sunucuya bağlanılamadı: ${error.message}` };
+    }
+    const raw = error.response.data?.message;
+    const message = Array.isArray(raw) ? raw.join(', ') : String(raw ?? '');
+
+    if (message === 'Kod hatalı veya süresi dolmuş') {
+      return { kind: 'invalid_code', message };
+    }
+    if (
+      message === 'Çok fazla hatalı deneme. Lütfen tekrar giriş yapın.' ||
+      message.includes('doğrulama token')
+    ) {
+      return { kind: 'session_expired', message: 'Oturum süresi doldu. Lütfen tekrar giriş yapın.' };
+    }
+    if (message) return { kind: 'unknown', message };
+  }
+  return { kind: 'unknown', message: 'Doğrulama yapılamadı. Lütfen tekrar deneyin.' };
+}
+
+/**
+ * POST /auth/verify-2fa — başarılı olursa /auth/login'in 2FA gerektirmeyen
+ * yolundakiyle BİREBİR aynı şekilde oturumu açar (setAuth + dashboardFor
+ * yönlendirmesi).
+ */
+export function useVerifyTwoFa() {
+  const router = useRouter();
+  const { setAuth } = useAuthStore();
+
+  return useMutation({
+    mutationFn: async (payload: VerifyTwoFaPayload): Promise<LoginResponse> => {
+      const res = await api.post<{ data: LoginResponse }>('/auth/verify-2fa', payload);
+      return res.data.data;
+    },
+    onSuccess: (data) => {
+      setAuth(data.user, data.accessToken);
+      if (isNative() && data.refreshToken) {
+        authStorage.setRefreshToken(data.refreshToken);
+      }
+      toast.success('Giriş başarılı');
+      router.push(dashboardFor(data.user.role, data.user.planId));
+    },
+  });
 }
 
 // ── Şifre sıfırlama / e-posta doğrulama ─────────────────────────────────────

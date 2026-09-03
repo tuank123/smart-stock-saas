@@ -29,6 +29,7 @@ export const api = axios.create({
 // çağırana (mutation'ın kendi onError/error state'ine) bırakır.
 const PUBLIC_AUTH_ENDPOINTS = [
   '/auth/login',
+  '/auth/verify-2fa',
   '/auth/forgot-password',
   '/auth/reset-password',
   '/auth/verify-email',

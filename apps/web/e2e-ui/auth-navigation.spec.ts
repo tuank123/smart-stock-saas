@@ -22,9 +22,9 @@
  *     edilen storageState'i yeniden kullanıyor — login'i tekrar atmıyor.
  * Toplamda test başına yalnızca 3 gerçek POST /auth/login isteği atılıyor.
  *
- * `test.describe.serial` ZORUNLU: 3-4-5-6, 1 ve 2'nin storageState'ine
- * bağımlı — sıra karışırsa ya da 1/2 başarısız olursa Playwright kalanları
- * otomatik atlar (serial modun garantisi).
+ * `test.describe.serial` ZORUNLU: 3-4-5-6, 2'nin storageState'ine bağımlı —
+ * sıra karışırsa ya da 2 başarısız olursa Playwright kalanları otomatik
+ * atlar (serial modun garantisi).
  *
  * Hesaplar (stok_dev'de mevcut, canlı login ile doğrulandı):
  *   admin@acme.com   / Admin123!    → PATRON,      plan STARTER → web'de /isletme/raporlar
@@ -34,6 +34,25 @@
  * bu yüzden kullanılmadı. KASIYER/DEPO rolünde çok sayıda eski test hesabı
  * var (ör. calisan@test.com, depo_test@test.com) ama şifreleri bilinmiyor —
  * bu dosyada varsayım/tahmin kullanılmadı.
+ *
+ * ── PATRON/SUPER_ADMIN e-posta 2FA (Eylül 2026) ──────────────────────────
+ * admin@acme.com (PATRON) artık doğru şifreyle bile DOĞRUDAN dashboard'a
+ * gitmiyor — /auth/login requires2fa+tempToken döndürüyor, gerçek token
+ * yalnızca POST /auth/verify-2fa'dan sonra geliyor. Bu ortamda e-posta mock
+ * modda (EMAIL_ENABLED=false) gönderildiği için gerçek kod Playwright'tan
+ * ERİŞİLEMEZ (yalnızca backend loglarına/Redis'e yazılıyor) — bu yüzden:
+ *   - Test 1 yalnızca "2FA ekranı doğru göründü, dashboard'a DOĞRUDAN
+ *     geçilmedi" kısmına kadar doğruluyor; verify-2fa'nın uçtan uca gerçekten
+ *     çalıştığı apps/api/test/auth-2fa.e2e-spec.ts'te (gerçek kod, Redis'ten
+ *     okunarak) zaten kanıtlanıyor.
+ *   - 2FA ekranının backend yanıtlarına (başarı/yanlış kod/süresi dolmuş
+ *     tempToken) doğru tepki verdiği auth-2fa-screen.spec.ts'te ağ seviyesinde
+ *     mock'lanarak (page.route) ayrıca test ediliyor.
+ *   - Artık admin@acme.com üzerinden basit bir login ile TAM yetkili bir
+ *     storageState elde edilemediği için, "zaten girişli kullanıcı"
+ *     senaryoları (3/5: reload/logout) manager@acme.com'a (SUBE_MUDURU,
+ *     2FA'dan ETKİLENMEYEN rol) taşındı — test ettikleri hydration/guard/
+ *     logout mantığı role'den bağımsız, her layout'ta aynı desen.
  */
 import { test, expect, type Page } from '@playwright/test';
 
@@ -45,27 +64,29 @@ async function login(page: Page, email: string, password: string) {
 }
 
 test.describe.serial('Auth / navigasyon', () => {
-  // Test 1/2'de doldurulur, 3/5/6'da storageState olarak yeniden kullanılır.
-  let adminState:
+  // Test 2'de doldurulur, 3/5/6'da storageState olarak yeniden kullanılır.
+  let managerState:
     | Awaited<ReturnType<ReturnType<Page['context']>['storageState']>>
     | undefined;
-  let managerState: typeof adminState;
 
-  test('PATRON girişi doğru sayfaya yönlendiriyor (STARTER plan, web → /isletme/raporlar)', async ({
+  test('PATRON girişi 2FA ekranını gösteriyor, dashboard\'a DOĞRUDAN geçmiyor', async ({
     page,
   }) => {
-    // dashboardFor(): PATRON + STARTER + !isNative() → '/isletme/raporlar'.
-    // Playwright düz Chromium'da çalıştığı için window.Capacitor hiç yok,
-    // isNative() burada her zaman deterministik false döner.
+    // PATRON için e-posta 2FA ZORUNLU — doğru kimlik bilgileriyle bile artık
+    // /isletme/raporlar'a DOĞRUDAN gitmiyor, önce "Doğrulama Kodu" ekranı
+    // gösteriliyor. Bu ortamda gerçek kodu Playwright'tan okumanın bilinen
+    // bir yolu yok (bkz. dosya başındaki not) — test burada duruyor.
     await login(page, 'admin@acme.com', 'Admin123!');
 
-    await expect(page).toHaveURL(/\/isletme\/raporlar/);
-    // isletme/layout.tsx yalnızca allowed=true iken <Header/>'ı (ve onun
-    // çıkış butonunu) render eder — bu, guard'ın gerçekten geçtiğinin kanıtı.
-    await expect(page.getByTitle('Çıkış yap')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Giriş Yap' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Doğrulama Kodu' })).toBeVisible();
+    await expect(page.getByLabel('Doğrulama Kodu')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Doğrula' })).toBeVisible();
 
-    adminState = await page.context().storageState();
+    // Dashboard'a DOĞRUDAN geçilmedi, tam yetkili bir oturum açılmadı.
+    await expect(page).not.toHaveURL(/\/isletme\/raporlar/);
+    await expect(page.getByTitle('Çıkış yap')).toHaveCount(0);
+    // tempToken hassas veri — URL'e hiç yazılmamalı (yalnızca React state'te).
+    expect(page.url()).not.toContain('tempToken');
   });
 
   test('SUBE_MUDURU girişi doğru sayfaya yönlendiriyor (/mudur/dashboard)', async ({ page }) => {
@@ -82,18 +103,20 @@ test.describe.serial('Auth / navigasyon', () => {
   }) => {
     // 25 Ağustos'taki hatanın doğrudan regresyon testi: hasHydrated henüz
     // false iken auth store'un "kullanıcı yok" sanıp login/kök ekrana geri
-    // atması senaryosu.
-    const context = await browser.newContext({ storageState: adminState });
+    // atması senaryosu. SUBE_MUDURU kullanılıyor (bkz. dosya başındaki 2FA
+    // notu) — hydration mantığı role'den bağımsız, mudur/layout.tsx de
+    // isletme/layout.tsx ile AYNI hasHydrated deseniyle çalışıyor.
+    const context = await browser.newContext({ storageState: managerState });
     const page = await context.newPage();
-    await page.goto('/isletme/raporlar');
-    await expect(page.getByTitle('Çıkış yap')).toBeVisible();
+    await page.goto('/mudur/dashboard');
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
 
     await page.reload();
 
     // Rehydrate süresince FullPageSpinner gösterilir, sonra ya aynı sayfada
     // kalınır ya da login/köke geri atılır — asıl iddia: geri ATILMAMALI.
-    await expect(page).toHaveURL(/\/isletme\/raporlar/);
-    await expect(page.getByTitle('Çıkış yap')).toBeVisible();
+    await expect(page).toHaveURL(/\/mudur\/dashboard/);
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'StokPilot Girişi' })).toHaveCount(0);
 
     await context.close();
@@ -122,12 +145,17 @@ test.describe.serial('Auth / navigasyon', () => {
   });
 
   test('Çıkış yapınca login ekranına dönülüyor', async ({ browser }) => {
-    const context = await browser.newContext({ storageState: adminState });
+    // SUBE_MUDURU kullanılıyor (bkz. dosya başındaki 2FA notu). MudurSidebar
+    // (bottom-tab-bar) çıkışı doğrudan bir buton olarak değil, "Daha Fazla"
+    // sheet'inin içinde gösteriyor — isletme/Header.tsx'teki tek tıkla
+    // çıkıştan farklı ama aynı useAuth().logout() akışını tetikliyor.
+    const context = await browser.newContext({ storageState: managerState });
     const page = await context.newPage();
-    await page.goto('/isletme/raporlar');
-    await expect(page.getByTitle('Çıkış yap')).toBeVisible();
+    await page.goto('/mudur/dashboard');
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
 
-    await page.getByTitle('Çıkış yap').click();
+    await page.getByRole('button', { name: 'Daha Fazla' }).click();
+    await page.getByRole('button', { name: 'Çıkış Yap' }).click();
 
     await expect(page).toHaveURL(/\/login/);
     await expect(page.getByRole('heading', { name: 'StokPilot Girişi' })).toBeVisible();

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
+import { TwoFaCodeForm } from '@/components/auth/TwoFaCodeForm';
 
 export default function LoginPage() {
   const { login, isLoggingIn, loginError: error } = useAuth();
@@ -11,11 +12,31 @@ export default function LoginPage() {
     email: '',
     password: '',
   });
+  // PATRON/SUPER_ADMIN login sonrası tempToken BURADA (React state) tutulur —
+  // URL'e hiç yazılmaz. Set olduğu sürece kimlik-bilgisi formu yerine
+  // TwoFaCodeForm gösterilir.
+  const [twoFa, setTwoFa] = useState<{ tempToken: string; email: string } | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    login(form);
+    login(form, {
+      onSuccess: (data) => {
+        if ('requires2fa' in data && data.requires2fa) {
+          setTwoFa({ tempToken: data.tempToken, email: form.email });
+        }
+      },
+    });
   };
+
+  if (twoFa) {
+    return (
+      <TwoFaCodeForm
+        email={twoFa.email}
+        tempToken={twoFa.tempToken}
+        onBackToLogin={() => setTwoFa(null)}
+      />
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 py-12">
