@@ -47,29 +47,42 @@ export class FeedbackService {
   }
 
   // ── Admin (SUPER_ADMIN) ───────────────────────────────────────────────────
-  // user_feedback RLS'siz — admin.service.ts:listErrors ile aynı desen:
-  // doğrudan this.prisma üzerinden erişim (bkz. schema.prisma'daki model yorumu).
-
+  // user_feedback'in KENDİSİ RLS'siz (admin.service.ts:listErrors'daki gibi
+  // doğrudan erişim yeterli olurdu) — AMA burada include:{tenant,user} ile
+  // RLS'Lİ iki tabloya (tenants/users) JOIN yapılıyor. app.tenant_id/
+  // app.is_super_admin hiç set edilmeden bu join'e girmek, havuzlanmış bir
+  // bağlantıda DAHA ÖNCE başka bir withTenantContext çağrısı app.tenant_id'yi
+  // SET LOCAL etmişse (bu dosyadaki create() gibi) o bağlantıda KALICI olarak
+  // ''::uuid'e dönüşmesine (bkz. tenant-context.ts'teki SET LOCAL notu) ve
+  // RLS policy'sinin cast hatasıyla patlamasına yol açar — CI'da (RLS gerçekten
+  // zorlanan ortam) tam olarak bu oldu, yerelde stok_user RLS bypass ettiği
+  // için görünmedi. Bu yüzden admin.service.ts:listTenants/getTenantDetail ile
+  // AYNI desen: isSuperAdmin:true ile bağlam açıkça kuruluyor.
   async listAll(query: ListFeedbackQueryDto) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
 
-    const [items, total] = await Promise.all([
-      this.prisma.userFeedback.findMany({
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        include: {
-          tenant: { select: { id: true, companyName: true } },
-          user: { select: { id: true, email: true, fullName: true } },
-        },
-      }),
-      this.prisma.userFeedback.count(),
-    ]);
+    return withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
+      const [items, total] = await Promise.all([
+        tx.userFeedback.findMany({
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+          include: {
+            tenant: { select: { id: true, companyName: true } },
+            user: { select: { id: true, email: true, fullName: true } },
+          },
+        }),
+        tx.userFeedback.count(),
+      ]);
 
-    return { items, total, page, pageSize };
+      return { items, total, page, pageSize };
+    });
   }
 
+  // markRead: RLS'li hiçbir tabloya JOIN yapmıyor (userFeedback.update'in
+  // include'u yok) — admin.service.ts:resolveError ile aynı gerekçeyle
+  // doğrudan this.prisma üzerinden erişim güvenli.
   async markRead(id: string) {
     const existing = await this.prisma.userFeedback.findUnique({
       where: { id },
