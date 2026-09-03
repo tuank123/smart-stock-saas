@@ -24,6 +24,7 @@ import { PortalModule } from './modules/portal/portal.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { DebtsModule } from './modules/debts/debts.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TenantGuard } from './common/guards/tenant.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -80,6 +81,7 @@ import { validateEnv } from './config/env.validation';
     ReportsModule,
     DebtsModule,
     AdminModule,
+    FeedbackModule,
   ],
 
   // ============================================

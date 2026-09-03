@@ -76,6 +76,7 @@ model Tenant {
   priceChangeLogs          PriceChangeLog[]
   cashierSessions          CashierSession[]
   debts                    Debt[]
+  feedback                 UserFeedback[]
 
   // Timestamps
   createdAt DateTime @default(now()) @map("created_at")
@@ -119,6 +120,7 @@ model User {
   openedCashierSessions   CashierSession[]
   createdDebts            Debt[]
   debtPayments            DebtPayment[]
+  feedback                UserFeedback[]
 
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
@@ -799,6 +801,28 @@ model ErrorLog {
   @@index([resolved, createdAt])
   @@index([source])
   @@map("error_logs")
+}
+
+/// Teknik olmayan kullanıcı geri bildirimi/şikayeti (ErrorLog'un kapsamadığı
+/// ürün/deneyim geri bildirimleri). Yalnızca tek şubeli (STARTER) PATRON
+/// gönderebilir (bkz. feedback.service.ts) — RLS YOK, ErrorLog ile aynı
+/// gerekçe: SUPER_ADMIN admin panelinden tüm tenant'ların kaydını okur.
+model UserFeedback {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  subject   String
+  message   String
+  status    String    @default("NEW") // 'NEW' | 'READ'
+  createdAt DateTime  @default(now()) @map("created_at")
+  readAt    DateTime? @map("read_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("user_feedback")
 }
 
 /// Şifre sıfırlama token'ları (tek kullanımlık, 1 saat geçerli; RLS'siz sistem tablosu —
