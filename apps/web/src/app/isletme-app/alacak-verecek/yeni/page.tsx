@@ -31,7 +31,8 @@ interface BasketLine {
 export default function YeniBorcAlacakPage() {
   const router = useRouter();
   const { data: suppliers, isPending: suppliersLoading } = useSuppliers();
-  const { data: stock } = useStockList();
+  const { data: stockData } = useStockList();
+  const stock = stockData?.items ?? [];
   const createDebt = useCreateDebt();
 
   const [supplierId, setSupplierId] = useState('');
@@ -60,7 +61,7 @@ export default function YeniBorcAlacakPage() {
       setError('Bu ürün zaten eklendi.');
       return;
     }
-    const s = (stock ?? []).find((x: StockLevel) => x.productId === itemProductId);
+    const s = stock.find((x: StockLevel) => x.productId === itemProductId);
     setProductLines((prev) => [
       ...prev,
       {
@@ -210,7 +211,7 @@ export default function YeniBorcAlacakPage() {
                     <SelectValue placeholder="Ürün seçin…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(stock ?? []).map((s: StockLevel) => (
+                    {stock.map((s: StockLevel) => (
                       <SelectItem key={s.productId} value={s.productId}>
                         {s.product.name}
                       </SelectItem>

@@ -22,9 +22,11 @@ import type { StockLevel, Branch } from '@/lib/types';
 export default function MudurTransferPage() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { data: stock, isPending: stockLoading } = useStockList();
+  const { data: stockData, isPending: stockLoading } = useStockList();
   const { data: branches, isPending: branchesLoading } = useBranches();
   const createTransfer = useCreateTransfer();
+
+  const stock = stockData?.items ?? [];
 
   const [productId, setProductId] = useState('');
   const [toBranchId, setToBranchId] = useState('');
@@ -33,7 +35,7 @@ export default function MudurTransferPage() {
   const [error, setError] = useState('');
 
   const otherBranches = (branches ?? []).filter((b: Branch) => b.id !== user?.branchId);
-  const selectedStock = stock?.find((s: StockLevel) => s.productId === productId);
+  const selectedStock = stock.find((s: StockLevel) => s.productId === productId);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -92,7 +94,7 @@ export default function MudurTransferPage() {
                       <SelectValue placeholder="Ürün seçin…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {(stock ?? []).map((s: StockLevel) => (
+                      {stock.map((s: StockLevel) => (
                         <SelectItem key={s.productId} value={s.productId}>
                           {s.product.name}
                           <span className="ml-2 text-xs text-muted-foreground">

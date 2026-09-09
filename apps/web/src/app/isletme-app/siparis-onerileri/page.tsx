@@ -57,7 +57,7 @@ export default function SiparisOnerileriPage() {
   // productId → güncel stok kaydı (kalan miktarı satırda göstermek için).
   const stockByProduct = useMemo(() => {
     const map = new Map<string, StockLevel>();
-    (stockQuery.data ?? []).forEach((s: StockLevel) => map.set(s.productId, s));
+    (stockQuery.data?.items ?? []).forEach((s: StockLevel) => map.set(s.productId, s));
     return map;
   }, [stockQuery.data]);
 

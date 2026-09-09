@@ -64,7 +64,8 @@ export default function MudurYeniSiparisPage() {
   const { user } = useAuthStore();
 
   const { data: suppliers, isPending: suppliersLoading } = useSuppliers();
-  const { data: stock, isPending: stockLoading } = useStockList();
+  const { data: stockData, isPending: stockLoading } = useStockList();
+  const stock = stockData?.items ?? [];
   const { data: branch } = useBranchDetail();
   const createOrder = useCreateOrder();
   const updateUnitsPerCase = useUpdateUnitsPerCase();
@@ -85,7 +86,7 @@ export default function MudurYeniSiparisPage() {
   const pendingInputRef = useRef<HTMLInputElement | null>(null);
 
   // Products not yet added to the order
-  const availableStock = (stock ?? []).filter(
+  const availableStock = stock.filter(
     (s: StockLevel) => !orderItems.some((i) => i.productId === s.productId),
   );
 
@@ -97,7 +98,7 @@ export default function MudurYeniSiparisPage() {
       setError('Geçerli bir miktar girin.');
       return;
     }
-    const stockItem = (stock ?? []).find((s: StockLevel) => s.productId === itemProductId);
+    const stockItem = stock.find((s: StockLevel) => s.productId === itemProductId);
     if (!stockItem) return;
 
     const newItem: OrderItemDraft = {

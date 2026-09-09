@@ -93,7 +93,8 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
 
 export function OcrScanFlow() {
   const { user } = useAuthStore();
-  const { data: stock } = useStockList();
+  const { data: stockData } = useStockList();
+  const stock = stockData?.items ?? [];
   const { data: suppliers } = useSuppliers();
   const ocrScan = useOcrScan();
   const ocrConfirm = useOcrConfirm();
@@ -123,7 +124,7 @@ export function OcrScanFlow() {
 
   // Map productId → { name, unit, unitsPerCase } from stock list for display
   const productMap = new Map<string, { name: string; unit: string; unitsPerCase: number | null }>(
-    (stock ?? []).map((s: StockLevel) => [
+    stock.map((s: StockLevel) => [
       s.productId,
       { name: s.product.name, unit: s.product.unit, unitsPerCase: s.product.unitsPerCase ?? null },
     ]),
@@ -483,7 +484,7 @@ export function OcrScanFlow() {
                               <SelectValue placeholder="Ürün seçin…" />
                             </SelectTrigger>
                             <SelectContent>
-                              {(stock ?? []).map((s: StockLevel) => (
+                              {stock.map((s: StockLevel) => (
                                 <SelectItem key={s.productId} value={s.productId}>
                                   {s.product.name}
                                   <span className="ml-1 text-muted-foreground">

@@ -38,7 +38,8 @@ function resizeAndEncode(f: File): Promise<string> {
 
 export default function MudurFirePage() {
   const router = useRouter();
-  const { data: stock } = useStockList();
+  const { data: stockData } = useStockList();
+  const stock = stockData?.items ?? [];
   const wasteMutation = useWaste();
 
   const [productId, setProductId] = useState('');
@@ -73,7 +74,7 @@ export default function MudurFirePage() {
 
   function handleBarcodeDetected(value: string) {
     setScannedValue(value);
-    const match = (stock ?? []).find(
+    const match = stock.find(
       (s: StockLevel) =>
         s.product.sku === value ||
         (s.product.barcode && s.product.barcode === value),
@@ -125,7 +126,7 @@ export default function MudurFirePage() {
     );
   }
 
-  const selectedStock = stock?.find((s: StockLevel) => s.productId === productId);
+  const selectedStock = stock.find((s: StockLevel) => s.productId === productId);
 
   return (
     <div>
