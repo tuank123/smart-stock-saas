@@ -4,8 +4,8 @@
   "description": "StokPilot Database Layer",
   "private": true,
   "scripts": {
-    "db:migrate:dev": "prisma migrate dev",
-    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:dev": "bash scripts/db-migrate.sh dev",
+    "db:migrate:deploy": "bash scripts/db-migrate.sh deploy",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
     "db:seed": "ts-node --project tsconfig.seed.json prisma/seed.ts",

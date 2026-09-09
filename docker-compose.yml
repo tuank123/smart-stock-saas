@@ -13,6 +13,18 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Yalnızca TAMAMEN YENİ (boş) bir volume'da ilk açılışta otomatik
+      # çalışır — CI'daki kısıtlı stok_user rolünü yerelde de kurar (bkz.
+      # packages/database/prisma/restrict_stok_user.sql'in başındaki not).
+      # Var olan bir volume'a (ör. bu makinedeki mevcut kurulum) ETKİSİ YOK;
+      # o durumda script'i elle çalıştırın (aynı dosyadaki talimata bakın).
+      - ./packages/database/prisma/restrict_stok_user.sql:/docker-entrypoint-initdb.d/10-restrict-stok-user.sql:ro
+      # restrict_stok_user.sql'in `\ir grant_stok_user.sql` ile çağırdığı dosya
+      # — AYNI isimle mount edilmeli (psql \ir dosya adını birebir arar).
+      # Docker bunu ayrıca kendi başına bir init script olarak da çalıştırır
+      # (isim deseninden bağımsız her .sql dosyasını koşar) — zararsız,
+      # GRANT'lar idempotent.
+      - ./packages/database/prisma/grant_stok_user.sql:/docker-entrypoint-initdb.d/grant_stok_user.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U stok_user -d stok_dev"]
       interval: 10s

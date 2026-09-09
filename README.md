@@ -37,6 +37,24 @@ docker-compose up -d
 pnpm db:migrate:dev
 ```
 
+**Neden admin bağlantısı gerekiyor:** Yerel `stok_user` rolü artık kısıtlı —
+CI'daki gibi CRUD (SELECT/INSERT/UPDATE/DELETE) hakları var ama
+CREATE/ALTER/DROP TABLE YOK (bkz.
+`packages/database/prisma/restrict_stok_user.sql`). Bu, RLS politikalarının
+yerelde de gerçekten zorlanmasını sağlıyor — daha önce `stok_user` hem
+superuser hem tablo sahibi olduğu için RLS sessizce bypass ediliyordu.
+
+Bu yüzden `pnpm db:migrate:dev`/`db:migrate:deploy` artık düz `DATABASE_URL`
+yerine `ADMIN_DATABASE_URL`'i (postgres rolü, `.env.example`'da placeholder
+olarak var) kullanır — `packages/database/scripts/db-migrate.sh` bunu
+otomatik yapar ve migration başarılı olur olmaz `stok_user`'a gereken
+GRANT'ları (`prisma/grant_stok_user.sql`) da otomatik uygular. Elle bir şey
+yapmanız gerekmez; `packages/database/.env.local` içinde `ADMIN_DATABASE_URL`
+tanımlı olduğu sürece komut aynen eskisi gibi çalışır.
+
+`ADMIN_DATABASE_URL` tanımlı değilse (ör. taze bir kurulum) komut açık bir
+hatayla durur ve ne eklemeniz gerektiğini söyler.
+
 ---
 
 ## Çalıştırma / Running
@@ -167,7 +185,8 @@ Tüm değişkenler için `.env.example` dosyasına bakın.
 
 | Değişken | Açıklama | Varsayılan |
 |----------|----------|-----------|
-| `DATABASE_URL` | PostgreSQL bağlantı URL'i | — |
+| `DATABASE_URL` | PostgreSQL bağlantı URL'i (kısıtlı `stok_user`, uygulama bunu kullanır) | — |
+| `ADMIN_DATABASE_URL` | Şema migration'ları için admin bağlantısı (`postgres` rolü) — bkz. "Migrasyon" bölümü | — |
 | `REDIS_URL` | Redis bağlantı URL'i | `redis://localhost:6379` |
 | `JWT_SECRET` | Access token imzalama sırrı | — |
 | `JWT_REFRESH_SECRET` | Refresh token imzalama sırrı | — |
