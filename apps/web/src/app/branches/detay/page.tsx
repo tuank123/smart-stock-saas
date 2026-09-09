@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
@@ -12,6 +12,8 @@ import {
   Wifi,
   WifiOff,
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   Clock,
 } from 'lucide-react';
 
@@ -29,7 +31,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
-import type { Branch, BranchIntegration, StockLevel } from '@/lib/types';
+import type { Branch, BranchIntegration, PaginatedResponse, StockLevel } from '@/lib/types';
+
+const PAGE_SIZE = 50;
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
@@ -41,8 +45,21 @@ function fetchIntegration(id: string): Promise<BranchIntegration | null> {
     .then((r) => r.data)
     .catch((): null => null);
 }
-function fetchStock(branchId: string): Promise<StockLevel[]> {
-  return api.get<StockLevel[]>(`/stock/${branchId}`).then((r) => r.data);
+function fetchStock(branchId: string, page: number): Promise<PaginatedResponse<StockLevel>> {
+  return api
+    .get<PaginatedResponse<StockLevel>>(`/stock/${branchId}`, {
+      params: { page, pageSize: PAGE_SIZE },
+    })
+    .then((r) => r.data);
+}
+// "X kritik" rozeti — ana sayfalanmış sorgudan bağımsız, hafif bir istek
+// (yalnızca .total okunur, bkz. /stock sayfasındaki aynı desen).
+function fetchCriticalCount(branchId: string): Promise<number> {
+  return api
+    .get<PaginatedResponse<StockLevel>>(`/stock/${branchId}`, {
+      params: { critical: true, page: 1, pageSize: 1 },
+    })
+    .then((r) => r.data.total);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -83,6 +100,7 @@ function TableSkeleton() {
 function BranchDetailInner() {
   const searchParams = useSearchParams();
   const id = searchParams.get('id') ?? '';
+  const [page, setPage] = useState(1);
 
   const branchesQuery = useQuery<Branch[]>({
     queryKey: ['branches'],
@@ -96,18 +114,27 @@ function BranchDetailInner() {
     staleTime: 1000 * 60 * 5,
   });
 
-  const stockQuery = useQuery<StockLevel[]>({
-    queryKey: ['stock', id],
-    queryFn: () => fetchStock(id),
+  const stockQuery = useQuery<PaginatedResponse<StockLevel>>({
+    queryKey: ['stock', id, page],
+    queryFn: () => fetchStock(id, page),
+    enabled: branchesQuery.isSuccess && !!id,
+    staleTime: 1000 * 30,
+  });
+
+  const criticalCountQuery = useQuery<number>({
+    queryKey: ['stock', id, 'critical-count'],
+    queryFn: () => fetchCriticalCount(id),
     enabled: branchesQuery.isSuccess && !!id,
     staleTime: 1000 * 30,
   });
 
   const branch = branchesQuery.data?.find((b: Branch) => b.id === id);
   const integration = integrationQuery.data ?? null;
-  const stock = stockQuery.data ?? [];
+  const stock = stockQuery.data?.items ?? [];
+  const total = stockQuery.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const criticalCount = stock.filter(isCritical).length;
+  const criticalCount = criticalCountQuery.data ?? 0;
 
   const isLoading = branchesQuery.isPending;
   const isError = branchesQuery.isError || (!isLoading && !branch);
@@ -253,6 +280,33 @@ function BranchDetailInner() {
                 })}
               </TableBody>
             </Table>
+
+            {/* Sayfalama — admin/errors ile aynı desen */}
+            <div className="flex items-center justify-between border-t p-3">
+              <p className="text-sm text-muted-foreground">
+                Toplam {total} kayıt · Sayfa {page}/{totalPages}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Önceki
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Sonraki
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -1,3 +1,15 @@
+// admin/tenants, admin/errors, admin/feedback ile aynı desen — GET /products
+// ve GET /stock/:branchId de bu şekle döner (bkz. useMudur.ts, useDashboard.ts,
+// products/page.tsx, stock/page.tsx).
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  // Yalnızca /products araması gibi hibrit exact/fuzzy destekleyen uçlarda döner.
+  matchType?: 'exact' | 'fuzzy';
+}
+
 export interface Branch {
   id: string;
   tenantId: string;
@@ -20,7 +32,8 @@ export interface BranchIntegration {
   webserviceUrl?: string | null;
 }
 
-// StockLevel with product relation (returned by GET /stock/:branchId)
+// StockLevel with product relation — GET /stock/:branchId artık bunu
+// PaginatedResponse<StockLevel>.items içinde döner (bkz. yukarıdaki PaginatedResponse).
 export interface StockLevel {
   id: string;
   branchId: string;

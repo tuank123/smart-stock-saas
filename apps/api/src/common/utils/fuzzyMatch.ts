@@ -33,3 +33,28 @@ export function findBestFuzzyMatch(
   }
   return best;
 }
+
+/**
+ * Bir arama sorgusuna en yakın birden fazla adayı, skora göre azalan sırada
+ * döndürür (öneri listesi için). token_set_ratio kullanır — token_sort_ratio'nun
+ * aksine, sorgu tam üründen daha az kelime içerdiğinde (örn. "Cola 1Litre" ->
+ * "Coca-Cola 1 Litre") de yüksek skor üretir, çünkü ortak olmayan kelimeleri
+ * cezalandırmak yerine kelime kümesi kesişimine bakar.
+ */
+export function findFuzzyMatches(
+  query: string,
+  candidates: FuzzyCandidate[],
+  threshold = 70,
+  limit = 10,
+): FuzzyMatchResult[] {
+  if (!query || candidates.length === 0) return [];
+
+  const scored: FuzzyMatchResult[] = [];
+  for (const c of candidates) {
+    const score = fuzz.token_set_ratio(query.toLowerCase(), c.name.toLowerCase());
+    if (score >= threshold) {
+      scored.push({ id: c.id, name: c.name, score });
+    }
+  }
+  return scored.sort((a, b) => b.score - a.score).slice(0, limit);
+}

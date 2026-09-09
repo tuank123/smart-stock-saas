@@ -80,7 +80,9 @@ describe('Ürün Yönetimi / Products (e2e)', () => {
     productId = res.body.id;
   });
 
-  // ── (b) Listeleme — tenant izolasyonu ───────────────────────────────────
+  // ── (b) Listeleme — tenant izolasyonu + sayfalama ───────────────────────────
+  //
+  // admin/tenants ve admin/errors ile aynı desen: {items,total,page,pageSize}.
 
   it('GET /products — yalnızca kendi tenant\'ının ürünleri döner', async () => {
     const res = await request(app.getHttpServer())
@@ -88,10 +90,100 @@ describe('Ürün Yönetimi / Products (e2e)', () => {
       .set('Authorization', authHeader1)
       .expect(200);
 
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body.some((p: { id: string }) => p.id === productId)).toBe(true);
-    expect(res.body.some((p: { id: string }) => p.id === product2Id)).toBe(false);
-    expect(res.body.every((p: { tenantId: string }) => p.tenantId === ctx1.tenantId)).toBe(true);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(typeof res.body.total).toBe('number');
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(50);
+    expect(res.body.items.some((p: { id: string }) => p.id === productId)).toBe(true);
+    expect(res.body.items.some((p: { id: string }) => p.id === product2Id)).toBe(false);
+    expect(res.body.items.every((p: { tenantId: string }) => p.tenantId === ctx1.tenantId)).toBe(true);
+  });
+
+  it('GET /products?pageSize=1&page=2 — ikinci sayfaya doğru geçer, total tüm eşleşen kayıt sayısını yansıtır', async () => {
+    // ctx1'de şu ana kadar 1 ürün var (yukarıdaki (a)) — ikinci sayfaya
+    // geçmeden önce en az 2 ürün olsun diye bir tane daha oluşturuluyor.
+    const extraRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader1)
+      .send({
+        sku: `E2E-PROD1-EXTRA-${uniqueSuffix()}`,
+        name: 'E2E Ürün 1 - İkinci',
+        unit: 'adet',
+        categoryId: categoryId1,
+      })
+      .expect(201);
+    const extraProductId = extraRes.body.id;
+
+    const page1 = await request(app.getHttpServer())
+      .get('/api/v1/products')
+      .query({ pageSize: 1, page: 1 })
+      .set('Authorization', authHeader1)
+      .expect(200);
+    expect(page1.body.items).toHaveLength(1);
+    expect(page1.body.page).toBe(1);
+    expect(page1.body.pageSize).toBe(1);
+    expect(page1.body.total).toBeGreaterThanOrEqual(2);
+
+    const page2 = await request(app.getHttpServer())
+      .get('/api/v1/products')
+      .query({ pageSize: 1, page: 2 })
+      .set('Authorization', authHeader1)
+      .expect(200);
+    expect(page2.body.items).toHaveLength(1);
+    expect(page2.body.page).toBe(2);
+    // İki sayfa aynı ürünü tekrar döndürmemeli (orderBy: name asc ile tutarlı sıralama).
+    expect(page2.body.items[0].id).not.toBe(page1.body.items[0].id);
+
+    // Her iki ürün de (isim sırasına göre) sayfa 1 veya 2'de görünmüş olmalı.
+    const seenIds = [page1.body.items[0].id, page2.body.items[0].id];
+    expect(seenIds).toEqual(expect.arrayContaining([productId, extraProductId]));
+  });
+
+  it('GET /products?pageSize=101 — üst sınırı (100) aşan pageSize 400 döner', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/products')
+      .query({ pageSize: 101 })
+      .set('Authorization', authHeader1)
+      .expect(400);
+  });
+
+  it('GET /products?search= — arama sayfalamayla birlikte doğru total döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/products')
+      .query({ search: 'İkinci', pageSize: 50 })
+      .set('Authorization', authHeader1)
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].name).toContain('İkinci');
+    expect(res.body.matchType).toBe('exact');
+  });
+
+  it('GET /products?search= — substring hiçbir şey bulamazsa fuzzy moda düşer ve öneri döner', async () => {
+    const cocaColaRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader1)
+      .send({
+        sku: `E2E-PROD1-COLA-${uniqueSuffix()}`,
+        name: 'Coca-Cola 1 Litre',
+        unit: 'adet',
+        categoryId: categoryId1,
+      })
+      .expect(201);
+    const cocaColaId = cocaColaRes.body.id;
+
+    // "Cola 1Litre" substring olarak "Coca-Cola 1 Litre" içinde geçmiyor
+    // (tire/boşluk farkı), bu yüzden substring araması 0 sonuç dönmeli ve
+    // fuzzy fallback devreye girmeli.
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/products')
+      .query({ search: 'Cola 1Litre' })
+      .set('Authorization', authHeader1)
+      .expect(200);
+
+    expect(res.body.matchType).toBe('fuzzy');
+    expect(res.body.items.some((p: { id: string }) => p.id === cocaColaId)).toBe(true);
   });
 
   // ── (c) Tekil erişim — tenant izolasyonu ─────────────────────────────────

@@ -2,13 +2,15 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Search, AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useStockList } from '@/hooks/useMudur';
 import type { StockLevel } from '@/lib/types';
+
+const PAGE_SIZE = 50;
 
 function isCritical(s: StockLevel) {
   return Number(s.quantity) < Number(s.minThreshold);
@@ -17,19 +19,28 @@ function isCritical(s: StockLevel) {
 export default function MudurStokPage() {
   const [search, setSearch] = useState('');
   const [criticalOnly, setCriticalOnly] = useState(false);
-  const { data: stock, isPending, isError } = useStockList();
+  const [page, setPage] = useState(1);
 
-  const filtered = (stock ?? []).filter((s: StockLevel) => {
-    if (criticalOnly && !isCritical(s)) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      return (
-        s.product.name.toLowerCase().includes(q) ||
-        s.product.sku.toLowerCase().includes(q)
-      );
-    }
-    return true;
+  const { data, isPending, isError } = useStockList({
+    search,
+    critical: criticalOnly,
+    page,
+    pageSize: PAGE_SIZE,
   });
+
+  const stock = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function handleSearchChange(value: string) {
+    setSearch(value);
+    setPage(1);
+  }
+
+  function toggleCritical() {
+    setCriticalOnly((v) => !v);
+    setPage(1);
+  }
 
   return (
     <div>
@@ -42,7 +53,7 @@ export default function MudurStokPage() {
           <Input
             placeholder="Ürün adı veya SKU ara…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className="pl-9"
           />
         </div>
@@ -50,7 +61,7 @@ export default function MudurStokPage() {
           <Button
             variant={criticalOnly ? 'destructive' : 'outline'}
             size="sm"
-            onClick={() => setCriticalOnly((v) => !v)}
+            onClick={toggleCritical}
             className="flex items-center gap-1.5 shrink-0"
           >
             <AlertTriangle className="h-3.5 w-3.5" />
@@ -104,14 +115,14 @@ export default function MudurStokPage() {
                   </td>
                 </tr>
               ))
-            ) : filtered.length === 0 ? (
+            ) : stock.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-sm text-muted-foreground">
-                  {stock?.length === 0 ? 'Stok kaydı bulunamadı.' : 'Eşleşen ürün yok.'}
+                  {search || criticalOnly ? 'Eşleşen ürün yok.' : 'Stok kaydı bulunamadı.'}
                 </td>
               </tr>
             ) : (
-              filtered.map((s: StockLevel) => {
+              stock.map((s: StockLevel) => {
                 const critical = isCritical(s);
                 return (
                   <tr
@@ -157,11 +168,35 @@ export default function MudurStokPage() {
             )}
           </tbody>
         </table>
-      </div>
 
-      {!isPending && filtered.length > 0 && (
-        <p className="mt-2 text-right text-xs text-muted-foreground">{filtered.length} ürün</p>
-      )}
+        {!isPending && stock.length > 0 && (
+          <div className="flex items-center justify-between border-t p-3">
+            <p className="text-xs text-muted-foreground">
+              Toplam {total} ürün · Sayfa {page}/{totalPages}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Önceki
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Sonraki
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

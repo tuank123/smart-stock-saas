@@ -297,6 +297,106 @@ describe('Stok (e2e)', () => {
       .expect(400);
   });
 
+  // ── (d-2) Stok listeleme — sayfalama ─────────────────────────────────────
+  //
+  // admin/tenants ve admin/errors ile aynı desen: {items,total,page,pageSize}.
+  // Bu suite'te şu ana kadar 2 ürün var (productId + raceProductId); ikinci
+  // sayfaya geçebilmek için bir tane daha ekleniyor.
+
+  it('GET /stock/:branchId — {items,total,page,pageSize} şeklinde, varsayılan sayfa/pageSize ile döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/stock/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(typeof res.body.total).toBe('number');
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(50);
+    expect(res.body.items.some((s: { productId: string }) => s.productId === productId)).toBe(true);
+  });
+
+  it('GET /stock/:branchId?pageSize=1&page=2 — ikinci sayfaya doğru geçer, total tüm eşleşen kayıt sayısını yansıtır', async () => {
+    const extraProductRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader)
+      .send({
+        sku: `E2E-STOK-PAGE-${uniqueSuffix()}`,
+        name: 'E2E Sayfalama Ürünü',
+        unit: 'adet',
+        categoryId: (await createCategory(prisma, ctx.tenantId, 'E2E Sayfalama Kategorisi')).id,
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post('/api/v1/stock/initialize')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId, items: [{ productId: extraProductRes.body.id, quantity: 5 }] })
+      .expect(201);
+
+    const page1 = await request(app.getHttpServer())
+      .get(`/api/v1/stock/${ctx.branchId}`)
+      .query({ pageSize: 1, page: 1 })
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(page1.body.items).toHaveLength(1);
+    expect(page1.body.total).toBeGreaterThanOrEqual(3);
+
+    const page2 = await request(app.getHttpServer())
+      .get(`/api/v1/stock/${ctx.branchId}`)
+      .query({ pageSize: 1, page: 2 })
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(page2.body.items).toHaveLength(1);
+    expect(page2.body.page).toBe(2);
+    expect(page2.body.items[0].id).not.toBe(page1.body.items[0].id);
+  });
+
+  it('GET /stock/:branchId?pageSize=101 — üst sınırı (100) aşan pageSize 400 döner', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/v1/stock/${ctx.branchId}`)
+      .query({ pageSize: 101 })
+      .set('Authorization', authHeader)
+      .expect(400);
+  });
+
+  it('GET /stock/:branchId?search= — arama sayfalamayla birlikte doğru total döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/stock/${ctx.branchId}`)
+      .query({ search: 'Sayfalama Ürünü' })
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].product.name).toContain('Sayfalama Ürünü');
+  });
+
+  it('GET /stock/:branchId?critical=true — kritik filtre + sayfalama birlikte doğru çalışır', async () => {
+    // Bu noktada productId'nin miktarı waste testleriyle 100 - 8 - 3 = 89,
+    // minThreshold'u threshold testiyle 15'e ayarlanmıştı — kritik DEĞİL.
+    // extraProductRes (5 adet, minThreshold = max(1, floor(5*0.2)) = 1) da
+    // kritik değil. Kritik bir kayıt üretmek için eşiği miktarın üstüne çekiyoruz.
+    await request(app.getHttpServer())
+      .patch(`/api/v1/stock/${ctx.branchId}/${productId}/threshold`)
+      .set('Authorization', subeMuduruAuthHeader)
+      .send({ minThreshold: 999999 })
+      .expect(200);
+
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/stock/${ctx.branchId}`)
+      .query({ critical: 'true', pageSize: 50 })
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    expect(res.body.total).toBeGreaterThanOrEqual(1);
+    expect(
+      res.body.items.every((s: { quantity: number; minThreshold: number }) =>
+        Number(s.quantity) < Number(s.minThreshold),
+      ),
+    ).toBe(true);
+    expect(res.body.items.some((s: { productId: string }) => s.productId === productId)).toBe(true);
+  });
+
   // ── (e) Günlük özet ───────────────────────────────────────────────────────
 
   it('GET /stock/:branchId/daily-report — beklenen alan yapısıyla 200 döner', async () => {

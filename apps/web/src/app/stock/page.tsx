@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Search, AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 
 import { PageLayout } from '@/components/layout/PageLayout';
 import { PageTabs } from '@/components/layout/PageTabs';
@@ -26,13 +26,39 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
-import type { Branch, StockLevel } from '@/lib/types';
+import type { Branch, PaginatedResponse, StockLevel } from '@/lib/types';
+
+const PAGE_SIZE = 50;
 
 function fetchBranches(): Promise<Branch[]> {
   return api.get<Branch[]>('/branches').then((r) => r.data);
 }
-function fetchStock(branchId: string): Promise<StockLevel[]> {
-  return api.get<StockLevel[]>(`/stock/${branchId}`).then((r) => r.data);
+
+function fetchStock(
+  branchId: string,
+  params: { search: string; critical: boolean; page: number },
+): Promise<PaginatedResponse<StockLevel>> {
+  return api
+    .get<PaginatedResponse<StockLevel>>(`/stock/${branchId}`, {
+      params: {
+        ...(params.search ? { search: params.search } : {}),
+        ...(params.critical ? { critical: true } : {}),
+        page: params.page,
+        pageSize: PAGE_SIZE,
+      },
+    })
+    .then((r) => r.data);
+}
+
+// Kritik sayacı, "Sadece Kritik" butonunun etiketinde gösterilir — ana
+// sayfalanmış sorgudan BAĞIMSIZ, hafif bir istek (yalnızca .total okunur,
+// pageSize=1 ile gereksiz veri çekilmez).
+function fetchCriticalCount(branchId: string): Promise<number> {
+  return api
+    .get<PaginatedResponse<StockLevel>>(`/stock/${branchId}`, {
+      params: { critical: true, page: 1, pageSize: 1 },
+    })
+    .then((r) => r.data.total);
 }
 
 function isCritical(s: StockLevel): boolean {
@@ -55,6 +81,7 @@ export default function StockPage() {
   const [branchId, setBranchId] = useState<string>('');
   const [search, setSearch] = useState('');
   const [criticalOnly, setCriticalOnly] = useState(false);
+  const [page, setPage] = useState(1);
 
   const branchesQuery = useQuery<Branch[]>({
     queryKey: ['branches'],
@@ -62,31 +89,41 @@ export default function StockPage() {
     staleTime: 1000 * 60,
   });
 
-  const stockQuery = useQuery<StockLevel[]>({
-    queryKey: ['stock', branchId],
-    queryFn: () => fetchStock(branchId),
+  const stockQuery = useQuery<PaginatedResponse<StockLevel>>({
+    queryKey: ['stock', branchId, { search, criticalOnly, page }],
+    queryFn: () => fetchStock(branchId, { search, critical: criticalOnly, page }),
     enabled: !!branchId,
     staleTime: 1000 * 30,
   });
 
-  const stock = stockQuery.data ?? [];
+  const criticalCountQuery = useQuery<number>({
+    queryKey: ['stock', branchId, 'critical-count'],
+    queryFn: () => fetchCriticalCount(branchId),
+    enabled: !!branchId,
+    staleTime: 1000 * 30,
+  });
 
-  const filtered = useMemo(() => {
-    let items = stock;
-    if (criticalOnly) items = items.filter(isCritical);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      items = items.filter(
-        (s: StockLevel) =>
-          s.product.name.toLowerCase().includes(q) ||
-          s.product.sku.toLowerCase().includes(q) ||
-          (s.product.barcode ?? '').toLowerCase().includes(q),
-      );
-    }
-    return items;
-  }, [stock, search, criticalOnly]);
+  const stock = stockQuery.data?.items ?? [];
+  const total = stockQuery.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const criticalCount = criticalCountQuery.data ?? 0;
 
-  const criticalCount = stock.filter(isCritical).length;
+  function handleBranchChange(value: string) {
+    setBranchId(value);
+    setSearch('');
+    setCriticalOnly(false);
+    setPage(1);
+  }
+
+  function handleSearchChange(value: string) {
+    setSearch(value);
+    setPage(1);
+  }
+
+  function toggleCritical() {
+    setCriticalOnly((v) => !v);
+    setPage(1);
+  }
 
   return (
     <PageLayout title="Stok Durumu">
@@ -103,7 +140,7 @@ export default function StockPage() {
           {branchesQuery.isPending ? (
             <Skeleton className="h-9 w-full" />
           ) : (
-            <Select value={branchId} onValueChange={setBranchId}>
+            <Select value={branchId} onValueChange={handleBranchChange}>
               <SelectTrigger>
                 <SelectValue placeholder="Şube seçin…" />
               </SelectTrigger>
@@ -125,7 +162,7 @@ export default function StockPage() {
               <Input
                 placeholder="Ürün adı, SKU veya barkod…"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 className="pl-8"
               />
             </div>
@@ -133,7 +170,7 @@ export default function StockPage() {
             <Button
               variant={criticalOnly ? 'destructive' : 'outline'}
               size="sm"
-              onClick={() => setCriticalOnly((v) => !v)}
+              onClick={toggleCritical}
             >
               <AlertTriangle className="mr-1.5 h-4 w-4" />
               {criticalOnly ? 'Tüm Stok' : `Sadece Kritik ${criticalCount > 0 ? `(${criticalCount})` : ''}`}
@@ -153,7 +190,7 @@ export default function StockPage() {
           <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
           <p className="text-sm text-destructive">Stok bilgisi yüklenemedi.</p>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : stock.length === 0 ? (
         <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
           {search || criticalOnly ? 'Filtreyle eşleşen ürün bulunamadı.' : 'Bu şubede stok kaydı yok.'}
         </div>
@@ -172,7 +209,7 @@ export default function StockPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((s: StockLevel) => {
+              {stock.map((s: StockLevel) => {
                 const critical = isCritical(s);
                 return (
                   <TableRow
@@ -206,6 +243,33 @@ export default function StockPage() {
               })}
             </TableBody>
           </Table>
+
+          {/* Sayfalama — admin/errors ile aynı desen */}
+          <div className="flex items-center justify-between border-t p-3">
+            <p className="text-sm text-muted-foreground">
+              Toplam {total} kayıt · Sayfa {page}/{totalPages}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Önceki
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Sonraki
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </PageLayout>

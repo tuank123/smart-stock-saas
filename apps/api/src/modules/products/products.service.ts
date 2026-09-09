@@ -8,6 +8,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { withTenantContext } from '../../common/utils/tenant-context';
+import { findFuzzyMatches } from '../../common/utils/fuzzyMatch';
+
+// Substring araması sonuç bulamazsa fuzzy fallback için taranacak aday üst sınırı.
+const FUZZY_CANDIDATE_LIMIT = 500;
+const FUZZY_RESULT_LIMIT = 10;
 import { CreateProductDto, PatchUnitsPerCaseDto, ProductQueryDto } from './dto/product.dto';
 
 @Injectable()
@@ -61,11 +66,55 @@ export class ProductsService {
         ];
       }
 
-      return tx.product.findMany({
-        where,
-        include: { category: { select: { id: true, name: true } } },
-        orderBy: { name: 'asc' },
-      });
+      const page = query.page ?? 1;
+      const pageSize = query.pageSize ?? 50;
+
+      const [items, total] = await Promise.all([
+        tx.product.findMany({
+          where,
+          include: { category: { select: { id: true, name: true } } },
+          orderBy: { name: 'asc' },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        tx.product.count({ where }),
+      ]);
+
+      // Substring araması sonuç bulamadıysa (yalnızca bu durumda — her aramada
+      // yüzlerce ürünü çekip skorlamak performans regresyonuna yol açar) tenant'ın
+      // adaylarını çekip JS tarafında fuzzy skorla. Fuzzy eşleştirme SQL seviyesinde
+      // yapılamadığı için bu, OCR/WhatsApp akışlarıyla aynı desen.
+      if (total === 0 && query.search) {
+        const { OR: _search, ...candidateWhere } = where;
+
+        const candidates = await tx.product.findMany({
+          where: candidateWhere,
+          include: { category: { select: { id: true, name: true } } },
+          take: FUZZY_CANDIDATE_LIMIT,
+        });
+
+        const matches = findFuzzyMatches(
+          query.search,
+          candidates.map((c) => ({ id: c.id, name: c.name })),
+          70,
+          FUZZY_RESULT_LIMIT,
+        );
+
+        const byId = new Map(candidates.map((c) => [c.id, c]));
+        const fuzzyItems = matches
+          .map((m) => byId.get(m.id))
+          .filter((c): c is (typeof candidates)[number] => c !== undefined);
+
+        return {
+          items: fuzzyItems,
+          total: fuzzyItems.length,
+          page: 1,
+          pageSize: fuzzyItems.length,
+          matchType: 'fuzzy' as const,
+        };
+      }
+
+      return { items, total, page, pageSize, matchType: 'exact' as const };
     });
   }
 

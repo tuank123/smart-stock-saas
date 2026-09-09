@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Search, Package, ExternalLink, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Package, ExternalLink, AlertTriangle } from 'lucide-react';
 
 import { PageLayout } from '@/components/layout/PageLayout';
 import { PageTabs } from '@/components/layout/PageTabs';
@@ -20,10 +20,20 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
-import type { Product } from '@/lib/types';
+import type { PaginatedResponse, Product } from '@/lib/types';
 
-function fetchProducts(): Promise<Product[]> {
-  return api.get<Product[]>('/products').then((r) => r.data);
+const PAGE_SIZE = 50;
+
+function fetchProducts(search: string, page: number): Promise<PaginatedResponse<Product>> {
+  return api
+    .get<PaginatedResponse<Product>>('/products', {
+      params: {
+        ...(search ? { search } : {}),
+        page,
+        pageSize: PAGE_SIZE,
+      },
+    })
+    .then((r) => r.data);
 }
 
 function TableSkeleton() {
@@ -40,26 +50,23 @@ function TableSkeleton() {
 
 export default function ProductsPage() {
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
 
-  const productsQuery = useQuery<Product[]>({
-    queryKey: ['products'],
-    queryFn: fetchProducts,
+  const productsQuery = useQuery<PaginatedResponse<Product>>({
+    queryKey: ['products', search, page],
+    queryFn: () => fetchProducts(search, page),
     staleTime: 1000 * 60 * 2,
   });
 
-  const products = productsQuery.data ?? [];
+  const products = useMemo(() => productsQuery.data?.items ?? [], [productsQuery.data]);
+  const total = productsQuery.data?.total ?? 0;
+  const isFuzzyResult = productsQuery.data?.matchType === 'fuzzy';
+  const totalPages = isFuzzyResult ? 1 : Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return products;
-    const q = search.toLowerCase();
-    return products.filter(
-      (p: Product) =>
-        p.name.toLowerCase().includes(q) ||
-        p.sku.toLowerCase().includes(q) ||
-        (p.barcode ?? '').toLowerCase().includes(q) ||
-        p.category.name.toLowerCase().includes(q),
-    );
-  }, [products, search]);
+  function handleSearchChange(value: string) {
+    setSearch(value);
+    setPage(1);
+  }
 
   return (
     <PageLayout title="Ürünler">
@@ -77,16 +84,26 @@ export default function ProductsPage() {
           <Input
             placeholder="Ad, SKU veya barkod ara…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className="pl-8"
           />
         </div>
         <p className="shrink-0 text-sm text-muted-foreground">
           {productsQuery.isSuccess
-            ? `${filtered.length} / ${products.length} ürün`
+            ? isFuzzyResult
+              ? `${total} öneri`
+              : `Toplam ${total} ürün`
             : ' '}
         </p>
       </div>
+
+      {isFuzzyResult && (
+        <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+          <p className="text-sm text-amber-700 dark:text-amber-400">
+            Tam eşleşme bulunamadı, şunları mı demek istediniz?
+          </p>
+        </div>
+      )}
 
       {productsQuery.isError && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3">
@@ -97,7 +114,7 @@ export default function ProductsPage() {
 
       {productsQuery.isPending ? (
         <TableSkeleton />
-      ) : filtered.length === 0 ? (
+      ) : products.length === 0 ? (
         <div className="rounded-xl border bg-card p-12 text-center">
           <Package className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
           <p className="text-sm text-muted-foreground">
@@ -119,7 +136,7 @@ export default function ProductsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((p: Product) => (
+              {products.map((p: Product) => (
                 <TableRow key={p.id}>
                   <TableCell className="font-medium">{p.name}</TableCell>
                   <TableCell className="font-mono text-sm text-muted-foreground">{p.sku}</TableCell>
@@ -151,6 +168,35 @@ export default function ProductsPage() {
               ))}
             </TableBody>
           </Table>
+
+          {/* Sayfalama — admin/errors ile aynı desen (fuzzy önerilerde sayfalama yok) */}
+          {!isFuzzyResult && (
+          <div className="flex items-center justify-between border-t p-3">
+            <p className="text-sm text-muted-foreground">
+              Sayfa {page}/{totalPages}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Önceki
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Sonraki
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          )}
         </div>
       )}
     </PageLayout>

@@ -4,11 +4,13 @@ import {
   IsBoolean,
   IsDateString,
   IsIn,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -37,6 +39,25 @@ export class StockQueryDto {
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   critical?: boolean;
+
+  // Ürün adı/SKU/barkoda göre arama — admin/tenants'taki search ile aynı fikir.
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  // admin/tenants ve admin/errors ile aynı desen ({items,total,page,pageSize}).
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  page?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @Type(() => Number)
+  pageSize?: number;
 }
 
 export class UpdateThresholdDto {

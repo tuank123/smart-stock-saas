@@ -9,15 +9,16 @@ import type {
   Order,
   Report,
   StockLevel,
+  PaginatedResponse,
 } from '@/lib/types';
 
 function fetchBranches(): Promise<Branch[]> {
   return api.get<Branch[]>('/branches').then((r) => r.data);
 }
 
-function fetchCriticalStock(branchId: string): Promise<StockLevel[]> {
+function fetchCriticalStock(branchId: string): Promise<PaginatedResponse<StockLevel>> {
   return api
-    .get<StockLevel[]>(`/stock/${branchId}`, { params: { critical: true } })
+    .get<PaginatedResponse<StockLevel>>(`/stock/${branchId}`, { params: { critical: true } })
     .then((r) => r.data);
 }
 
@@ -42,6 +43,13 @@ function sumLengths(queries: UseQueryResult<unknown[]>[]): number {
   return queries.reduce((sum, q) => sum + (q.data?.length ?? 0), 0);
 }
 
+// Kritik stok artık sayfalanmış dönüyor — .total (sayfalanmış öğe sayısı
+// değil, tüm eşleşen kayıt sayısı) kullanılmalı ki pageSize'ın ötesinde
+// kritik stok varsa bile toplam doğru kalsın.
+function sumTotals(queries: UseQueryResult<PaginatedResponse<unknown>>[]): number {
+  return queries.reduce((sum, q) => sum + (q.data?.total ?? 0), 0);
+}
+
 export function useDashboard() {
   const branchesQuery = useQuery<Branch[]>({
     queryKey: ['branches'],
@@ -59,7 +67,7 @@ export function useDashboard() {
       enabled: branchesQuery.isSuccess,
       staleTime: 1000 * 30,
     })),
-  }) as UseQueryResult<StockLevel[]>[];
+  }) as UseQueryResult<PaginatedResponse<StockLevel>>[];
 
   const orderQueries = useQueries({
     queries: branchIds.map((id: string) => ({
@@ -90,7 +98,7 @@ export function useDashboard() {
 
   const integratedBranches = integrationQueries.filter((q) => q.data != null).length;
 
-  const totalCriticalStock = sumLengths(stockQueries as UseQueryResult<unknown[]>[]);
+  const totalCriticalStock = sumTotals(stockQueries);
   const totalDraftOrders = sumLengths(orderQueries as UseQueryResult<unknown[]>[]);
 
   const unreadReports: Report[] = reportsQuery.data ?? [];
@@ -98,7 +106,7 @@ export function useDashboard() {
   const branchRows: BranchDashboardRow[] = branches.map(
     (b: Branch, i: number): BranchDashboardRow => ({
       ...b,
-      criticalStockCount: stockQueries[i]?.data?.length ?? 0,
+      criticalStockCount: stockQueries[i]?.data?.total ?? 0,
       draftOrderCount: orderQueries[i]?.data?.length ?? 0,
       integration: integrationQueries[i]?.data ?? null,
     }),

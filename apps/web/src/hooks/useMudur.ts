@@ -15,6 +15,7 @@ import type {
   PendingPriceUpload,
   PriceChange,
   PriceUploadDetail,
+  PaginatedResponse,
 } from '@/lib/types';
 
 // ── OCR types (exported for the OCR page) ────────────────────────────────────
@@ -74,9 +75,9 @@ function fetchBranchDetail(branchId: string): Promise<BranchDetail> {
   return api.get<BranchDetail>(`/branches/${branchId}`).then((r) => r.data);
 }
 
-function fetchCriticalStock(branchId: string): Promise<StockLevel[]> {
+function fetchCriticalStock(branchId: string): Promise<PaginatedResponse<StockLevel>> {
   return api
-    .get<StockLevel[]>(`/stock/${branchId}`, { params: { critical: true } })
+    .get<PaginatedResponse<StockLevel>>(`/stock/${branchId}`, { params: { critical: true } })
     .then((r) => r.data);
 }
 
@@ -88,8 +89,27 @@ function fetchTransfers(branchId: string): Promise<Transfer[]> {
   return api.get<Transfer[]>(`/transfers/${branchId}`).then((r) => r.data);
 }
 
-function fetchStockList(branchId: string): Promise<StockLevel[]> {
-  return api.get<StockLevel[]>(`/stock/${branchId}`).then((r) => r.data);
+export interface StockListParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  critical?: boolean;
+}
+
+function fetchStockList(
+  branchId: string,
+  params: StockListParams,
+): Promise<PaginatedResponse<StockLevel>> {
+  return api
+    .get<PaginatedResponse<StockLevel>>(`/stock/${branchId}`, {
+      params: {
+        ...(params.page ? { page: params.page } : {}),
+        ...(params.pageSize ? { pageSize: params.pageSize } : {}),
+        ...(params.search ? { search: params.search } : {}),
+        ...(params.critical ? { critical: true } : {}),
+      },
+    })
+    .then((r) => r.data);
 }
 
 function fetchStockDetail(branchId: string, productId: string): Promise<StockLevel> {
@@ -127,7 +147,7 @@ export function useMudurDashboard() {
     enabled: !!branchId,
   });
 
-  const stockQuery = useQuery<StockLevel[]>({
+  const stockQuery = useQuery<PaginatedResponse<StockLevel>>({
     queryKey: ['stock', 'critical', branchId],
     queryFn: () => fetchCriticalStock(branchId),
     staleTime: 1000 * 30,
@@ -162,7 +182,10 @@ export function useMudurDashboard() {
 
   return {
     branch: branchQuery.data ?? null,
-    criticalStockCount: stockQuery.data?.length ?? 0,
+    // .total (sayfalanmış öğe sayısı değil, tüm eşleşen kayıt sayısı) —
+    // widget yalnızca sayaç gösteriyor, pageSize'ın ötesinde kritik stok
+    // varsa bile doğru sayıyı yansıtması gerekiyor.
+    criticalStockCount: stockQuery.data?.total ?? 0,
     draftOrderCount: ordersQuery.data?.length ?? 0,
     requestedTransferCount:
       transfersQuery.data?.filter((t: Transfer) => t.status === 'REQUESTED').length ?? 0,
@@ -173,12 +196,12 @@ export function useMudurDashboard() {
 
 // ── Stock hooks ───────────────────────────────────────────────────────────────
 
-export function useStockList() {
+export function useStockList(params: StockListParams = {}) {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
-  return useQuery<StockLevel[]>({
-    queryKey: ['stock', branchId],
-    queryFn: () => fetchStockList(branchId),
+  return useQuery<PaginatedResponse<StockLevel>>({
+    queryKey: ['stock', branchId, params],
+    queryFn: () => fetchStockList(branchId, params),
     staleTime: 1000 * 30,
     enabled: !!branchId,
   });

@@ -91,21 +91,52 @@ export class StockService {
   ) {
     return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
-      const levels = await tx.stockLevel.findMany({
-        where: { branchId, tenantId: user.tenantId },
-        include: {
-          product: {
-            select: { id: true, sku: true, name: true, unit: true, barcode: true, unitsPerCase: true },
-          },
-        },
-        orderBy: { product: { name: 'asc' } },
-      });
+      const page = query.page ?? 1;
+      const pageSize = query.pageSize ?? 50;
 
-      if (query.critical) {
-        return levels.filter((l) => l.quantity.lessThan(l.minThreshold));
+      const where: Prisma.StockLevelWhereInput = { branchId, tenantId: user.tenantId };
+      if (query.search) {
+        where.product = {
+          OR: [
+            { name: { contains: query.search, mode: 'insensitive' } },
+            { sku: { contains: query.search, mode: 'insensitive' } },
+            { barcode: { contains: query.search, mode: 'insensitive' } },
+          ],
+        };
       }
 
-      return levels;
+      const include = {
+        product: {
+          select: { id: true, sku: true, name: true, unit: true, barcode: true, unitsPerCase: true },
+        },
+      } as const;
+      const orderBy = { product: { name: 'asc' as const } };
+
+      if (query.critical) {
+        // quantity < minThreshold aynı satırın iki Decimal kolonunu karşılaştırıyor
+        // — Prisma'nın `where`'i kolon-kolon karşılaştırmayı desteklemiyor, bu
+        // yüzden eşleşen tüm satırlar çekilip JS'te filtrelenir ve sayfalama
+        // filtrelenmiş küme üzerinde JS'te uygulanır (DB'de skip/take yerine).
+        const levels = await tx.stockLevel.findMany({ where, include, orderBy });
+        const criticalLevels = levels.filter((l) => l.quantity.lessThan(l.minThreshold));
+        const total = criticalLevels.length;
+        const start = (page - 1) * pageSize;
+        const items = criticalLevels.slice(start, start + pageSize);
+        return { items, total, page, pageSize };
+      }
+
+      const [items, total] = await Promise.all([
+        tx.stockLevel.findMany({
+          where,
+          include,
+          orderBy,
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        tx.stockLevel.count({ where }),
+      ]);
+
+      return { items, total, page, pageSize };
     });
   }
 
