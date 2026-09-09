@@ -54,13 +54,34 @@
  *     2FA'dan ETKİLENMEYEN rol) taşındı — test ettikleri hydration/guard/
  *     logout mantığı role'den bağımsız, her layout'ta aynı desen.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Response } from '@playwright/test';
 
-async function login(page: Page, email: string, password: string) {
+// Gerçek POST /auth/login isteğinin yanıtını bekler ve durum kodunu doğrular.
+// Bu dosya (yukarıdaki dosya başı notunda açıklandığı gibi) gerçek backend'e
+// karşı çalışıyor ve IP bazlı bir login throttle'ına tabi (5 istek / 15 dk —
+// auth.controller.ts, @Throttle({ limit: 5, ttl: 900_000 })). Bu throttle
+// aynı makinede kısa aralıklarla art arda çalıştırılan test koşularında
+// (ör. bu dosyanın 15 dk içinde birden fazla kez koşulması) aşılabiliyor;
+// aşıldığında backend 429 dönüyor ve sayfada "ThrottlerException: Too Many
+// Requests" görünüyor — ama koşulan UI assertion'ı (ör. "Doğrulama Kodu"
+// başlığının görünmesi) bunu ayırt etmeden basitçe "element bulunamadı"
+// diye başarısız oluyordu, bu da gerçek nedeni gizleyip zamanlama/race
+// hatasıymış gibi gösteriyordu. Yanıtı burada açıkça bekleyip durum kodunu
+// kontrol ederek, throttle'a takılma anında test hemen ve net bir mesajla
+// başarısız olsun (bkz. "muhtemelen login rate limit").
+async function login(page: Page, email: string, password: string): Promise<Response> {
   await page.goto('/login');
   await page.getByLabel('E-posta').fill(email);
   await page.getByLabel('Şifre').fill(password);
-  await page.getByRole('button', { name: 'Giriş Yap' }).click();
+
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (res) => res.url().includes('/auth/login') && res.request().method() === 'POST',
+    ),
+    page.getByRole('button', { name: 'Giriş Yap' }).click(),
+  ]);
+
+  return response;
 }
 
 test.describe.serial('Auth / navigasyon', () => {
@@ -76,7 +97,11 @@ test.describe.serial('Auth / navigasyon', () => {
     // /isletme/raporlar'a DOĞRUDAN gitmiyor, önce "Doğrulama Kodu" ekranı
     // gösteriliyor. Bu ortamda gerçek kodu Playwright'tan okumanın bilinen
     // bir yolu yok (bkz. dosya başındaki not) — test burada duruyor.
-    await login(page, 'admin@acme.com', 'Admin123!');
+    const response = await login(page, 'admin@acme.com', 'Admin123!');
+    expect(
+      response.status(),
+      `/auth/login beklenmeyen durum kodu döndü (${response.status()}) — muhtemelen login rate limit (5 istek/15dk) aşıldı, testi tek başına tekrar çalıştırmayı deneyin`,
+    ).toBe(200);
 
     await expect(page.getByRole('heading', { name: 'Doğrulama Kodu' })).toBeVisible();
     await expect(page.getByLabel('Doğrulama Kodu')).toBeVisible();
@@ -90,7 +115,11 @@ test.describe.serial('Auth / navigasyon', () => {
   });
 
   test('SUBE_MUDURU girişi doğru sayfaya yönlendiriyor (/mudur/dashboard)', async ({ page }) => {
-    await login(page, 'manager@acme.com', 'Manager123!');
+    const response = await login(page, 'manager@acme.com', 'Manager123!');
+    expect(
+      response.status(),
+      `/auth/login beklenmeyen durum kodu döndü (${response.status()}) — muhtemelen login rate limit (5 istek/15dk) aşıldı, testi tek başına tekrar çalıştırmayı deneyin`,
+    ).toBe(200);
 
     await expect(page).toHaveURL(/\/mudur\/dashboard/);
     await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
@@ -125,10 +154,13 @@ test.describe.serial('Auth / navigasyon', () => {
   test('Yanlış şifreyle giriş net bir hata mesajı gösteriyor, sonsuza kadar donmuyor', async ({
     page,
   }) => {
-    await page.goto('/login');
-    await page.getByLabel('E-posta').fill('admin@acme.com');
-    await page.getByLabel('Şifre').fill('YanlisSifre999');
-    await page.getByRole('button', { name: 'Giriş Yap' }).click();
+    const response = await login(page, 'admin@acme.com', 'YanlisSifre999');
+    // 401 (yanlış kimlik bilgisi) bekleniyor — 429 gelirse bu login rate
+    // limitine (5/15dk) takılmışızdır, yanlış şifre davranışıyla ilgisizdir.
+    expect(
+      response.status(),
+      `/auth/login beklenmeyen durum kodu döndü (${response.status()}) — muhtemelen login rate limit (5 istek/15dk) aşıldı, testi tek başına tekrar çalıştırmayı deneyin`,
+    ).toBe(401);
 
     // Backend UnauthorizedException('Invalid credentials') →
     // getLoginErrorMessage() bunu tam olarak bu Türkçe metne çeviriyor.
