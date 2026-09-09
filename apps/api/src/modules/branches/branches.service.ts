@@ -18,6 +18,10 @@ import {
   UpdateBranchDto,
 } from './dto/branch.dto';
 
+// Agent kurulum kodu, üretildikten sonra bu süre içinde kullanılmazsa geçersiz
+// sayılır — önceden süresizdi (bkz. connectAgent'taki expiry kontrolü).
+const AGENT_SETUP_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+
 @Injectable()
 export class BranchesService {
   constructor(
@@ -160,6 +164,7 @@ export class BranchesService {
           branchId,
           token: this.generateToken(),
           adapterType: dto.adapterType,
+          expiresAt: new Date(Date.now() + AGENT_SETUP_TOKEN_TTL_MS),
           // status defaults to PENDING
         },
       });
@@ -176,11 +181,15 @@ export class BranchesService {
     return withTenantContext(this.prisma, { isSuperAdmin: true }, async (tx) => {
       const setup = await tx.agentSetupToken.findUnique({
         where: { token: dto.token },
-        select: { id: true, status: true, branchId: true },
+        select: { id: true, status: true, branchId: true, expiresAt: true },
       });
 
-      if (!setup || setup.status !== 'PENDING') {
-        throw new BadRequestException('Geçersiz veya kullanılmış kurulum kodu');
+      // Bulunamadı / zaten kullanılmış / süresi dolmuş — HEPSİ AYNI genel
+      // mesajla reddedilir. Bilerek: hangi sebepten reddedildiği dışarıya
+      // sızdırılmaz (ör. "süresi dolmuş" denirse saldırgan kodun GERÇEKTEN
+      // var olduğunu ama geç kaldığını öğrenir).
+      if (!setup || setup.status !== 'PENDING' || setup.expiresAt < new Date()) {
+        throw new BadRequestException('Kurulum kodu geçersiz veya süresi dolmuş');
       }
 
       const agentId = randomUUID();

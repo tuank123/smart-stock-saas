@@ -184,6 +184,35 @@ describe('Şube Yönetimi / Branches (e2e)', () => {
       .expect(400);
   });
 
+  // ── (e.1) Süresi dolmuş kod ───────────────────────────────────────────────
+  //
+  // Gerçek 12 saat beklemek yerine, taze bir kod üretilip Prisma ile
+  // doğrudan expiresAt'i geçmişe çekiliyor (agent_setup_tokens RLS'siz —
+  // diğer sistem tablolarıyla aynı gerekçe, doğrudan erişim güvenli).
+
+  it('POST /branches/agent-connect — süresi dolmuş kod reddedilir (400), "kullanılmış" ile aynı genel mesaj', async () => {
+    const genRes = await request(app.getHttpServer())
+      .post(`/api/v1/branches/${newBranchId}/integration/setup-code`)
+      .set('Authorization', authHeader1)
+      .send({ adapterType })
+      .expect(201);
+    const expiredToken: string = genRes.body.token;
+
+    await prisma.agentSetupToken.update({
+      where: { token: expiredToken },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/branches/agent-connect')
+      .send({ token: expiredToken, agentVersion: '1.0.0-e2e' })
+      .expect(400);
+
+    // "kullanılmış kod" testindeki (400) reddiyle AYNI genel mesaj —
+    // hangi sebepten reddedildiği dışarı sızmamalı.
+    expect(res.body.message).toBe('Kurulum kodu geçersiz veya süresi dolmuş');
+  });
+
   it('POST /branches/agent-connect — başka tenant\'ın entegrasyon durumu sızmaz (404)', async () => {
     await request(app.getHttpServer())
       .get(`/api/v1/branches/${newBranchId}/integration`)
