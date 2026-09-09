@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { useAuth } from '@/hooks/useAuth';
 import { FullPageSpinner } from '@/components/shared/LoadingSpinner';
 import { HelpCenter } from '@/components/help/HelpCenter';
+import { MOBILE_FAQ_ITEMS } from '@/lib/help-content';
 
 // Tek Şubeli (STARTER) PATRON'un MOBİL (native) istasyon deneyimi.
 export default function IsletmeAppLayout({ children }: { children: React.ReactNode }) {
@@ -51,7 +52,13 @@ export default function IsletmeAppLayout({ children }: { children: React.ReactNo
       <main className="p-4 lg:p-6">{children}</main>
 
       {/* Sabit yardım butonu — tüm /isletme-app/* sayfalarında görünür. */}
-      <HelpCenter />
+      <HelpCenter
+        items={MOBILE_FAQ_ITEMS}
+        notFound={{
+          message: 'Aradığınızı bulamadınız mı? Bize bildirin, en kısa sürede yardımcı olalım.',
+          link: { href: '/isletme-app/ayarlar/geri-bildirim', label: 'Geri Bildirim Gönder' },
+        }}
+      />
     </div>
   );
 }

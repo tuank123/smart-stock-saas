@@ -10,39 +10,53 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { ONBOARDING_STEPS } from '@/lib/help-content';
+import type { OnboardingStep } from '@/lib/help-content';
 import { hasSeenOnboarding, markOnboardingSeen } from '@/lib/onboarding';
 import { cn } from '@/lib/utils';
 
+interface OnboardingTourProps {
+  /** Turun adımları — içerik `lib/help-content.ts`'ten gelir (MOBILE_/WEB_). */
+  steps: OnboardingStep[];
+  /**
+   * "Görüldü" bilgisinin tutulduğu localStorage anahtarı — mobil ve web
+   * turları BİRBİRİNDEN BAĞIMSIZ olsun diye ayrı key kullanır (bkz.
+   * lib/onboarding.ts:MOBILE_ONBOARDING_STORAGE_KEY/WEB_ONBOARDING_STORAGE_KEY).
+   */
+  storageKey: string;
+}
+
 /**
- * isletme-app/dashboard'a İLK gelişte gösterilen kısa tanıtım turu.
- * Kendi kendine yeter: hasSeenOnboarding() localStorage'da yoksa açılır,
- * "Atla"/"Başla"/dialog'un dışına tıklama/Esc — hepsi aynı şekilde
- * markOnboardingSeen() çağırıp bir daha göstermez.
+ * İlk kullanım turu — hem isletme-app/dashboard (mobil) hem isletme/raporlar
+ * (web) tarafından `steps`/`storageKey` prop'larıyla parametrize edilerek
+ * yeniden kullanılır (bkz. yukarıdaki prop açıklamaları). Kendi kendine
+ * yeter: hasSeenOnboarding(storageKey) yoksa açılır, "Atla"/"Başla"/dialog'un
+ * dışına tıklama/Esc — hepsi aynı şekilde markOnboardingSeen(storageKey)
+ * çağırıp bir daha göstermez.
  */
-export function OnboardingTour() {
+export function OnboardingTour({ steps, storageKey }: OnboardingTourProps) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
 
   useEffect(() => {
-    if (!hasSeenOnboarding()) setOpen(true);
+    if (!hasSeenOnboarding(storageKey)) setOpen(true);
+    // storageKey bir bileşenin ömrü boyunca değişmez — yalnızca mount'ta kontrol yeterli.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function finish() {
-    markOnboardingSeen();
+    markOnboardingSeen(storageKey);
     setOpen(false);
   }
 
   // Dialog'un KENDİ kapanma yolları (Esc, dış tıklama, X butonu) da "görüldü"
-  // sayılmalı — aksi halde kullanıcı X'e basarsa her dashboard ziyaretinde
-  // tur yeniden açılırdı.
+  // sayılmalı — aksi halde kullanıcı X'e basarsa her ziyarette tur yeniden açılırdı.
   function handleOpenChange(next: boolean) {
     if (!next) finish();
     else setOpen(next);
   }
 
-  const isLast = step === ONBOARDING_STEPS.length - 1;
-  const current = ONBOARDING_STEPS[step];
+  const isLast = step === steps.length - 1;
+  const current = steps[step];
   const Icon = current.icon;
 
   return (
@@ -58,7 +72,7 @@ export function OnboardingTour() {
 
         {/* İlerleme noktaları */}
         <div className="flex items-center justify-center gap-1.5" aria-hidden="true">
-          {ONBOARDING_STEPS.map((s, i) => (
+          {steps.map((s, i) => (
             <span
               key={s.title}
               className={cn(
@@ -69,7 +83,7 @@ export function OnboardingTour() {
           ))}
         </div>
         <p className="sr-only" role="status">
-          Adım {step + 1} / {ONBOARDING_STEPS.length}
+          Adım {step + 1} / {steps.length}
         </p>
 
         <DialogFooter className="mt-2 flex-row items-center justify-between sm:justify-between">

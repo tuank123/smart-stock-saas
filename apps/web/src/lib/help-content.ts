@@ -8,18 +8,23 @@ import {
   BarChart3,
   Search,
   Settings,
+  ScanBarcode,
   type LucideIcon,
 } from 'lucide-react';
 
 /**
- * isletme-app/* (tek şubeli PATRON) için "Kullanım Asistanı" içeriği.
+ * "Kullanım Asistanı" içeriği — hem mobil (isletme-app/*, tek şubeli PATRON)
+ * hem web (isletme/*, aynı yalnızca tek şubeli PATRON) tarafı için.
  *
  * Statik veri — ayrı dosyada tutuluyor ki ileride kolayca genişletilebilsin/
  * çevrilebilsin, bileşenlerin (OnboardingTour, HelpCenter) kendisi HİÇ
- * değişmeden içerik güncellenebilsin.
+ * değişmeden içerik güncellenebilsin. Aynı bileşenler her iki taraf için de
+ * `steps`/`items` prop'larıyla yeniden kullanılıyor — MOBILE_ ve WEB_
+ * önekleri hangi içeriğin hangi tarafa ait olduğunu netleştirir.
  *
- * Faz 1 kapsamı: yalnızca isletme-app/* (bkz. görev). mudur/gorevli/depo ve
- * web tarafı ayrı fazlarda ele alınacak.
+ * Faz 1: isletme-app/* (mobil). Faz 2: isletme/raporlar + isletme/entegrasyon
+ * (web, yalnızca STARTER PATRON). mudur/gorevli/depo ve çok şubeli senaryolar
+ * hâlâ kapsam dışı.
  */
 
 // ── Onboarding turu ──────────────────────────────────────────────────────────
@@ -33,7 +38,7 @@ export interface OnboardingStep {
 // isletme-app/dashboard/page.tsx'teki 8 menü kutusuyla birebir aynı sırada +
 // başta bir "Hoş Geldin" adımı — toplam 9 adım (dashboard/page.tsx'teki
 // `actions` dizisiyle senkron tutulmalı, biri değişirse diğeri de güncellenmeli).
-export const ONBOARDING_STEPS: OnboardingStep[] = [
+export const MOBILE_ONBOARDING_STEPS: OnboardingStep[] = [
   {
     icon: LayoutDashboard,
     title: 'StokPilot\'a Hoş Geldiniz',
@@ -99,7 +104,7 @@ export interface FaqItem {
   answer: string;
 }
 
-export const FAQ_ITEMS: FaqItem[] = [
+export const MOBILE_FAQ_ITEMS: FaqItem[] = [
   // Geçici Kasa
   {
     id: 'kasa-satis',
@@ -238,5 +243,84 @@ export const FAQ_ITEMS: FaqItem[] = [
     category: 'Ayarlar',
     question: 'Bir öneri ya da şikayetimi nasıl iletirim?',
     answer: 'Ayarlar > Geri Bildirim ekranından konu ve mesajınızı yazıp doğrudan bize gönderebilirsiniz.',
+  },
+];
+
+// ══════════════════════════════════════════════════════════════════════════
+// WEB (isletme/*) — Faz 2. Yalnızca tek şubeli (STARTER) PATRON'un web
+// deneyimi kapsıyor: isletme/raporlar + isletme/entegrasyon (bkz.
+// StarterSidebar.tsx'teki iki menü öğesi). Web'de Ayarlar sayfası/linki YOK
+// (bilinçli tasarım) — bu yüzden Ayarlar'a atıf gereken SSS cevapları mobil
+// uygulamaya yönlendirir.
+// ══════════════════════════════════════════════════════════════════════════
+
+// isletme/raporlar'a İLK gelişte gösterilir. Yalnızca 2 gerçek ekran olduğu
+// için mobildeki 9 adımlık kapsam kopyalanmıyor — kısa bir karşılama +
+// her ekran için bir adım (bkz. görev: "2-4 adım yeterli").
+export const WEB_ONBOARDING_STEPS: OnboardingStep[] = [
+  {
+    icon: LayoutDashboard,
+    title: 'StokPilot Web\'e Hoş Geldiniz',
+    description:
+      'Web paneliniz iki bölümden oluşur: Raporlar ve Barkod Entegrasyonu. Günlük satış, stok ve borç işlemlerinizi mobil uygulamadan yapmaya devam edersiniz — burası tamamlayıcı bir görüntüleme ve kurulum alanıdır.',
+  },
+  {
+    icon: BarChart3,
+    title: 'Raporlar',
+    description:
+      'İşletmenizin otomatik oluşturulan günlük ve aylık raporlarını burada listeler, birini açarak detaylarını ve varsa PDF\'ini görüntülersiniz. Bu sayfada herhangi bir işlem yapılmaz, yalnızca görüntülemedir.',
+  },
+  {
+    icon: ScanBarcode,
+    title: 'Barkod Entegrasyonu',
+    description:
+      'Kasa/POS yazılımınızı (Bay-t, Logo, Mikro, Netsis, vb.) StokPilot\'a bağlamak için bir kurulum kodu üretip StokPilot Agent uygulamasına girersiniz. Üretilen kod 12 saat geçerlidir.',
+  },
+];
+
+export const WEB_FAQ_ITEMS: FaqItem[] = [
+  // Raporlar
+  {
+    id: 'web-rapor-ne-gorunur',
+    category: 'Raporlar',
+    question: 'Raporlar sayfasında ne görebilirim?',
+    answer:
+      'İşletmenizin otomatik oluşturulan günlük ve aylık raporlarının listesini görürsünüz. Bir rapora tıklayınca detaylarını, varsa PDF\'ini görüntüleyebilirsiniz.',
+  },
+  {
+    id: 'web-rapor-kim-olusturuyor',
+    category: 'Raporlar',
+    question: 'Raporları ben mi oluşturuyorum, yoksa otomatik mi geliyor?',
+    answer:
+      'Raporlar StokPilot tarafından günlük ve aylık periyotlarla otomatik oluşturulur. Bu sayfadan elle rapor oluşturamazsınız, yalnızca görüntülersiniz.',
+  },
+  {
+    id: 'web-rapor-ayarlari',
+    category: 'Raporlar',
+    question: 'Rapor ayarlarımı (ör. kapanış saati) nereden değiştiririm?',
+    answer:
+      'Rapor ayarları web panelinde değil, mobil uygulamadaki Ayarlar > Rapor Ayarları ekranından değiştirilir.',
+  },
+  // Barkod Entegrasyonu
+  {
+    id: 'web-kurulum-kodu-nedir',
+    category: 'Barkod Entegrasyonu',
+    question: 'Kurulum kodu ne işe yarar, nasıl kullanılır?',
+    answer:
+      'Kasa/POS yazılımınızı seçip "Kurulum Kodu Üret"e basın; oluşan kodu bilgisayarınıza kurduğunuz StokPilot Agent uygulamasına girerek bağlantıyı tamamlayın.',
+  },
+  {
+    id: 'web-kurulum-kodu-sure',
+    category: 'Barkod Entegrasyonu',
+    question: 'Kurulum kodu ne kadar süre geçerli?',
+    answer:
+      'Üretilen kod 12 saat içinde kullanılmazsa geçersiz olur; süresi dolarsa yeni bir kod üretmeniz yeterlidir.',
+  },
+  {
+    id: 'web-kurulum-bekleniyor',
+    category: 'Barkod Entegrasyonu',
+    question: '"Kurulum Bekleniyor" yazıyor, ne yapmalıyım?',
+    answer:
+      'Bu durum kodun üretildiğini ama Agent\'ın henüz bağlanmadığını gösterir. StokPilot Agent\'ı bilgisayarınızda çalıştırıp kodu girdiğinizde durum otomatik olarak "Bağlandı"ya döner.',
   },
 ];

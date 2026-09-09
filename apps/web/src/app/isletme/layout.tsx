@@ -7,6 +7,8 @@ import { isNative } from '@/lib/platform';
 import { StarterSidebar } from '@/components/layout/StarterSidebar';
 import { Header } from '@/components/layout/Header';
 import { FullPageSpinner } from '@/components/shared/LoadingSpinner';
+import { HelpCenter } from '@/components/help/HelpCenter';
+import { WEB_FAQ_ITEMS } from '@/lib/help-content';
 
 // Tek Şubeli (STARTER) PATRON'un WEB deneyimi. Native ise burası değil, mobil
 // istasyon (/isletme-app) kullanılır → isNative() ise dışarı yönlendir.
@@ -47,6 +49,15 @@ export default function IsletmeLayout({ children }: { children: React.ReactNode 
           {children}
         </main>
       </div>
+
+      {/* Sabit yardım butonu — hem Raporlar hem Entegrasyon sayfasında görünür. */}
+      <HelpCenter
+        items={WEB_FAQ_ITEMS}
+        notFound={{
+          message:
+            'Aradığınızı bulamadınız mı? Bu konuda yardım almak için mobil uygulamadaki Ayarlar > Geri Bildirim ekranını kullanabilirsiniz.',
+        }}
+      />
     </div>
   );
 }

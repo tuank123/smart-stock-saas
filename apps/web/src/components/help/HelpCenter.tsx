@@ -5,20 +5,34 @@ import Link from 'next/link';
 import { ChevronDown, HelpCircle, MessageCircleQuestion, Search } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { FAQ_ITEMS, type FaqItem } from '@/lib/help-content';
+import type { FaqItem } from '@/lib/help-content';
 import { cn } from '@/lib/utils';
 
+interface HelpCenterNotFound {
+  message: string;
+  /** Verilmezse (ör. web'de var olmayan bir sayfaya yönlendirmemek için) düz metin olarak kalır, tıklanabilir bir eylem gösterilmez. */
+  link?: { href: string; label: string };
+}
+
+interface HelpCenterProps {
+  /** SSS maddeleri — içerik `lib/help-content.ts`'ten gelir (MOBILE_/WEB_). */
+  items: FaqItem[];
+  notFound: HelpCenterNotFound;
+}
+
 /**
- * isletme-app/* düzeninde HER ekranda erişilebilir sabit yardım butonu
- * (sağ alt köşe) + tıklanınca açılan arama + SSS modalı. layout.tsx'e TEK
- * satırla eklenir, kendi state'ini kendi yönetir.
+ * isletme-app/* (mobil) ve isletme/* (web) düzenlerinde HER ekranda
+ * erişilebilir sabit yardım butonu (sağ alt köşe) + tıklanınca açılan arama +
+ * SSS modalı. `items`/`notFound` prop'larıyla parametrize edilerek her iki
+ * düzende de yeniden kullanılır. layout.tsx'e TEK satırla eklenir, kendi
+ * state'ini kendi yönetir.
  *
  * Faz B'de üzerinde tartışılıp vazgeçilen "geri bildirim butonu" fikriyle
  * KARIŞTIRILMAMALI — bu, var olan Ayarlar > Geri Bildirim sayfasını
  * TAMAMLAYAN ayrı bir özellik (SSS'te bulunamayan sorular için oraya
  * yönlendirir, kendisi bir geri bildirim formu DEĞİLDİR).
  */
-export function HelpCenter() {
+export function HelpCenter({ items, notFound }: HelpCenterProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -26,16 +40,16 @@ export function HelpCenter() {
   // Basit metin eşleştirmesi — fuzzy arama gerekmiyor (bkz. görev).
   const filtered = useMemo(() => {
     const q = query.trim().toLocaleLowerCase('tr-TR');
-    if (!q) return FAQ_ITEMS;
-    return FAQ_ITEMS.filter(
+    if (!q) return items;
+    return items.filter(
       (item) =>
         item.question.toLocaleLowerCase('tr-TR').includes(q) ||
         item.answer.toLocaleLowerCase('tr-TR').includes(q) ||
         item.category.toLocaleLowerCase('tr-TR').includes(q),
     );
-  }, [query]);
+  }, [items, query]);
 
-  // Kategoriye göre grupla — FAQ_ITEMS'teki sırayı korur.
+  // Kategoriye göre grupla — items'teki sırayı korur.
   const grouped = useMemo(() => {
     const map = new Map<string, FaqItem[]>();
     for (const item of filtered) {
@@ -99,26 +113,26 @@ export function HelpCenter() {
             {grouped.length === 0 ? (
               <div className="flex flex-col items-center gap-3 py-8 text-center">
                 <MessageCircleQuestion className="h-8 w-8 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">
-                  Aradığınızı bulamadınız mı? Bize bildirin, en kısa sürede yardımcı olalım.
-                </p>
-                <Link
-                  href="/isletme-app/ayarlar/geri-bildirim"
-                  onClick={() => handleOpenChange(false)}
-                  className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90"
-                >
-                  Geri Bildirim Gönder
-                </Link>
+                <p className="text-sm text-muted-foreground">{notFound.message}</p>
+                {notFound.link && (
+                  <Link
+                    href={notFound.link.href}
+                    onClick={() => handleOpenChange(false)}
+                    className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90"
+                  >
+                    {notFound.link.label}
+                  </Link>
+                )}
               </div>
             ) : (
               <>
-                {grouped.map(([category, items]) => (
+                {grouped.map(([category, categoryItems]) => (
                   <div key={category}>
                     <p className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       {category}
                     </p>
                     <div className="space-y-2">
-                      {items.map((item) => {
+                      {categoryItems.map((item) => {
                         const isOpen = expandedIds.has(item.id);
                         return (
                           <div key={item.id} className="overflow-hidden rounded-lg border bg-card">
@@ -149,15 +163,19 @@ export function HelpCenter() {
                 ))}
 
                 <p className="px-1 pb-1 pt-2 text-center text-xs text-muted-foreground">
-                  Aradığınızı bulamadınız mı?{' '}
-                  <Link
-                    href="/isletme-app/ayarlar/geri-bildirim"
-                    onClick={() => handleOpenChange(false)}
-                    className="font-medium text-primary hover:underline"
-                  >
-                    Bize bildirin
-                  </Link>
-                  .
+                  {notFound.message}
+                  {notFound.link && (
+                    <>
+                      {' '}
+                      <Link
+                        href={notFound.link.href}
+                        onClick={() => handleOpenChange(false)}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        {notFound.link.label}
+                      </Link>
+                    </>
+                  )}
                 </p>
               </>
             )}

@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { useDebtReminders } from '@/hooks/useMudur';
 import { OnboardingTour } from '@/components/onboarding/OnboardingTour';
+import { MOBILE_ONBOARDING_STEPS } from '@/lib/help-content';
+import { MOBILE_ONBOARDING_STORAGE_KEY } from '@/lib/onboarding';
 
 // İleride yeni istasyon eklemek için bu diziye bir satır eklemek yeterli.
 interface StationAction {
@@ -43,7 +45,7 @@ export default function IsletmeAppDashboardPage() {
 
   return (
     <div className="mx-auto w-full max-w-lg">
-      <OnboardingTour />
+      <OnboardingTour steps={MOBILE_ONBOARDING_STEPS} storageKey={MOBILE_ONBOARDING_STORAGE_KEY} />
 
       {showReminderCard && (
         <Link
