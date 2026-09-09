@@ -225,12 +225,6 @@ export function OcrScanFlow() {
           }
           setStep(2);
         },
-        // GEÇİCİ TEŞHİS: taramada oluşan hatanın tam mesajını göster.
-        onError: (err: unknown) => {
-          const responseData = (err as { response?: { data?: unknown } })?.response?.data;
-          const detail = responseData ? ` | data: ${JSON.stringify(responseData)}` : '';
-          toast.error(`TARAMA HATASI: ${String(err)}${detail}`);
-        },
       },
     );
   }
