@@ -171,6 +171,7 @@ export default function DashboardPage() {
     totalCriticalStock,
     totalDraftOrders,
     unreadReports,
+    unreadReportsCount,
     branchRows,
     isLoading,
     isError,
@@ -251,9 +252,9 @@ export default function DashboardPage() {
         <div>
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
             Okunmamış Raporlar
-            {unreadReports.length > 0 && (
+            {unreadReportsCount > 0 && (
               <Badge variant="destructive" className="text-xs">
-                {unreadReports.length}
+                {unreadReportsCount}
               </Badge>
             )}
           </h2>

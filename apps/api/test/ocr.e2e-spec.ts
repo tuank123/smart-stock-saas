@@ -356,4 +356,49 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     expect(errorLogs[0].message).toContain('ödenen tutar');
     expect((errorLogs[0].context as { scanId?: string })?.scanId).toBe(scan.body.scanId);
   });
+
+  // ── (h) Tarama listeleme — sayfalama ─────────────────────────────────────
+  //
+  // admin/tenants, products, stock, orders ile aynı desen: {items,total,page,pageSize}.
+  // Bu noktada ctx.branchId'de yukarıdaki testlerden en az 7 tarama var.
+
+  it('GET /ocr/scans/:branchId — {items,total,page,pageSize} şeklinde, varsayılan sayfa/pageSize ile döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/ocr/scans/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(typeof res.body.total).toBe('number');
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(50);
+    expect(res.body.total).toBeGreaterThanOrEqual(7);
+  });
+
+  it('GET /ocr/scans/:branchId?pageSize=1&page=2 — ikinci sayfaya doğru geçer, total tüm eşleşen kayıt sayısını yansıtır', async () => {
+    const page1 = await request(app.getHttpServer())
+      .get(`/api/v1/ocr/scans/${ctx.branchId}`)
+      .query({ pageSize: 1, page: 1 })
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(page1.body.items).toHaveLength(1);
+    expect(page1.body.total).toBeGreaterThanOrEqual(7);
+
+    const page2 = await request(app.getHttpServer())
+      .get(`/api/v1/ocr/scans/${ctx.branchId}`)
+      .query({ pageSize: 1, page: 2 })
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(page2.body.items).toHaveLength(1);
+    expect(page2.body.page).toBe(2);
+    expect(page2.body.items[0].id).not.toBe(page1.body.items[0].id);
+  });
+
+  it('GET /ocr/scans/:branchId?pageSize=101 — üst sınırı (100) aşan pageSize 400 döner', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/v1/ocr/scans/${ctx.branchId}`)
+      .query({ pageSize: 101 })
+      .set('Authorization', authHeader)
+      .expect(400);
+  });
 });

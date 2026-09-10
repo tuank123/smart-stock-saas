@@ -11,7 +11,7 @@ import { SyncService } from '../sync/sync.service';
 import { withTenantContext } from '../../common/utils/tenant-context';
 import { findBestFuzzyMatch } from '../../common/utils/fuzzyMatch';
 import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
-import { ConfirmReturnDto, ConfirmScanDto, ScanDto } from './dto/ocr.dto';
+import { ConfirmReturnDto, ConfirmScanDto, ScanDto, ScanQueryDto } from './dto/ocr.dto';
 
 // Miktarlarda kabul edilen ondalık tolerans (Decimal(12,3) hassasiyetiyle uyumlu).
 const QUANTITY_TOLERANCE = 0.001;
@@ -538,23 +538,36 @@ export class OcrService {
     });
   }
 
-  async listScans(branchId: string, user: { tenantId: string }) {
+  async listScans(branchId: string, query: ScanQueryDto, user: { tenantId: string }) {
     return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
-      return tx.ocrScan.findMany({
-        where: { tenantId: user.tenantId, branchId },
-        select: {
-          id: true,
-          status: true,
-          imageUrl: true,
-          parsedLines: true,
-          createdAt: true,
-          confirmedAt: true,
-          scanner: { select: { id: true, email: true } },
-          confirmer: { select: { id: true, email: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+      const where = { tenantId: user.tenantId, branchId };
+      const page = query.page ?? 1;
+      const pageSize = query.pageSize ?? 50;
+
+      const select = {
+        id: true,
+        status: true,
+        imageUrl: true,
+        parsedLines: true,
+        createdAt: true,
+        confirmedAt: true,
+        scanner: { select: { id: true, email: true } },
+        confirmer: { select: { id: true, email: true } },
+      } as const;
+
+      const [items, total] = await Promise.all([
+        tx.ocrScan.findMany({
+          where,
+          select,
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        tx.ocrScan.count({ where }),
+      ]);
+
+      return { items, total, page, pageSize };
     });
   }
 

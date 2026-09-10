@@ -2,13 +2,15 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { FileText, FileDown, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText, FileDown, AlertTriangle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useReports } from '@/hooks/useReports';
 import type { Report } from '@/lib/types';
+
+const PAGE_SIZE = 50;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -101,8 +103,20 @@ const FILTERS: { value: FilterType; label: string }[] = [
 
 export function ReportsContent() {
   const [filter, setFilter] = useState<FilterType>('all');
-  const query = useReports(filter === 'all' ? undefined : filter);
-  const reports = query.data ?? [];
+  const [page, setPage] = useState(1);
+  const query = useReports({
+    type: filter === 'all' ? undefined : filter,
+    page,
+    pageSize: PAGE_SIZE,
+  });
+  const reports = query.data?.items ?? [];
+  const total = query.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function handleFilterChange(next: FilterType) {
+    setFilter(next);
+    setPage(1);
+  }
 
   return (
     <>
@@ -113,13 +127,13 @@ export function ReportsContent() {
             key={value}
             size="sm"
             variant={filter === value ? 'default' : 'outline'}
-            onClick={() => setFilter(value)}
+            onClick={() => handleFilterChange(value)}
           >
             {label}
           </Button>
         ))}
         <span className="ml-auto text-sm text-muted-foreground">
-          {query.isSuccess ? `${reports.length} rapor` : ' '}
+          {query.isSuccess ? `Toplam ${total} rapor` : ' '}
         </span>
       </div>
 
@@ -148,6 +162,35 @@ export function ReportsContent() {
           {reports.map((r: Report) => (
             <ReportCard key={r.id} report={r} />
           ))}
+
+          {/* Sayfalama — admin/errors ile aynı desen */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3">
+              <p className="text-sm text-muted-foreground">
+                Sayfa {page}/{totalPages}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Önceki
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Sonraki
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </>

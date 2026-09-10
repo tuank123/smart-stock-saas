@@ -46,7 +46,7 @@ export class ReportsController {
     @Query() query: ReportQueryDto,
     @CurrentUser() user: { tenantId: string },
   ) {
-    return this.service.listReports(user.tenantId, query.type, query.unreadOnly);
+    return this.service.listReports(user.tenantId, query.type, query.unreadOnly, query.page, query.pageSize);
   }
 
   @Get(':reportId')

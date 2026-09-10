@@ -33,9 +33,9 @@ function fetchIntegration(branchId: string): Promise<BranchIntegration | null> {
     .catch((): null => null); // 404 = no integration configured
 }
 
-function fetchUnreadReports(): Promise<Report[]> {
+function fetchUnreadReports(): Promise<PaginatedResponse<Report>> {
   return api
-    .get<Report[]>('/reports', { params: { unreadOnly: true } })
+    .get<PaginatedResponse<Report>>('/reports', { params: { unreadOnly: true } })
     .then((r) => r.data);
 }
 
@@ -87,7 +87,7 @@ export function useDashboard() {
     })),
   }) as UseQueryResult<BranchIntegration | null>[];
 
-  const reportsQuery = useQuery<Report[]>({
+  const reportsQuery = useQuery<PaginatedResponse<Report>>({
     queryKey: ['reports', 'unread'],
     queryFn: fetchUnreadReports,
     staleTime: 1000 * 60,
@@ -101,7 +101,11 @@ export function useDashboard() {
   const totalCriticalStock = sumTotals(stockQueries);
   const totalDraftOrders = sumLengths(orderQueries as UseQueryResult<unknown[]>[]);
 
-  const unreadReports: Report[] = reportsQuery.data ?? [];
+  const unreadReports: Report[] = reportsQuery.data?.items ?? [];
+  // .total (sayfalanmış öğe sayısı değil) — widget rozeti pageSize'ın
+  // ötesinde okunmamış rapor varsa bile doğru sayıyı yansıtmalı (yukarıdaki
+  // kritik stok sayacıyla aynı gerekçe).
+  const unreadReportsCount = reportsQuery.data?.total ?? 0;
 
   const branchRows: BranchDashboardRow[] = branches.map(
     (b: Branch, i: number): BranchDashboardRow => ({
@@ -129,6 +133,7 @@ export function useDashboard() {
     totalCriticalStock,
     totalDraftOrders,
     unreadReports,
+    unreadReportsCount,
     branchRows,
     isLoading,
     isError,

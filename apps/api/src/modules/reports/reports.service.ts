@@ -194,21 +194,37 @@ export class ReportsService {
 
   // ─── LIST / DETAIL ───────────────────────────────────────────────────────
 
-  async listReports(tenantId: string, type?: string, unreadOnly?: boolean) {
+  async listReports(
+    tenantId: string,
+    type?: string,
+    unreadOnly?: boolean,
+    page?: number,
+    pageSize?: number,
+  ) {
     return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
       const where: Prisma.ScheduledReportWhereInput = { tenantId };
       if (type) where.reportType = type;
       if (unreadOnly) where.isRead = false;
 
-      return tx.scheduledReport.findMany({
-        where,
-        orderBy: { reportDate: 'desc' },
-        select: {
-          id: true, reportType: true, reportDate: true,
-          generatedAt: true, isRead: true, readAt: true, pdfUrl: true,
-        },
-      });
+      const currentPage = page ?? 1;
+      const currentPageSize = pageSize ?? 50;
+
+      const [items, total] = await Promise.all([
+        tx.scheduledReport.findMany({
+          where,
+          orderBy: { reportDate: 'desc' },
+          select: {
+            id: true, reportType: true, reportDate: true,
+            generatedAt: true, isRead: true, readAt: true, pdfUrl: true,
+          },
+          skip: (currentPage - 1) * currentPageSize,
+          take: currentPageSize,
+        }),
+        tx.scheduledReport.count({ where }),
+      ]);
+
+      return { items, total, page: currentPage, pageSize: currentPageSize };
     });
   }
 

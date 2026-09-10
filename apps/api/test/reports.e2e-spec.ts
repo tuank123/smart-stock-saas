@@ -135,17 +135,17 @@ describe('Raporlar / Reports (e2e)', () => {
       .set('Authorization', authHeader1)
       .expect(200);
 
-    const ids = res.body.map((r: { id: string }) => r.id);
+    const ids = res.body.items.map((r: { id: string }) => r.id);
     expect(ids).toContain(dailyReportId);
     expect(ids).toContain(monthlyReportId);
-    expect(res.body.every((r: { id: string }) => r.id !== undefined)).toBe(true);
+    expect(res.body.items.every((r: { id: string }) => r.id !== undefined)).toBe(true);
 
     // ctx2'nin raporu ctx1'in listesinde OLMAMALI (id'ler farklı tenant'a ait).
     const res2 = await request(app.getHttpServer())
       .get('/api/v1/reports')
       .set('Authorization', authHeader2)
       .expect(200);
-    const ctx2ReportId = res2.body[0].id;
+    const ctx2ReportId = res2.body.items[0].id;
     expect(ids).not.toContain(ctx2ReportId);
   });
 
@@ -165,11 +165,70 @@ describe('Raporlar / Reports (e2e)', () => {
       .get('/api/v1/reports')
       .set('Authorization', authHeader2)
       .expect(200);
-    const ctx2ReportId = listRes.body[0].id;
+    const ctx2ReportId = listRes.body.items[0].id;
 
     await request(app.getHttpServer())
       .get(`/api/v1/reports/${ctx2ReportId}`)
       .set('Authorization', authHeader1)
       .expect(404);
+  });
+
+  // ── (f) Sayfalama ─────────────────────────────────────────────────────────
+  //
+  // admin/tenants, products, stock, orders, ocr ile aynı desen:
+  // {items,total,page,pageSize}. Bu noktada ctx1'de en az 2 rapor var
+  // (dailyReportId + monthlyReportId).
+
+  it('GET /reports — {items,total,page,pageSize} şeklinde, varsayılan sayfa/pageSize ile döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/reports')
+      .set('Authorization', authHeader1)
+      .expect(200);
+
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(typeof res.body.total).toBe('number');
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(50);
+    expect(res.body.total).toBeGreaterThanOrEqual(2);
+  });
+
+  it('GET /reports?pageSize=1&page=2 — ikinci sayfaya doğru geçer, total tüm eşleşen kayıt sayısını yansıtır', async () => {
+    const page1 = await request(app.getHttpServer())
+      .get('/api/v1/reports')
+      .query({ pageSize: 1, page: 1 })
+      .set('Authorization', authHeader1)
+      .expect(200);
+    expect(page1.body.items).toHaveLength(1);
+    expect(page1.body.total).toBeGreaterThanOrEqual(2);
+
+    const page2 = await request(app.getHttpServer())
+      .get('/api/v1/reports')
+      .query({ pageSize: 1, page: 2 })
+      .set('Authorization', authHeader1)
+      .expect(200);
+    expect(page2.body.items).toHaveLength(1);
+    expect(page2.body.page).toBe(2);
+    expect(page2.body.items[0].id).not.toBe(page1.body.items[0].id);
+  });
+
+  it('GET /reports?pageSize=101 — üst sınırı (100) aşan pageSize 400 döner', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/reports')
+      .query({ pageSize: 101 })
+      .set('Authorization', authHeader1)
+      .expect(400);
+  });
+
+  it('GET /reports?type=DAILY — tip filtresi + sayfalama birlikte doğru total döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/reports')
+      .query({ type: 'DAILY', pageSize: 50 })
+      .set('Authorization', authHeader1)
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].id).toBe(dailyReportId);
+    expect(res.body.items[0].reportType).toBe('DAILY');
   });
 });

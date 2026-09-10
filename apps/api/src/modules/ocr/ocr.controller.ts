@@ -6,11 +6,12 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { ConfirmReturnDto, ConfirmScanDto, ScanDto } from './dto/ocr.dto';
+import { ConfirmReturnDto, ConfirmScanDto, ScanDto, ScanQueryDto } from './dto/ocr.dto';
 import { OcrService } from './ocr.service';
 
 @Controller('ocr')
@@ -56,8 +57,9 @@ export class OcrController {
   @Get('scans/:branchId')
   list(
     @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Query() query: ScanQueryDto,
     @CurrentUser() user: { tenantId: string },
   ) {
-    return this.service.listScans(branchId, user);
+    return this.service.listScans(branchId, query, user);
   }
 }

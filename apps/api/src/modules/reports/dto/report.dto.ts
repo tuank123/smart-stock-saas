@@ -1,5 +1,5 @@
 import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 export class GenerateDailyReportDto {
   @IsOptional()
@@ -27,4 +27,18 @@ export class ReportQueryDto {
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   unreadOnly?: boolean;
+
+  // admin/tenants, products, stock ve orders ile aynı desen ({items,total,page,pageSize}).
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  page?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @Type(() => Number)
+  pageSize?: number;
 }
