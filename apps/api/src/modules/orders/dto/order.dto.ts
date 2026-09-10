@@ -1,11 +1,13 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -49,6 +51,20 @@ export class OrderQueryDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  // admin/tenants ve products/stock ile aynı desen ({items,total,page,pageSize}).
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  page?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @Type(() => Number)
+  pageSize?: number;
 }
 
 export class CheckThresholdsDto {

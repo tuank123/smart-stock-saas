@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, RefreshCw, AlertTriangle } from 'lucide-react';
+import { ExternalLink, RefreshCw, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { PageLayout } from '@/components/layout/PageLayout';
@@ -14,13 +14,33 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { StatusBadge, ORDER_STATUS_LABELS } from '@/components/shared/StatusBadge';
 import { api } from '@/lib/api';
-import type { Branch, Order } from '@/lib/types';
+import type { Branch, Order, PaginatedResponse } from '@/lib/types';
+
+const PAGE_SIZE = 50;
+// "Tüm Şubeler" seçiliyken şube başına ayrı bir istek atılır (bilinen N+1,
+// kapsam dışı — bkz. görev notu). Bu birleşik görünüme gerçek bir pager
+// uygulanamıyor (sonuçlar şubeler arası düz birleştiriliyor); en azından
+// önceki "hepsini göster" davranışına en yakın sonuç için izin verilen üst
+// sınır (100) istenir. Bir şubede 100'den fazla sipariş varsa bu görünümde
+// kesilir — mevcut mimari kısıt, bu görevin kapsamında değil.
+const ALL_BRANCHES_PAGE_SIZE = 100;
 
 function fetchBranches(): Promise<Branch[]> {
   return api.get<Branch[]>('/branches').then((r) => r.data);
 }
-function fetchOrders(branchId: string): Promise<Order[]> {
-  return api.get<Order[]>(`/orders/${branchId}`).then((r) => r.data);
+function fetchOrders(
+  branchId: string,
+  params: { status?: string; page?: number; pageSize?: number } = {},
+): Promise<PaginatedResponse<Order>> {
+  return api
+    .get<PaginatedResponse<Order>>(`/orders/${branchId}`, {
+      params: {
+        ...(params.status && params.status !== 'ALL' ? { status: params.status } : {}),
+        ...(params.page ? { page: params.page } : {}),
+        ...(params.pageSize ? { pageSize: params.pageSize } : {}),
+      },
+    })
+    .then((r) => r.data);
 }
 
 function fmt(dateStr: string) {
@@ -41,19 +61,25 @@ export default function OrdersPage() {
   const qc = useQueryClient();
   const [branchId, setBranchId] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [page, setPage] = useState(1);
 
   const branchesQuery = useQuery<Branch[]>({ queryKey: ['branches'], queryFn: fetchBranches });
-  const ordersQuery = useQuery<Order[]>({
-    queryKey: ['orders', branchId],
+  const ordersQuery = useQuery<PaginatedResponse<Order>>({
+    queryKey: ['orders', branchId, statusFilter, page],
     queryFn: async () => {
       if (branchId === 'ALL') {
         const branches = branchesQuery.data ?? [];
         const results = await Promise.all(
-          branches.map((b: Branch) => fetchOrders(b.id).catch(() => [] as Order[])),
+          branches.map((b: Branch) =>
+            fetchOrders(b.id, { status: statusFilter, page: 1, pageSize: ALL_BRANCHES_PAGE_SIZE }).catch(
+              () => ({ items: [] as Order[], total: 0, page: 1, pageSize: ALL_BRANCHES_PAGE_SIZE }),
+            ),
+          ),
         );
-        return results.flat();
+        const items = results.flatMap((r) => r.items);
+        return { items, total: items.length, page: 1, pageSize: items.length };
       }
-      return fetchOrders(branchId);
+      return fetchOrders(branchId, { status: statusFilter, page, pageSize: PAGE_SIZE });
     },
     enabled: !!branchId && branchesQuery.isSuccess,
     staleTime: 1000 * 30,
@@ -69,11 +95,21 @@ export default function OrdersPage() {
     onError: () => toast.error('Eşik kontrolü başarısız'),
   });
 
-  const orders = ordersQuery.data ?? [];
-  const filtered = useMemo(
-    () => (statusFilter === 'ALL' ? orders : orders.filter((o: Order) => o.status === statusFilter)),
-    [orders, statusFilter],
-  );
+  const orders = ordersQuery.data?.items ?? [];
+  const total = ordersQuery.data?.total ?? 0;
+  const isAllBranches = branchId === 'ALL';
+  const totalPages = isAllBranches ? 1 : Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function handleBranchChange(v: string) {
+    setBranchId(v);
+    setStatusFilter('ALL');
+    setPage(1);
+  }
+
+  function handleStatusChange(v: string) {
+    setStatusFilter(v);
+    setPage(1);
+  }
 
   return (
     <PageLayout title="Siparişler">
@@ -90,7 +126,7 @@ export default function OrdersPage() {
           {branchesQuery.isPending ? (
             <Skeleton className="h-9 w-full" />
           ) : (
-            <Select value={branchId} onValueChange={(v) => { setBranchId(v); setStatusFilter('ALL'); }}>
+            <Select value={branchId} onValueChange={handleBranchChange}>
               <SelectTrigger><SelectValue placeholder="Şube seçin…" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">Tüm Şubeler</SelectItem>
@@ -103,7 +139,7 @@ export default function OrdersPage() {
         </div>
 
         {branchId && (
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <Select value={statusFilter} onValueChange={handleStatusChange}>
             <SelectTrigger className="w-full sm:w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">Tüm Durumlar</SelectItem>
@@ -140,7 +176,7 @@ export default function OrdersPage() {
         </div>
       ) : ordersQuery.isPending ? (
         <TableSkeleton />
-      ) : filtered.length === 0 ? (
+      ) : orders.length === 0 ? (
         <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
           {statusFilter !== 'ALL' ? 'Bu durumda sipariş bulunamadı.' : 'Bu şubede sipariş yok.'}
         </div>
@@ -159,7 +195,7 @@ export default function OrdersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((o: Order) => (
+              {orders.map((o: Order) => (
                 <TableRow key={o.id}>
                   <TableCell className="font-mono text-sm">{o.id.slice(0, 8).toUpperCase()}</TableCell>
                   <TableCell className="text-muted-foreground">{fmt(o.createdAt)}</TableCell>
@@ -180,6 +216,36 @@ export default function OrdersPage() {
               ))}
             </TableBody>
           </Table>
+
+          {/* Sayfalama — admin/errors ile aynı desen ("Tüm Şubeler" birleşik
+              görünümünde gerçek bir sayfa kavramı yok, bkz. yukarıdaki not). */}
+          {!isAllBranches && (
+            <div className="flex items-center justify-between border-t p-3">
+              <p className="text-sm text-muted-foreground">
+                Sayfa {page}/{totalPages}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Önceki
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Sonraki
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </PageLayout>

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, CheckCircle, Pencil, Plus, XCircle } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, CheckCircle, Pencil, Plus, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -14,6 +14,8 @@ import {
   useCancelOrder,
 } from '@/hooks/useMudur';
 import type { Order } from '@/lib/types';
+
+const HISTORY_PAGE_SIZE = 50;
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
@@ -75,12 +77,21 @@ function DraftCardSkeleton() {
 
 export default function MudurSiparislerPage() {
   const [tab, setTab] = useState<'pending' | 'history'>('pending');
+  const [historyPage, setHistoryPage] = useState(1);
 
   const { data: drafts, isPending: draftsLoading, isError: draftsError } = useDraftOrders();
-  const { data: allOrders, isPending: allLoading, isError: allError } = useOrders();
+  const {
+    data: historyData,
+    isPending: allLoading,
+    isError: allError,
+  } = useOrders({ page: historyPage, pageSize: HISTORY_PAGE_SIZE });
   const approveMutation = useApproveOrder();
   const cancelMutation = useCancelOrder();
   const mutationBusy = approveMutation.isPending || cancelMutation.isPending;
+
+  const allOrders = historyData?.items ?? [];
+  const historyTotal = historyData?.total ?? 0;
+  const historyTotalPages = Math.max(1, Math.ceil(historyTotal / HISTORY_PAGE_SIZE));
 
   return (
     <div>
@@ -252,7 +263,7 @@ export default function MudurSiparislerPage() {
                       </td>
                     </tr>
                   ))
-                ) : (allOrders?.length ?? 0) === 0 ? (
+                ) : allOrders.length === 0 ? (
                   <tr>
                     <td
                       colSpan={5}
@@ -262,7 +273,7 @@ export default function MudurSiparislerPage() {
                     </td>
                   </tr>
                 ) : (
-                  (allOrders ?? []).map((order: Order) => {
+                  allOrders.map((order: Order) => {
                     const total = calcTotal(order);
                     return (
                       <tr
@@ -293,6 +304,35 @@ export default function MudurSiparislerPage() {
                 )}
               </tbody>
             </table>
+
+            {/* Sayfalama — admin/errors ile aynı desen */}
+            {!allLoading && allOrders.length > 0 && (
+              <div className="flex items-center justify-between border-t p-3">
+                <p className="text-sm text-muted-foreground">
+                  Sayfa {historyPage}/{historyTotalPages}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={historyPage <= 1}
+                    onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Önceki
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={historyPage >= historyTotalPages}
+                    onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}
+                  >
+                    Sonraki
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

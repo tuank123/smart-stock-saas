@@ -17,10 +17,20 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { api } from '@/lib/api';
-import type { Order, WhatsappLog } from '@/lib/types';
+import type { Order, PaginatedResponse, WhatsappLog } from '@/lib/types';
 
-function fetchOrders(branchId: string): Promise<Order[]> {
-  return api.get<Order[]>(`/orders/${branchId}`).then((r) => r.data);
+// Bu sayfa tek bir siparişi ID'ye göre bulmak için şubenin sipariş listesini
+// çekip .find() yapıyor (backend'de "GET /orders/:orderId" tekil uç noktası
+// yok — kapsam dışı, eklenmedi). Sayfalama sonrası varsayılan sayfa boyutu
+// (50) bu lookup'ı kırabilir: şubede 50'den fazla sipariş varsa ve aranan
+// eski bir sipariş sıradaysa bulunamaz. En azından izin verilen üst sınır
+// (100) istenerek etkisi azaltılıyor — 100'den fazla siparişi olan bir
+// şubede hâlâ bir kısıt var, bu görevin kapsamında yeni bir endpoint
+// eklemek yok.
+function fetchOrders(branchId: string): Promise<PaginatedResponse<Order>> {
+  return api
+    .get<PaginatedResponse<Order>>(`/orders/${branchId}`, { params: { pageSize: 100 } })
+    .then((r) => r.data);
 }
 function fetchWALogs(orderId: string): Promise<WhatsappLog[]> {
   return api.get<WhatsappLog[]>(`/orders/${orderId}/whatsapp-logs`).then((r) => r.data);
@@ -47,7 +57,7 @@ function OrderDetailInner() {
   const branchId = searchParams.get('branchId') ?? '';
   const qc = useQueryClient();
 
-  const ordersQuery = useQuery<Order[]>({
+  const ordersQuery = useQuery<PaginatedResponse<Order>>({
     queryKey: ['orders', branchId],
     queryFn: () => fetchOrders(branchId),
     enabled: !!branchId,
@@ -83,7 +93,7 @@ function OrderDetailInner() {
     onError: () => toast.error('Teslim işlemi başarısız'),
   });
 
-  const order = ordersQuery.data?.find((o: Order) => o.id === orderId);
+  const order = ordersQuery.data?.items.find((o: Order) => o.id === orderId);
 
   const isLoading = ordersQuery.isPending;
   const isError = ordersQuery.isError || (!isLoading && !branchId);

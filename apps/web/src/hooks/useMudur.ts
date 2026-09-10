@@ -396,8 +396,25 @@ export function useBranches() {
 
 // ── Order hooks ───────────────────────────────────────────────────────────────
 
-function fetchAllOrders(branchId: string): Promise<Order[]> {
-  return api.get<Order[]>(`/orders/${branchId}`).then((r) => r.data);
+export interface OrderListParams {
+  page?: number;
+  pageSize?: number;
+  status?: string;
+}
+
+function fetchAllOrders(
+  branchId: string,
+  params: OrderListParams = {},
+): Promise<PaginatedResponse<Order>> {
+  return api
+    .get<PaginatedResponse<Order>>(`/orders/${branchId}`, {
+      params: {
+        ...(params.page ? { page: params.page } : {}),
+        ...(params.pageSize ? { pageSize: params.pageSize } : {}),
+        ...(params.status ? { status: params.status } : {}),
+      },
+    })
+    .then((r) => r.data);
 }
 
 // Depo istasyonu — yalnızca teslim alınabilir (APPROVED/SENT) siparişler.
@@ -409,12 +426,12 @@ function fetchSuppliers(): Promise<Supplier[]> {
   return api.get<Supplier[]>('/suppliers').then((r) => r.data);
 }
 
-export function useOrders() {
+export function useOrders(params: OrderListParams = {}) {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
-  return useQuery<Order[]>({
-    queryKey: ['orders', branchId],
-    queryFn: () => fetchAllOrders(branchId),
+  return useQuery<PaginatedResponse<Order>>({
+    queryKey: ['orders', branchId, params],
+    queryFn: () => fetchAllOrders(branchId, params),
     staleTime: 1000 * 30,
     enabled: !!branchId,
   });

@@ -252,7 +252,7 @@ describe('Satın Alma Siparişleri / Orders (e2e)', () => {
       .get(`/api/v1/orders/${ctx.branchId}`)
       .set('Authorization', subeMuduruAuthHeader)
       .expect(200);
-    const overOrder = listRes.body.find((o: { id: string }) => o.id === overOrderId);
+    const overOrder = listRes.body.items.find((o: { id: string }) => o.id === overOrderId);
     expect(overOrder).toBeDefined();
     expect(overOrder.status).toBe('APPROVED');
 
@@ -263,5 +263,65 @@ describe('Satın Alma Siparişleri / Orders (e2e)', () => {
     expect(errorLogs.length).toBe(beforeErrorCount + 1);
     expect(errorLogs[0].message).toContain('aşıyor');
     expect((errorLogs[0].context as { orderId?: string })?.orderId).toBe(overOrderId);
+  });
+
+  // ── (f) Sipariş listeleme — sayfalama ────────────────────────────────────
+  //
+  // admin/tenants, products ve stock ile aynı desen: {items,total,page,pageSize}.
+  // Bu noktada ctx.branchId'de en az 3 sipariş var: orderId (RECEIVED),
+  // cancelOrderId (CANCELLED), overOrderId (APPROVED).
+
+  it('GET /orders/:branchId — {items,total,page,pageSize} şeklinde, varsayılan sayfa/pageSize ile döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/orders/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(typeof res.body.total).toBe('number');
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(50);
+    expect(res.body.total).toBeGreaterThanOrEqual(3);
+    expect(res.body.items.some((o: { id: string }) => o.id === orderId)).toBe(true);
+  });
+
+  it('GET /orders/:branchId?pageSize=1&page=2 — ikinci sayfaya doğru geçer, total tüm eşleşen kayıt sayısını yansıtır', async () => {
+    const page1 = await request(app.getHttpServer())
+      .get(`/api/v1/orders/${ctx.branchId}`)
+      .query({ pageSize: 1, page: 1 })
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(page1.body.items).toHaveLength(1);
+    expect(page1.body.total).toBeGreaterThanOrEqual(3);
+
+    const page2 = await request(app.getHttpServer())
+      .get(`/api/v1/orders/${ctx.branchId}`)
+      .query({ pageSize: 1, page: 2 })
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(page2.body.items).toHaveLength(1);
+    expect(page2.body.page).toBe(2);
+    expect(page2.body.items[0].id).not.toBe(page1.body.items[0].id);
+  });
+
+  it('GET /orders/:branchId?pageSize=101 — üst sınırı (100) aşan pageSize 400 döner', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/v1/orders/${ctx.branchId}`)
+      .query({ pageSize: 101 })
+      .set('Authorization', authHeader)
+      .expect(400);
+  });
+
+  it('GET /orders/:branchId?status=CANCELLED — durum filtresi + sayfalama birlikte doğru total döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/orders/${ctx.branchId}`)
+      .query({ status: 'CANCELLED', pageSize: 50 })
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].id).toBe(cancelOrderId);
+    expect(res.body.items[0].status).toBe('CANCELLED');
   });
 });

@@ -76,11 +76,21 @@ export class OrdersService {
       };
       if (query.status) where.status = query.status;
 
-      return tx.purchaseOrder.findMany({
-        where,
-        include: ORDER_INCLUDE,
-        orderBy: { createdAt: 'desc' },
-      });
+      const page = query.page ?? 1;
+      const pageSize = query.pageSize ?? 50;
+
+      const [items, total] = await Promise.all([
+        tx.purchaseOrder.findMany({
+          where,
+          include: ORDER_INCLUDE,
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        tx.purchaseOrder.count({ where }),
+      ]);
+
+      return { items, total, page, pageSize };
     });
   }
 
