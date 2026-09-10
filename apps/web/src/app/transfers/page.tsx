@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, AlertTriangle } from 'lucide-react';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { ArrowRight, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { PageLayout } from '@/components/layout/PageLayout';
@@ -13,13 +13,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { StatusBadge, TRANSFER_STATUS_LABELS } from '@/components/shared/StatusBadge';
 import { api } from '@/lib/api';
-import type { Branch, Transfer } from '@/lib/types';
+import type { Branch, PaginatedResponse, Transfer } from '@/lib/types';
+
+const PAGE_SIZE = 50;
 
 function fetchBranches(): Promise<Branch[]> {
   return api.get<Branch[]>('/branches').then((r) => r.data);
 }
-function fetchTransfers(branchId: string): Promise<Transfer[]> {
-  return api.get<Transfer[]>(`/transfers/${branchId}`).then((r) => r.data);
+function fetchTransfers(
+  branchId: string,
+  params: { status?: string; page?: number; pageSize?: number } = {},
+): Promise<PaginatedResponse<Transfer>> {
+  return api
+    .get<PaginatedResponse<Transfer>>(`/transfers/${branchId}`, {
+      params: {
+        ...(params.status && params.status !== 'ALL' ? { status: params.status } : {}),
+        ...(params.page ? { page: params.page } : {}),
+        ...(params.pageSize ? { pageSize: params.pageSize } : {}),
+      },
+    })
+    .then((r) => r.data);
 }
 
 function fmt(d: string) {
@@ -101,20 +114,30 @@ export default function TransfersPage() {
   const qc = useQueryClient();
   const [branchId, setBranchId] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [page, setPage] = useState(1);
 
   const branchesQuery = useQuery<Branch[]>({ queryKey: ['branches'], queryFn: fetchBranches });
-  const transfersQuery = useQuery<Transfer[]>({
-    queryKey: ['transfers', branchId],
-    queryFn: () => fetchTransfers(branchId),
+  const transfersQuery: UseQueryResult<PaginatedResponse<Transfer>> = useQuery<PaginatedResponse<Transfer>>({
+    queryKey: ['transfers', branchId, statusFilter, page],
+    queryFn: () => fetchTransfers(branchId, { status: statusFilter, page, pageSize: PAGE_SIZE }),
     enabled: !!branchId,
     staleTime: 1000 * 30,
   });
 
-  const transfers = transfersQuery.data ?? [];
-  const filtered = useMemo(
-    () => (statusFilter === 'ALL' ? transfers : transfers.filter((t: Transfer) => t.status === statusFilter)),
-    [transfers, statusFilter],
-  );
+  const transfers = transfersQuery.data?.items ?? [];
+  const total = transfersQuery.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function handleBranchChange(v: string) {
+    setBranchId(v);
+    setStatusFilter('ALL');
+    setPage(1);
+  }
+
+  function handleStatusChange(v: string) {
+    setStatusFilter(v);
+    setPage(1);
+  }
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['transfers', branchId] });
 
@@ -133,7 +156,7 @@ export default function TransfersPage() {
           {branchesQuery.isPending ? (
             <Skeleton className="h-9 w-full" />
           ) : (
-            <Select value={branchId} onValueChange={(v) => { setBranchId(v); setStatusFilter('ALL'); }}>
+            <Select value={branchId} onValueChange={handleBranchChange}>
               <SelectTrigger><SelectValue placeholder="Şube seçin…" /></SelectTrigger>
               <SelectContent>
                 {(branchesQuery.data ?? []).map((b: Branch) => (
@@ -145,7 +168,7 @@ export default function TransfersPage() {
         </div>
 
         {branchId && (
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <Select value={statusFilter} onValueChange={handleStatusChange}>
             <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">Tüm Durumlar</SelectItem>
@@ -170,7 +193,7 @@ export default function TransfersPage() {
         </div>
       ) : transfersQuery.isPending ? (
         <TableSkeleton />
-      ) : filtered.length === 0 ? (
+      ) : transfers.length === 0 ? (
         <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
           {statusFilter !== 'ALL' ? 'Bu durumda transfer bulunamadı.' : 'Bu şubede transfer yok.'}
         </div>
@@ -188,7 +211,7 @@ export default function TransfersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((t: Transfer) => (
+              {transfers.map((t: Transfer) => (
                 <TableRow key={t.id}>
                   <TableCell className="font-medium">{t.product.name}
                     <span className="ml-1.5 text-xs text-muted-foreground font-mono">{t.product.sku}</span>
@@ -214,6 +237,35 @@ export default function TransfersPage() {
               ))}
             </TableBody>
           </Table>
+
+          {/* Sayfalama — admin/errors ile aynı desen */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between border-t p-3">
+              <p className="text-sm text-muted-foreground">
+                Sayfa {page}/{totalPages}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Önceki
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Sonraki
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </PageLayout>

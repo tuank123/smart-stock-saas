@@ -1,4 +1,5 @@
-import { IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateTransferDto {
   @IsUUID()
@@ -23,4 +24,19 @@ export class TransferQueryDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  // admin/tenants, products, stock, orders, ocr, reports ile aynı desen
+  // ({items,total,page,pageSize}).
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  page?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @Type(() => Number)
+  pageSize?: number;
 }

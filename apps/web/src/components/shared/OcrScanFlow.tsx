@@ -95,7 +95,8 @@ export function OcrScanFlow() {
   const { user } = useAuthStore();
   const { data: stockData } = useStockList();
   const stock = stockData?.items ?? [];
-  const { data: suppliers } = useSuppliers();
+  const { data: suppliersData } = useSuppliers({ pageSize: 100 });
+  const suppliers = suppliersData?.items ?? [];
   const ocrScan = useOcrScan();
   const ocrConfirm = useOcrConfirm();
   const ocrConfirmReturn = useOcrConfirmReturn();
@@ -602,7 +603,7 @@ export function OcrScanFlow() {
                     <SelectValue placeholder="Tedarikçi seçin…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(suppliers ?? []).map((s: Supplier) => (
+                    {suppliers.map((s: Supplier) => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.name}
                       </SelectItem>

@@ -29,10 +29,16 @@ function SkeletonCard() {
 }
 
 export default function MudurTedarikcilerPage() {
-  const { data: suppliers, isPending, isError } = useSuppliers();
+  // Arama client-side (backend'de tedarikçi için search parametresi yok —
+  // kapsam dışı), bu yüzden gerçek bir "Sonraki/Önceki" pager yerine izin
+  // verilen üst sınır (100) isteniyor ki arama tüm tedarikçiler üzerinde
+  // çalışsın. 100'den fazla tedarikçisi olan bir tenant'ta bu sayfa hâlâ
+  // eksik gösterebilir — bilinen bir kısıt, bu görevin kapsamında değil.
+  const { data, isPending, isError } = useSuppliers({ pageSize: 100 });
+  const suppliers = data?.items ?? [];
   const [search, setSearch] = useState('');
 
-  const filtered = (suppliers ?? []).filter((s: Supplier) =>
+  const filtered = suppliers.filter((s: Supplier) =>
     s.name.toLowerCase().includes(search.toLowerCase()),
   );
 

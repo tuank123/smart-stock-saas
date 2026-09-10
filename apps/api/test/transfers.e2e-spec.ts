@@ -266,7 +266,7 @@ describe('Transferler / Stock Transfers (e2e)', () => {
         .get(`/api/v1/transfers/${fromBranchId}`)
         .set('Authorization', subeMuduruAuthHeader)
         .expect(200);
-      const raceTransfer = listRes.body.find((t: { id: string }) => t.id === raceTransferId);
+      const raceTransfer = listRes.body.items.find((t: { id: string }) => t.id === raceTransferId);
       expect(raceTransfer.status).toBe('APPROVED');
     } finally {
       fired = true;
@@ -336,7 +336,7 @@ describe('Transferler / Stock Transfers (e2e)', () => {
         .get(`/api/v1/transfers/${fromBranchId}`)
         .set('Authorization', subeMuduruAuthHeader)
         .expect(200);
-      const raceTransfer = listRes.body.find((t: { id: string }) => t.id === raceTransferId);
+      const raceTransfer = listRes.body.items.find((t: { id: string }) => t.id === raceTransferId);
       expect(raceTransfer.status).toBe('IN_TRANSIT');
     } finally {
       fired = true;
@@ -345,5 +345,64 @@ describe('Transferler / Stock Transfers (e2e)', () => {
         `UPDATE stock_levels SET quantity = quantity - 1000 WHERE product_id = '${productId}' AND branch_id = '${toBranchId}'`,
       );
     }
+  });
+
+  // ── (h) Listeleme — sayfalama ────────────────────────────────────────────
+  //
+  // admin/tenants, products, stock, orders, ocr, reports, suppliers ile aynı
+  // desen: {items,total,page,pageSize}. Bu noktada fromBranchId'de en az 4
+  // transfer var: transferId (DELIVERED), rejectTransferId (REJECTED) ve
+  // yukarıdaki iki yarış durumu testinden birer tane (APPROVED, IN_TRANSIT).
+
+  it('GET /transfers/:branchId — {items,total,page,pageSize} şeklinde, varsayılan sayfa/pageSize ile döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/transfers/${fromBranchId}`)
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(200);
+
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(typeof res.body.total).toBe('number');
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(50);
+    expect(res.body.total).toBeGreaterThanOrEqual(4);
+  });
+
+  it('GET /transfers/:branchId?pageSize=1&page=2 — ikinci sayfaya doğru geçer, total tüm eşleşen kayıt sayısını yansıtır', async () => {
+    const page1 = await request(app.getHttpServer())
+      .get(`/api/v1/transfers/${fromBranchId}`)
+      .query({ pageSize: 1, page: 1 })
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(200);
+    expect(page1.body.items).toHaveLength(1);
+    expect(page1.body.total).toBeGreaterThanOrEqual(4);
+
+    const page2 = await request(app.getHttpServer())
+      .get(`/api/v1/transfers/${fromBranchId}`)
+      .query({ pageSize: 1, page: 2 })
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(200);
+    expect(page2.body.items).toHaveLength(1);
+    expect(page2.body.page).toBe(2);
+    expect(page2.body.items[0].id).not.toBe(page1.body.items[0].id);
+  });
+
+  it('GET /transfers/:branchId?pageSize=101 — üst sınırı (100) aşan pageSize 400 döner', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/v1/transfers/${fromBranchId}`)
+      .query({ pageSize: 101 })
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(400);
+  });
+
+  it('GET /transfers/:branchId?status=REJECTED — durum filtresi + sayfalama birlikte doğru total döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/transfers/${fromBranchId}`)
+      .query({ status: 'REJECTED', pageSize: 50 })
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(200);
+
+    expect(res.body.total).toBe(1);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].status).toBe('REJECTED');
   });
 });

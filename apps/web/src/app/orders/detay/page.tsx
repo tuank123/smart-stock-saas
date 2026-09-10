@@ -3,7 +3,7 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import {
   ArrowLeft, AlertTriangle, Check, X, MessageSquare, Building2, Calendar, User,
 } from 'lucide-react';
@@ -57,7 +57,7 @@ function OrderDetailInner() {
   const branchId = searchParams.get('branchId') ?? '';
   const qc = useQueryClient();
 
-  const ordersQuery = useQuery<PaginatedResponse<Order>>({
+  const ordersQuery: UseQueryResult<PaginatedResponse<Order>> = useQuery<PaginatedResponse<Order>>({
     queryKey: ['orders', branchId],
     queryFn: () => fetchOrders(branchId),
     enabled: !!branchId,

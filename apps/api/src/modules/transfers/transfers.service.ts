@@ -95,11 +95,21 @@ export class TransfersService {
       };
       if (query.status) where.status = query.status;
 
-      return tx.stockTransfer.findMany({
-        where,
-        include: TRANSFER_INCLUDE,
-        orderBy: { createdAt: 'desc' },
-      });
+      const page = query.page ?? 1;
+      const pageSize = query.pageSize ?? 50;
+
+      const [items, total] = await Promise.all([
+        tx.stockTransfer.findMany({
+          where,
+          include: TRANSFER_INCLUDE,
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        tx.stockTransfer.count({ where }),
+      ]);
+
+      return { items, total, page, pageSize };
     });
   }
 

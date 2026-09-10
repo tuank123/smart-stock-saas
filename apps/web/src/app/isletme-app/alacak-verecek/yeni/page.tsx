@@ -30,7 +30,8 @@ interface BasketLine {
 
 export default function YeniBorcAlacakPage() {
   const router = useRouter();
-  const { data: suppliers, isPending: suppliersLoading } = useSuppliers();
+  const { data: suppliersData, isPending: suppliersLoading } = useSuppliers({ pageSize: 100 });
+  const suppliers = suppliersData?.items ?? [];
   const { data: stockData } = useStockList();
   const stock = stockData?.items ?? [];
   const createDebt = useCreateDebt();
@@ -137,7 +138,7 @@ export default function YeniBorcAlacakPage() {
                 <SelectValue placeholder="Tedarikçi seçin…" />
               </SelectTrigger>
               <SelectContent>
-                {(suppliers ?? []).map((s: Supplier) => (
+                {suppliers.map((s: Supplier) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.name}
                   </SelectItem>

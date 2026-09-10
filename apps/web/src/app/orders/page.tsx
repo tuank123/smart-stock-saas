@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { ExternalLink, RefreshCw, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -64,7 +64,7 @@ export default function OrdersPage() {
   const [page, setPage] = useState(1);
 
   const branchesQuery = useQuery<Branch[]>({ queryKey: ['branches'], queryFn: fetchBranches });
-  const ordersQuery = useQuery<PaginatedResponse<Order>>({
+  const ordersQuery: UseQueryResult<PaginatedResponse<Order>> = useQuery<PaginatedResponse<Order>>({
     queryKey: ['orders', branchId, statusFilter, page],
     queryFn: async () => {
       if (branchId === 'ALL') {

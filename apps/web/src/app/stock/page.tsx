@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { AlertTriangle, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 
 import { PageLayout } from '@/components/layout/PageLayout';
@@ -89,7 +89,7 @@ export default function StockPage() {
     staleTime: 1000 * 60,
   });
 
-  const stockQuery = useQuery<PaginatedResponse<StockLevel>>({
+  const stockQuery: UseQueryResult<PaginatedResponse<StockLevel>> = useQuery<PaginatedResponse<StockLevel>>({
     queryKey: ['stock', branchId, { search, criticalOnly, page }],
     queryFn: () => fetchStock(branchId, { search, critical: criticalOnly, page }),
     enabled: !!branchId,

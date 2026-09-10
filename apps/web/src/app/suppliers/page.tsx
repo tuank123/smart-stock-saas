@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Phone, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { Plus, Phone, CheckCircle2, XCircle, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { PageLayout } from '@/components/layout/PageLayout';
@@ -17,10 +17,14 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
-import type { Supplier } from '@/lib/types';
+import type { PaginatedResponse, Supplier } from '@/lib/types';
 
-function fetchSuppliers(): Promise<Supplier[]> {
-  return api.get<Supplier[]>('/suppliers').then((r) => r.data);
+const PAGE_SIZE = 50;
+
+function fetchSuppliers(page: number): Promise<PaginatedResponse<Supplier>> {
+  return api
+    .get<PaginatedResponse<Supplier>>('/suppliers', { params: { page, pageSize: PAGE_SIZE } })
+    .then((r) => r.data);
 }
 
 // ── Create supplier modal ─────────────────────────────────────────────────────
@@ -88,14 +92,17 @@ function CreateSupplierModal({ open, onClose }: CreateSupplierModalProps) {
 
 export default function SuppliersPage() {
   const [modalOpen, setModalOpen] = useState(false);
+  const [page, setPage] = useState(1);
 
-  const suppliersQuery = useQuery<Supplier[]>({
-    queryKey: ['suppliers'],
-    queryFn: fetchSuppliers,
+  const suppliersQuery: UseQueryResult<PaginatedResponse<Supplier>> = useQuery<PaginatedResponse<Supplier>>({
+    queryKey: ['suppliers', page],
+    queryFn: () => fetchSuppliers(page),
     staleTime: 1000 * 60,
   });
 
-  const suppliers = suppliersQuery.data ?? [];
+  const suppliers = suppliersQuery.data?.items ?? [];
+  const total = suppliersQuery.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <PageLayout title="Tedarikçiler">
@@ -108,7 +115,7 @@ export default function SuppliersPage() {
       />
       <div className="mb-5 flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {suppliersQuery.isSuccess ? `${suppliers.length} tedarikçi` : ' '}
+          {suppliersQuery.isSuccess ? `Toplam ${total} tedarikçi` : ' '}
         </p>
         <Button size="sm" onClick={() => setModalOpen(true)}>
           <Plus className="mr-1.5 h-4 w-4" />
@@ -189,6 +196,35 @@ export default function SuppliersPage() {
               ))}
             </TableBody>
           </Table>
+
+          {/* Sayfalama — admin/errors ile aynı desen */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between border-t p-3">
+              <p className="text-sm text-muted-foreground">
+                Sayfa {page}/{totalPages}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Önceki
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Sonraki
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { withTenantContext } from '../../common/utils/tenant-context';
-import { CreateSupplierDto, LinkBranchSupplierDto, UpdateSupplierDto } from './dto/supplier.dto';
+import { CreateSupplierDto, LinkBranchSupplierDto, SupplierQueryDto, UpdateSupplierDto } from './dto/supplier.dto';
 
 @Injectable()
 export class SuppliersService {
@@ -138,18 +138,29 @@ export class SuppliersService {
     });
   }
 
-  async listSuppliers(user: { tenantId: string }) {
+  async listSuppliers(query: SupplierQueryDto, user: { tenantId: string }) {
     return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
-      return tx.supplier.findMany({
-        where: { tenantId: user.tenantId, isActive: true, deletedAt: null },
-        include: {
-          branchSuppliers: {
-            include: { branch: { select: { id: true, name: true } } },
+      const where = { tenantId: user.tenantId, isActive: true, deletedAt: null };
+      const page = query.page ?? 1;
+      const pageSize = query.pageSize ?? 50;
+
+      const [items, total] = await Promise.all([
+        tx.supplier.findMany({
+          where,
+          include: {
+            branchSuppliers: {
+              include: { branch: { select: { id: true, name: true } } },
+            },
           },
-        },
-        orderBy: { name: 'asc' },
-      });
+          orderBy: { name: 'asc' },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        tx.supplier.count({ where }),
+      ]);
+
+      return { items, total, page, pageSize };
     });
   }
 }

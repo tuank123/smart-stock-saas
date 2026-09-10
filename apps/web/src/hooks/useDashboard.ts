@@ -87,7 +87,7 @@ export function useDashboard() {
     })),
   }) as UseQueryResult<BranchIntegration | null>[];
 
-  const reportsQuery = useQuery<PaginatedResponse<Report>>({
+  const reportsQuery: UseQueryResult<PaginatedResponse<Report>> = useQuery<PaginatedResponse<Report>>({
     queryKey: ['reports', 'unread'],
     queryFn: fetchUnreadReports,
     staleTime: 1000 * 60,

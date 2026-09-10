@@ -63,7 +63,8 @@ export default function MudurYeniSiparisPage() {
   const router = useRouter();
   const { user } = useAuthStore();
 
-  const { data: suppliers, isPending: suppliersLoading } = useSuppliers();
+  const { data: suppliersData, isPending: suppliersLoading } = useSuppliers({ pageSize: 100 });
+  const suppliers = suppliersData?.items ?? [];
   const { data: stockData, isPending: stockLoading } = useStockList();
   const stock = stockData?.items ?? [];
   const { data: branch } = useBranchDetail();
@@ -252,7 +253,7 @@ export default function MudurYeniSiparisPage() {
                       <SelectValue placeholder="Tedarikçi seçin…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {(suppliers ?? []).map((s: Supplier) => (
+                      {suppliers.map((s: Supplier) => (
                         <SelectItem key={s.id} value={s.id}>
                           {s.name}
                         </SelectItem>

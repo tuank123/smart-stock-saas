@@ -93,8 +93,54 @@ describe('Tedarikçi Yönetimi / Suppliers (e2e)', () => {
       .set('Authorization', authHeader1)
       .expect(200);
 
-    expect(res.body.some((s: { id: string }) => s.id === supplierId)).toBe(true);
-    expect(res.body.some((s: { id: string }) => s.id === supplier2Id)).toBe(false);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(typeof res.body.total).toBe('number');
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(50);
+    expect(res.body.items.some((s: { id: string }) => s.id === supplierId)).toBe(true);
+    expect(res.body.items.some((s: { id: string }) => s.id === supplier2Id)).toBe(false);
+  });
+
+  // ── (c-2) Listeleme — sayfalama ──────────────────────────────────────────
+  //
+  // admin/tenants, products, stock, orders, ocr, reports, transfers ile aynı
+  // desen: {items,total,page,pageSize}.
+
+  it('GET /suppliers?pageSize=1&page=2 — ikinci sayfaya doğru geçer, total tüm eşleşen kayıt sayısını yansıtır', async () => {
+    const extraRes = await request(app.getHttpServer())
+      .post('/api/v1/suppliers')
+      .set('Authorization', authHeader1)
+      .send({ name: `E2E Tedarikçi 1 Ekstra ${uniqueSuffix()}`, whatsappNumber: '+905551112244' })
+      .expect(201);
+    const extraSupplierId = extraRes.body.id;
+
+    const page1 = await request(app.getHttpServer())
+      .get('/api/v1/suppliers')
+      .query({ pageSize: 1, page: 1 })
+      .set('Authorization', authHeader1)
+      .expect(200);
+    expect(page1.body.items).toHaveLength(1);
+    expect(page1.body.total).toBeGreaterThanOrEqual(2);
+
+    const page2 = await request(app.getHttpServer())
+      .get('/api/v1/suppliers')
+      .query({ pageSize: 1, page: 2 })
+      .set('Authorization', authHeader1)
+      .expect(200);
+    expect(page2.body.items).toHaveLength(1);
+    expect(page2.body.page).toBe(2);
+    expect(page2.body.items[0].id).not.toBe(page1.body.items[0].id);
+
+    const seenIds = [page1.body.items[0].id, page2.body.items[0].id];
+    expect(seenIds).toEqual(expect.arrayContaining([supplierId, extraSupplierId]));
+  });
+
+  it('GET /suppliers?pageSize=101 — üst sınırı (100) aşan pageSize 400 döner', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/suppliers')
+      .query({ pageSize: 101 })
+      .set('Authorization', authHeader1)
+      .expect(400);
   });
 
   // ── (d) Tekil erişim — tenant izolasyonu ─────────────────────────────────

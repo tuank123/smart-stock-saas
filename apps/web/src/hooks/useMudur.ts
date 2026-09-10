@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
@@ -85,8 +85,25 @@ function fetchDraftOrders(branchId: string): Promise<Order[]> {
   return api.get<Order[]>(`/orders/draft/${branchId}`).then((r) => r.data);
 }
 
-function fetchTransfers(branchId: string): Promise<Transfer[]> {
-  return api.get<Transfer[]>(`/transfers/${branchId}`).then((r) => r.data);
+export interface TransferListParams {
+  page?: number;
+  pageSize?: number;
+  status?: string;
+}
+
+function fetchTransfers(
+  branchId: string,
+  params: TransferListParams = {},
+): Promise<PaginatedResponse<Transfer>> {
+  return api
+    .get<PaginatedResponse<Transfer>>(`/transfers/${branchId}`, {
+      params: {
+        ...(params.page ? { page: params.page } : {}),
+        ...(params.pageSize ? { pageSize: params.pageSize } : {}),
+        ...(params.status ? { status: params.status } : {}),
+      },
+    })
+    .then((r) => r.data);
 }
 
 export interface StockListParams {
@@ -166,7 +183,7 @@ export function useMudurDashboard() {
     enabled: !!branchId,
   });
 
-  const stockQuery = useQuery<PaginatedResponse<StockLevel>>({
+  const stockQuery: UseQueryResult<PaginatedResponse<StockLevel>> = useQuery<PaginatedResponse<StockLevel>>({
     queryKey: ['stock', 'critical', branchId],
     queryFn: () => fetchCriticalStock(branchId),
     staleTime: 1000 * 30,
@@ -180,9 +197,12 @@ export function useMudurDashboard() {
     enabled: !!branchId,
   });
 
-  const transfersQuery = useQuery<Transfer[]>({
-    queryKey: ['transfers', branchId],
-    queryFn: () => fetchTransfers(branchId),
+  // Yalnızca sayaç gösteriliyor — status:'REQUESTED' backend'e gönderilip
+  // .total okunuyor (kritik stok sayacıyla aynı gerekçe: pageSize'ın
+  // ötesinde REQUESTED transfer varsa bile doğru sayı yansımalı).
+  const transfersQuery: UseQueryResult<PaginatedResponse<Transfer>> = useQuery<PaginatedResponse<Transfer>>({
+    queryKey: ['transfers', branchId, 'requested-count'],
+    queryFn: () => fetchTransfers(branchId, { status: 'REQUESTED', pageSize: 1 }),
     staleTime: 1000 * 30,
     enabled: !!branchId,
   });
@@ -206,8 +226,7 @@ export function useMudurDashboard() {
     // varsa bile doğru sayıyı yansıtması gerekiyor.
     criticalStockCount: stockQuery.data?.total ?? 0,
     draftOrderCount: ordersQuery.data?.length ?? 0,
-    requestedTransferCount:
-      transfersQuery.data?.filter((t: Transfer) => t.status === 'REQUESTED').length ?? 0,
+    requestedTransferCount: transfersQuery.data?.total ?? 0,
     isLoading,
     isError,
   };
@@ -215,7 +234,9 @@ export function useMudurDashboard() {
 
 // ── Stock hooks ───────────────────────────────────────────────────────────────
 
-export function useStockList(params: StockListParams = {}) {
+export function useStockList(
+  params: StockListParams = {},
+): UseQueryResult<PaginatedResponse<StockLevel>> {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
   return useQuery<PaginatedResponse<StockLevel>>({
@@ -331,7 +352,9 @@ export interface CashierSessionListParams {
   pageSize?: number;
 }
 
-export function useCashierSessions(params: CashierSessionListParams = {}) {
+export function useCashierSessions(
+  params: CashierSessionListParams = {},
+): UseQueryResult<PaginatedResponse<CashierSessionSummary>> {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
   return useQuery<PaginatedResponse<CashierSessionSummary>>({
@@ -349,7 +372,9 @@ export function useCashierSessions(params: CashierSessionListParams = {}) {
   });
 }
 
-export function useStockMovements(params: MovementListParams = {}) {
+export function useStockMovements(
+  params: MovementListParams = {},
+): UseQueryResult<PaginatedResponse<StockMovement>> {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
   return useQuery<PaginatedResponse<StockMovement>>({
@@ -453,11 +478,25 @@ function fetchStationOrders(branchId: string): Promise<Order[]> {
   return api.get<Order[]>(`/orders/station/${branchId}`).then((r) => r.data);
 }
 
-function fetchSuppliers(): Promise<Supplier[]> {
-  return api.get<Supplier[]>('/suppliers').then((r) => r.data);
+export interface SupplierListParams {
+  page?: number;
+  pageSize?: number;
 }
 
-export function useOrders(params: OrderListParams = {}) {
+function fetchSuppliers(params: SupplierListParams = {}): Promise<PaginatedResponse<Supplier>> {
+  return api
+    .get<PaginatedResponse<Supplier>>('/suppliers', {
+      params: {
+        ...(params.page ? { page: params.page } : {}),
+        ...(params.pageSize ? { pageSize: params.pageSize } : {}),
+      },
+    })
+    .then((r) => r.data);
+}
+
+export function useOrders(
+  params: OrderListParams = {},
+): UseQueryResult<PaginatedResponse<Order>> {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
   return useQuery<PaginatedResponse<Order>>({
@@ -569,10 +608,12 @@ export function useCreateOrder() {
   });
 }
 
-export function useSuppliers() {
-  return useQuery<Supplier[]>({
-    queryKey: ['suppliers'],
-    queryFn: fetchSuppliers,
+export function useSuppliers(
+  params: SupplierListParams = {},
+): UseQueryResult<PaginatedResponse<Supplier>> {
+  return useQuery<PaginatedResponse<Supplier>>({
+    queryKey: ['suppliers', params],
+    queryFn: () => fetchSuppliers(params),
     staleTime: 1000 * 60 * 5,
   });
 }

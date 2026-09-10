@@ -1,8 +1,8 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { CreateSupplierDto, LinkBranchSupplierDto, UpdateSupplierDto } from './dto/supplier.dto';
+import { CreateSupplierDto, LinkBranchSupplierDto, SupplierQueryDto, UpdateSupplierDto } from './dto/supplier.dto';
 import { SuppliersService } from './suppliers.service';
 
 @Controller('suppliers')
@@ -33,8 +33,11 @@ export class SuppliersController {
 
   @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)
   @Get()
-  list(@CurrentUser() user: { tenantId: string }) {
-    return this.service.listSuppliers(user);
+  list(
+    @Query() query: SupplierQueryDto,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.listSuppliers(query, user);
   }
 
   @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU)

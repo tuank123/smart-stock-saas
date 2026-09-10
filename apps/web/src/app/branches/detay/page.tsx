@@ -3,7 +3,7 @@
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Building2,
@@ -114,7 +114,7 @@ function BranchDetailInner() {
     staleTime: 1000 * 60 * 5,
   });
 
-  const stockQuery = useQuery<PaginatedResponse<StockLevel>>({
+  const stockQuery: UseQueryResult<PaginatedResponse<StockLevel>> = useQuery<PaginatedResponse<StockLevel>>({
     queryKey: ['stock', id, page],
     queryFn: () => fetchStock(id, page),
     enabled: branchesQuery.isSuccess && !!id,

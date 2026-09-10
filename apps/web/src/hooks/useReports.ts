@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { PaginatedResponse, Report, ReportDetail } from '@/lib/types';
 
@@ -26,7 +26,9 @@ function fetchReport(id: string): Promise<ReportDetail> {
   return api.get<ReportDetail>(`/reports/${id}`).then((r) => r.data);
 }
 
-export function useReports(params: ReportListParams = {}) {
+export function useReports(
+  params: ReportListParams = {},
+): UseQueryResult<PaginatedResponse<Report>> {
   return useQuery<PaginatedResponse<Report>>({
     queryKey: ['reports', params.type ?? 'all', params.page, params.pageSize],
     queryFn: () => fetchReports(params),

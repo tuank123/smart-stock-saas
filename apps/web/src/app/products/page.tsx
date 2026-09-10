@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Search, Package, ExternalLink, AlertTriangle } from 'lucide-react';
 
 import { PageLayout } from '@/components/layout/PageLayout';
@@ -52,7 +52,7 @@ export default function ProductsPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
-  const productsQuery = useQuery<PaginatedResponse<Product>>({
+  const productsQuery: UseQueryResult<PaginatedResponse<Product>> = useQuery<PaginatedResponse<Product>>({
     queryKey: ['products', search, page],
     queryFn: () => fetchProducts(search, page),
     staleTime: 1000 * 60 * 2,
