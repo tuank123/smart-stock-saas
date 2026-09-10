@@ -29,6 +29,7 @@ const SOURCE_LABELS: Record<string, string> = {
   SECURITY_EVENT: 'Güvenlik Olayı',
   DATA_INTEGRITY: 'Veri Tutarlılığı',
   SCHEDULED_JOB: 'Zamanlanmış İş',
+  FRONTEND_ERROR: 'Frontend Hatası',
 };
 
 // "5 dakika önce" tarzı göreli zaman.
@@ -157,6 +158,7 @@ export default function AdminErrorsPage() {
             <SelectItem value="SECURITY_EVENT">Güvenlik Olayı</SelectItem>
             <SelectItem value="DATA_INTEGRITY">Veri Tutarlılığı</SelectItem>
             <SelectItem value="SCHEDULED_JOB">Zamanlanmış İş</SelectItem>
+            <SelectItem value="FRONTEND_ERROR">Frontend Hatası</SelectItem>
           </SelectContent>
         </Select>
         <Select value={severity} onValueChange={(v) => resetAndSet(() => setSeverity(v))}>

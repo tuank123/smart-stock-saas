@@ -788,7 +788,7 @@ model PriceChangeLog {
 /// Platform geneli hata/başarısız işlem toplama (super-admin sistem tablosu, RLS'siz).
 model ErrorLog {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  source      String    // 'API_EXCEPTION' | 'SYNC_JOB' | 'LOGIN_FAILED' | 'OCR_SCAN' | 'WHATSAPP_WEBHOOK'
+  source      String    // 'API_EXCEPTION' | 'SYNC_JOB' | 'LOGIN_FAILED' | 'OCR_SCAN' | 'WHATSAPP_WEBHOOK' | 'SECURITY_EVENT' | 'DATA_INTEGRITY' | 'SCHEDULED_JOB' | 'FRONTEND_ERROR'
   severity    String    @default("ERROR") // 'ERROR' | 'WARNING'
   message     String
   stackTrace  String?   @map("stack_trace")

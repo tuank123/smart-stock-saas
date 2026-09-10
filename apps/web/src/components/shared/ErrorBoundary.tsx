@@ -3,6 +3,7 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { api } from '@/lib/api';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -26,6 +27,33 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[ErrorBoundary]', error, info.componentStack);
+    this.reportToBackend(error, info);
+  }
+
+  // POST /errors/frontend'e fire-and-forget bildirim — admin panelindeki
+  // "Hatalar & Uyarılar" listesine düşsün diye. @Public() bir uç olduğu için
+  // bozuk bir oturumda bile çalışır (api client zaten varsa token'ı ekliyor,
+  // yoksa anonim gider). Bu çağrının kendisi ASLA yeni bir hataya/sonsuz
+  // döngüye yol açmamalı — hem senkron hem async hata yolu try/catch ile
+  // sessizce yutuluyor.
+  private reportToBackend(error: Error, info: React.ErrorInfo) {
+    try {
+      api
+        .post('/errors/frontend', {
+          message: error.message || 'Bilinmeyen hata',
+          stack: error.stack,
+          componentStack: info.componentStack,
+          url: typeof window !== 'undefined' ? window.location.href : '',
+          userAgent: typeof window !== 'undefined' ? window.navigator.userAgent : undefined,
+        })
+        .catch(() => {
+          // Raporlama isteği başarısız olursa sessizce vazgeç — kullanıcıya
+          // hiçbir şey gösterme, yeniden deneme.
+        });
+    } catch {
+      // api.post beklenmedik şekilde senkron fırlatırsa bile ErrorBoundary
+      // ikinci bir çökmeye yol açmamalı.
+    }
   }
 
   render() {
