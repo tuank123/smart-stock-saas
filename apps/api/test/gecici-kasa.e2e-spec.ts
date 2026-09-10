@@ -146,7 +146,12 @@ describe('Geçici Kasa (e2e)', () => {
       .set('Authorization', authHeader)
       .expect(200);
 
-    const session = res.body.find((s: { id: string }) => s.id === sessionId);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(typeof res.body.total).toBe('number');
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(50);
+
+    const session = res.body.items.find((s: { id: string }) => s.id === sessionId);
     expect(session).toBeDefined();
     expect(session.closedAt).toBeNull();
 
@@ -176,7 +181,7 @@ describe('Geçici Kasa (e2e)', () => {
       .set('Authorization', authHeader)
       .expect(200);
 
-    const session = sessionsRes.body.find((s: { id: string }) => s.id === sessionId);
+    const session = sessionsRes.body.items.find((s: { id: string }) => s.id === sessionId);
     expect(session.closedAt).not.toBeNull();
   });
 
@@ -198,5 +203,48 @@ describe('Geçici Kasa (e2e)', () => {
 
     // Reddedilen satış stoğu değiştirmemeli.
     expect(await getQuantity()).toBe(current);
+  });
+
+  // ── (g) Kasa oturumları listeleme — sayfalama ────────────────────────────
+  //
+  // admin/tenants, products, stock, orders, ocr, reports ile aynı desen:
+  // {items,total,page,pageSize}. Bu noktada ctx.branchId'de yukarıdaki
+  // testlerden en az 1 oturum var (sessionId); ikinci sayfaya geçebilmek
+  // için bir tane daha açılıp kapatılıyor.
+
+  it('GET /stock/:branchId/cashier-sessions?pageSize=1&page=2 — ikinci sayfaya doğru geçer, total tüm eşleşen kayıt sayısını yansıtır', async () => {
+    const openRes = await request(app.getHttpServer())
+      .post(`/api/v1/stock/${ctx.branchId}/cashier-session/open`)
+      .set('Authorization', authHeader)
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/stock/${ctx.branchId}/cashier-session/${openRes.body.sessionId}/close`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    const page1 = await request(app.getHttpServer())
+      .get(`/api/v1/stock/${ctx.branchId}/cashier-sessions`)
+      .query({ pageSize: 1, page: 1 })
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(page1.body.items).toHaveLength(1);
+    expect(page1.body.total).toBeGreaterThanOrEqual(2);
+
+    const page2 = await request(app.getHttpServer())
+      .get(`/api/v1/stock/${ctx.branchId}/cashier-sessions`)
+      .query({ pageSize: 1, page: 2 })
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(page2.body.items).toHaveLength(1);
+    expect(page2.body.page).toBe(2);
+    expect(page2.body.items[0].id).not.toBe(page1.body.items[0].id);
+  });
+
+  it('GET /stock/:branchId/cashier-sessions?pageSize=101 — üst sınırı (100) aşan pageSize 400 döner', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/v1/stock/${ctx.branchId}/cashier-sessions`)
+      .query({ pageSize: 101 })
+      .set('Authorization', authHeader)
+      .expect(400);
   });
 });

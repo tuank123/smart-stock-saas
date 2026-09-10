@@ -94,6 +94,36 @@ export class MovementQueryDto {
   @IsOptional()
   @IsDateString()
   since?: string;
+
+  // admin/tenants, products, stock, orders, ocr, reports ile aynı desen
+  // ({items,total,page,pageSize}).
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  page?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @Type(() => Number)
+  pageSize?: number;
+}
+
+export class CashierSessionQueryDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  page?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @Type(() => Number)
+  pageSize?: number;
 }
 
 export class DailyReportQueryDto {

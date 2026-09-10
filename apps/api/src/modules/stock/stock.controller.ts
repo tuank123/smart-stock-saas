@@ -14,6 +14,7 @@ import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import {
+  CashierSessionQueryDto,
   DailyReportQueryDto,
   InitializeStockDto,
   MovementQueryDto,
@@ -110,10 +111,11 @@ export class StockController {
   @Get(':branchId/cashier-sessions')
   listCashierSessions(
     @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Query() query: CashierSessionQueryDto,
     @CurrentUser()
     user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.service.listCashierSessions(branchId, user);
+    return this.service.listCashierSessions(branchId, query, user);
   }
 
   // Statik 'daily-report' segmenti :branchId/:productId'den ÖNCE tanımlanmalı.

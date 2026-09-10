@@ -83,7 +83,12 @@ function StockDetailInner() {
   const router = useRouter();
 
   const detailQuery = useStockDetail(productId);
-  const movementsQuery = useStockMovements();
+  // Bu sayfa, tek bir ürünün son hareketlerini branch'in TÜM hareketlerini
+  // çekip client-side filtreleyerek gösteriyor (backend'de ürüne göre
+  // filtreleme parametresi yok — kapsam dışı). Varsayılan sayfa boyutu (50)
+  // bu filtrelemeyi kırabilir; izin verilen üst sınır (100) istenerek etki
+  // azaltılıyor.
+  const movementsQuery = useStockMovements({ pageSize: 100 });
   const updateThreshold = useUpdateThreshold();
 
   const [minThreshold, setMinThreshold] = useState('');
@@ -97,7 +102,7 @@ function StockDetailInner() {
     }
   }, [detailQuery.isSuccess, thresholdDirty, detailQuery.data]);
 
-  const productMovements: StockMovement[] = (movementsQuery.data ?? [])
+  const productMovements: StockMovement[] = (movementsQuery.data?.items ?? [])
     .filter((m: StockMovement) => m.productId === productId)
     .slice(0, 20);
 

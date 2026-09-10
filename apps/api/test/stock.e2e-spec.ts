@@ -420,4 +420,74 @@ describe('Stok (e2e)', () => {
     expect(soldProduct.totalQty).toBe(8);
     expect(soldProduct.totalRevenue).toBeCloseTo(8 * SALE_PRICE, 2);
   });
+
+  // ── (f) Stok hareketleri listeleme — sayfalama ───────────────────────────
+  //
+  // admin/tenants, products, stock, orders, ocr, reports, cashier-sessions
+  // ile aynı desen: {items,total,page,pageSize}. Öncesinde sabit kodlanmış
+  // `take: 100` (gerçek skip/sayfalama yok) kullanılıyordu — 100'den sonraki
+  // hiçbir hareket asla görünmüyordu.
+
+  it('GET /stock/movements/:branchId — {items,total,page,pageSize} şeklinde, varsayılan sayfa/pageSize ile döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/stock/movements/${ctx.branchId}`)
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(200);
+
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(typeof res.body.total).toBe('number');
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(50);
+  });
+
+  it('GET /stock/movements/:branchId?pageSize=101 — üst sınırı (100) aşan pageSize 400 döner', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/v1/stock/movements/${ctx.branchId}`)
+      .query({ pageSize: 101 })
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(400);
+  });
+
+  it('GET /stock/movements/:branchId — eski sabit take:100 sınırının ötesindeki (101. en yeni) hareket artık erişilebilir', async () => {
+    // Yeni eklenecek 105 hareketin, bu suite'teki mevcut hareketlerden
+    // KESİNLİKLE daha yeni sayılması için zaman damgalarını mevcut en yeni
+    // kayıttan uzak bir gelecek referans noktasına göre kuruyoruz — test
+    // çalışma zamanlaması yüzünden sıralamanın bozulma riski olmasın.
+    const maxExisting = await prisma.stockMovement.aggregate({
+      where: { tenantId: ctx.tenantId, branchId: ctx.branchId },
+      _max: { createdAt: true },
+    });
+    const base = (maxExisting._max.createdAt?.getTime() ?? Date.now()) + 1_000_000_000;
+
+    const TOTAL_NEW = 105;
+    const rows = Array.from({ length: TOTAL_NEW }, (_, i) => ({
+      tenantId: ctx.tenantId,
+      productId,
+      branchId: ctx.branchId,
+      movementType: 'ADJUSTMENT',
+      quantity: 1,
+      notes: `E2E-BEYOND-100-${i}`,
+      createdBy: ctx.userId,
+      // i=0 en yeni, i arttıkça daha eski (orderBy: createdAt desc ile
+      // sıralandığında i, listedeki 0-tabanlı konuma birebir denk gelir).
+      createdAt: new Date(base - i * 1000),
+    }));
+    await prisma.stockMovement.createMany({ data: rows });
+
+    const totalBefore = await prisma.stockMovement.count({
+      where: { tenantId: ctx.tenantId, branchId: ctx.branchId },
+    });
+
+    // 101. en yeni hareket (0-tabanlı index 100) — eski `take:100` altında
+    // hiçbir sayfalama parametresiyle ASLA dönmezdi.
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/stock/movements/${ctx.branchId}`)
+      .query({ pageSize: 1, page: 101 })
+      .set('Authorization', subeMuduruAuthHeader)
+      .expect(200);
+
+    expect(res.body.total).toBe(totalBefore);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].notes).toBe('E2E-BEYOND-100-100');
+  });
 });

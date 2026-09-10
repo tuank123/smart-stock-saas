@@ -1,10 +1,14 @@
 'use client';
 
-import { History, Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronLeft, ChevronRight, History, Loader2 } from 'lucide-react';
 import { StationPageHeader } from '@/components/layout/StationPageHeader';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useStockMovements } from '@/hooks/useMudur';
 import type { StockMovement } from '@/hooks/useMudur';
+
+const PAGE_SIZE = 50;
 
 // movementType → Türkçe etiket. Tanınmayan tip olduğu gibi gösterilir.
 const MOVEMENT_LABELS: Record<string, string> = {
@@ -27,9 +31,12 @@ function fmt(dateStr: string) {
 }
 
 export default function DepoHareketlerPage() {
-  const { data: movements, isPending, isError } = useStockMovements();
+  const [page, setPage] = useState(1);
+  const { data, isPending, isError } = useStockMovements({ page, pageSize: PAGE_SIZE });
 
-  const list = movements ?? [];
+  const list = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <div className="mx-auto w-full max-w-lg">
@@ -78,6 +85,35 @@ export default function DepoHareketlerPage() {
               </Card>
             );
           })}
+
+          {/* Sayfalama — admin/errors ile aynı desen */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3">
+              <p className="text-sm text-muted-foreground">
+                Sayfa {page}/{totalPages}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Önceki
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Sonraki
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

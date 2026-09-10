@@ -31,7 +31,11 @@ function CashierSessionDetailInner() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('sessionId') ?? '';
 
-  const query = useCashierSessions();
+  // Bu sayfa tek bir oturumu ID'ye göre bulmak için branch'in kasa oturumu
+  // listesini çekip .find() yapıyor (backend'de tekil "GET .../cashier-
+  // sessions/:sessionId" yok). Varsayılan sayfa boyutu (50) bu lookup'ı
+  // kırabilir — izin verilen üst sınır (100) istenerek etki azaltılıyor.
+  const query = useCashierSessions({ pageSize: 100 });
   const { refetch } = query;
 
   // enabled:false → mount olunca manuel çek (mevcut liste hook'undan filtrelenir).
@@ -39,7 +43,7 @@ function CashierSessionDetailInner() {
     refetch();
   }, [refetch]);
 
-  const sessions = query.data ?? [];
+  const sessions = query.data?.items ?? [];
   const session = sessions.find((s: CashierSessionSummary) => s.id === sessionId) ?? null;
   // Savunma: API eski/kısmi yanıt döndürse bile (receipts eksikse) çökme.
   const receipts = session?.receipts ?? [];

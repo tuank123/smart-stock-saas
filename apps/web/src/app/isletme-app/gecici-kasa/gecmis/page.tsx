@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, History, Loader2 } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, History, Loader2 } from 'lucide-react';
 import { StationPageHeader } from '@/components/layout/StationPageHeader';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useCashierSessions, type CashierSessionSummary } from '@/hooks/useMudur';
+
+const PAGE_SIZE = 50;
 
 function fmtDateTime(s: string) {
   return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'short', timeStyle: 'short' }).format(
@@ -19,15 +22,19 @@ function fmtMoney(v: number) {
 
 export default function GeciciKasaGecmisPage() {
   const router = useRouter();
-  const query = useCashierSessions();
+  const [page, setPage] = useState(1);
+  const query = useCashierSessions({ page, pageSize: PAGE_SIZE });
   const { refetch } = query;
 
-  // enabled:false → mount olunca manuel çek.
+  // enabled:false → mount olunca (ve sayfa değiştiğinde, queryKey'e page dahil
+  // olsa da otomatik tetiklenmediği için) manuel çek.
   useEffect(() => {
     refetch();
-  }, [refetch]);
+  }, [refetch, page]);
 
-  const sessions = query.data ?? [];
+  const sessions = query.data?.items ?? [];
+  const total = query.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <div className="mx-auto w-full max-w-lg">
@@ -97,6 +104,35 @@ export default function GeciciKasaGecmisPage() {
               </CardContent>
             </Card>
           ))}
+
+          {/* Sayfalama — admin/errors ile aynı desen */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3">
+              <p className="text-sm text-muted-foreground">
+                Sayfa {page}/{totalPages}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Önceki
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Sonraki
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

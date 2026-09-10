@@ -14,6 +14,7 @@ import { SmsService } from '../sms/sms.service';
 import { withTenantContext } from '../../common/utils/tenant-context';
 import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import {
+  CashierSessionQueryDto,
   DailyReportQueryDto,
   InitializeStockDto,
   MovementQueryDto,
@@ -203,14 +204,23 @@ export class StockService {
       if (query.type) where.movementType = query.type;
       if (query.since) where.createdAt = { gte: new Date(query.since) };
 
-      return tx.stockMovement.findMany({
-        where,
-        include: {
-          product: { select: { id: true, sku: true, name: true, unit: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-      });
+      const page = query.page ?? 1;
+      const pageSize = query.pageSize ?? 50;
+
+      const [items, total] = await Promise.all([
+        tx.stockMovement.findMany({
+          where,
+          include: {
+            product: { select: { id: true, sku: true, name: true, unit: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        tx.stockMovement.count({ where }),
+      ]);
+
+      return { items, total, page, pageSize };
     });
   }
 
@@ -545,6 +555,7 @@ export class StockService {
 
   async listCashierSessions(
     branchId: string,
+    query: CashierSessionQueryDto,
     user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
     return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
@@ -554,11 +565,20 @@ export class StockService {
         );
       }
 
-      const sessions = await tx.cashierSession.findMany({
-        where: { tenantId: user.tenantId, branchId },
-        orderBy: { openedAt: 'desc' },
-        select: { id: true, openedAt: true, closedAt: true },
-      });
+      const where = { tenantId: user.tenantId, branchId };
+      const page = query.page ?? 1;
+      const pageSize = query.pageSize ?? 50;
+
+      const [sessions, total] = await Promise.all([
+        tx.cashierSession.findMany({
+          where,
+          orderBy: { openedAt: 'desc' },
+          select: { id: true, openedAt: true, closedAt: true },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        tx.cashierSession.count({ where }),
+      ]);
 
       const sessionIds = sessions.map((s) => s.id);
       const movements = sessionIds.length
@@ -645,7 +665,7 @@ export class StockService {
         }
       }
 
-      return sessions.map((s) => {
+      const sessionRows = sessions.map((s) => {
         const pmap = bySession.get(s.id);
         const items = pmap
           ? Array.from(pmap.values()).map((i) => ({
@@ -670,6 +690,8 @@ export class StockService {
 
         return { id: s.id, openedAt: s.openedAt, closedAt: s.closedAt, items, sessionTotal, receipts };
       });
+
+      return { items: sessionRows, total, page, pageSize };
     });
   }
 

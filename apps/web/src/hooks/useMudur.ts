@@ -116,8 +116,27 @@ function fetchStockDetail(branchId: string, productId: string): Promise<StockLev
   return api.get<StockLevel>(`/stock/${branchId}/${productId}`).then((r) => r.data);
 }
 
-function fetchStockMovements(branchId: string): Promise<StockMovement[]> {
-  return api.get<StockMovement[]>(`/stock/movements/${branchId}`).then((r) => r.data);
+export interface MovementListParams {
+  page?: number;
+  pageSize?: number;
+  type?: string;
+  since?: string;
+}
+
+function fetchStockMovements(
+  branchId: string,
+  params: MovementListParams = {},
+): Promise<PaginatedResponse<StockMovement>> {
+  return api
+    .get<PaginatedResponse<StockMovement>>(`/stock/movements/${branchId}`, {
+      params: {
+        ...(params.page ? { page: params.page } : {}),
+        ...(params.pageSize ? { pageSize: params.pageSize } : {}),
+        ...(params.type ? { type: params.type } : {}),
+        ...(params.since ? { since: params.since } : {}),
+      },
+    })
+    .then((r) => r.data);
 }
 
 function fetchBranches(): Promise<Branch[]> {
@@ -307,23 +326,35 @@ export function useCloseCashierSession() {
   });
 }
 
-export function useCashierSessions() {
+export interface CashierSessionListParams {
+  page?: number;
+  pageSize?: number;
+}
+
+export function useCashierSessions(params: CashierSessionListParams = {}) {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
-  return useQuery<CashierSessionSummary[]>({
-    queryKey: ['cashier-sessions', branchId],
+  return useQuery<PaginatedResponse<CashierSessionSummary>>({
+    queryKey: ['cashier-sessions', branchId, params],
     queryFn: () =>
-      api.get<CashierSessionSummary[]>(`/stock/${branchId}/cashier-sessions`).then((r) => r.data),
+      api
+        .get<PaginatedResponse<CashierSessionSummary>>(`/stock/${branchId}/cashier-sessions`, {
+          params: {
+            ...(params.page ? { page: params.page } : {}),
+            ...(params.pageSize ? { pageSize: params.pageSize } : {}),
+          },
+        })
+        .then((r) => r.data),
     enabled: false, // yalnız Geçmiş ekranı açıldığında manuel refetch ile çekilir
   });
 }
 
-export function useStockMovements() {
+export function useStockMovements(params: MovementListParams = {}) {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
-  return useQuery<StockMovement[]>({
-    queryKey: ['stock', 'movements', branchId],
-    queryFn: () => fetchStockMovements(branchId),
+  return useQuery<PaginatedResponse<StockMovement>>({
+    queryKey: ['stock', 'movements', branchId, params],
+    queryFn: () => fetchStockMovements(branchId, params),
     staleTime: 1000 * 30,
     enabled: !!branchId,
   });
