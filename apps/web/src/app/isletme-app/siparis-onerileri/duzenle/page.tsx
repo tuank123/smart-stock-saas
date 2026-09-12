@@ -103,6 +103,11 @@ function OrderItemRow({
         </Button>
       </div>
 
+      {/* Mevcut stok — salt okunur, aynı useStockDetail yanıtından (quantity). */}
+      <p className="mb-1.5 text-xs text-muted-foreground">
+        {stockDetail.data ? `Stokta: ${Number(stockDetail.data.quantity)} ${item.productUnit}` : ''}
+      </p>
+
       {/* Miktar — controlled, canlı koli */}
       <div className="space-y-1.5">
         <Label htmlFor={`qty-${item.productId}`}>Miktar ({item.productUnit})</Label>
@@ -144,13 +149,7 @@ function OrderItemRow({
 
       {/* Otomatik Sipariş Eşiği (StockLevel.minThreshold) */}
       <div className="mt-3 space-y-1.5">
-        <div className="flex items-center justify-between">
-          <Label htmlFor={`min-${item.productId}`}>Otomatik Sipariş Eşiği</Label>
-          {/* Mevcut stok — salt okunur, aynı useStockDetail yanıtından (quantity). */}
-          <span className="text-xs text-muted-foreground">
-            {stockDetail.data ? `Stokta: ${Number(stockDetail.data.quantity)} ${item.productUnit}` : ''}
-          </span>
-        </div>
+        <Label htmlFor={`min-${item.productId}`}>Otomatik Sipariş Eşiği</Label>
         <Input
           id={`min-${item.productId}`}
           type="number"
