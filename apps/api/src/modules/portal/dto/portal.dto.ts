@@ -51,11 +51,14 @@ export class PriceItemDto {
   @Min(0)
   newPrice: number = 0;
 
+  // null = "indirim yok" (frontend'in fiyat değiştiğinde eski indirimi
+  // sıfırlamasının kesin sinyali); undefined = alan hiç gönderilmedi.
+  // @IsOptional() her ikisini de doğrulamadan geçirir.
   @IsOptional()
   @IsNumber()
   @Min(0)
   @Max(100)
-  discountPct?: number;
+  discountPct?: number | null;
 }
 
 export class UpdatePriceItemsDto {

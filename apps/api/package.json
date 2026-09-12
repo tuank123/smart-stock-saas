@@ -16,7 +16,8 @@
     "test:e2e": "jest --config ./jest-e2e.json --runInBand",
     "type-check": "tsc --noEmit",
     "create-super-admin": "ts-node src/scripts/create-super-admin.ts",
-    "seed:sample-errors": "ts-node src/scripts/seed-sample-errors.ts"
+    "seed:sample-errors": "ts-node src/scripts/seed-sample-errors.ts",
+    "seed:sample-price-upload": "ts-node src/scripts/seed-sample-price-upload.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.3",

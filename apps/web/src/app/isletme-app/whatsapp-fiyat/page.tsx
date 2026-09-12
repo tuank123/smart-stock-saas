@@ -56,7 +56,7 @@ export default function WhatsappFiyatPage() {
       <StationPageHeader
         title="WhatsApp Fiyat Güncelleme"
         right={
-          <div className="flex flex-col items-end gap-1">
+          <div className="flex flex-col items-end gap-2">
             <Button
               variant="ghost"
               size="sm"

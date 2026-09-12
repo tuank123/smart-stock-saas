@@ -16,6 +16,7 @@ import { SecurityEventLogger } from '../../common/security-event/security-event.
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { withTenantContext } from '../../common/utils/tenant-context';
 import { Prisma } from '@prisma/client';
+import { SyncService } from '../sync/sync.service';
 import { ListUploadsQueryDto, UpdatePriceItemsDto, UploadDto } from './dto/portal.dto';
 
 const MOCK_OTP = '123456';
@@ -31,6 +32,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     private config: ConfigService,
     private jwtService: JwtService,
     private securityEvents: SecurityEventLogger,
+    private sync: SyncService,
   ) {}
 
   async onModuleInit() {
@@ -283,56 +285,81 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     role?: string | null,
     planId?: string | null,
   ) {
-    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
-      if (role === 'PATRON' && planId !== 'STARTER') {
-        throw new ForbiddenException(
-          'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+    const { upload: approved, priceChanges } = await withTenantContext(
+      this.prisma,
+      { tenantId },
+      async (tx) => {
+        if (role === 'PATRON' && planId !== 'STARTER') {
+          throw new ForbiddenException(
+            'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+          );
+        }
+
+        const upload = await tx.supplierPortalUpload.findUnique({ where: { id: uploadId } });
+        assertTenantOwnership(upload, {
+          resourceType: 'SupplierPortalUpload',
+          resourceId: uploadId,
+          user: { tenantId, userId: reviewerId },
+          notFoundMessage: 'Yükleme bulunamadı',
+          securityEvents: this.securityEvents,
+        });
+
+        // Auto-create supplier for NEW_SUPPLIER uploads
+        let supplierId = upload.supplierId;
+        if (upload.uploadType === 'NEW_SUPPLIER' && !supplierId) {
+          const firmName = upload.ocrExtractedFirm ?? `Tedarikçi ${upload.uploaderPhone}`;
+          const newSupplier = await tx.supplier.create({
+            data: {
+              tenantId,
+              name: firmName,
+              whatsappNumber: upload.effectivePhone,
+              otpVerified: true,
+              otpVerifiedAt: upload.otpVerifiedAt,
+            },
+          });
+          supplierId = newSupplier.id;
+        }
+
+        // Onay = fiyatları GERÇEKTEN uygula: her kalem için Product.salePrice güncelle
+        // ve PriceChangeLog kaydı oluştur.
+        const items = Array.isArray(upload.parsedItems)
+          ? (upload.parsedItems as unknown as ParsedItem[])
+          : [];
+
+        const priceChanges = await this.applyPricesToProducts(
+          tx,
+          tenantId,
+          upload.branchId,
+          items,
+          reviewerId,
         );
-      }
 
-      const upload = await tx.supplierPortalUpload.findUnique({ where: { id: uploadId } });
-      assertTenantOwnership(upload, {
-        resourceType: 'SupplierPortalUpload',
-        resourceId: uploadId,
-        user: { tenantId, userId: reviewerId },
-        notFoundMessage: 'Yükleme bulunamadı',
-        securityEvents: this.securityEvents,
-      });
-
-      // Auto-create supplier for NEW_SUPPLIER uploads
-      let supplierId = upload.supplierId;
-      if (upload.uploadType === 'NEW_SUPPLIER' && !supplierId) {
-        const firmName = upload.ocrExtractedFirm ?? `Tedarikçi ${upload.uploaderPhone}`;
-        const newSupplier = await tx.supplier.create({
+        const updated = await tx.supplierPortalUpload.update({
+          where: { id: uploadId },
           data: {
-            tenantId,
-            name: firmName,
-            whatsappNumber: upload.effectivePhone,
-            otpVerified: true,
-            otpVerifiedAt: upload.otpVerifiedAt,
+            status: 'APPROVED',
+            reviewedBy: reviewerId,
+            reviewedAt: new Date(),
+            supplierId,
           },
         });
-        supplierId = newSupplier.id;
-      }
 
-      // Onay = fiyatları GERÇEKTEN uygula: her kalem için Product.salePrice güncelle
-      // ve PriceChangeLog kaydı oluştur.
-      const items = Array.isArray(upload.parsedItems)
-        ? (upload.parsedItems as unknown as ParsedItem[])
-        : [];
+        return { upload: updated, priceChanges };
+      },
+    );
 
-      await this.applyPricesToProducts(tx, tenantId, upload.branchId, items, reviewerId);
-
-      return tx.supplierPortalUpload.update({
-        where: { id: uploadId },
-        data: {
-          status: 'APPROVED',
-          reviewedBy: reviewerId,
-          reviewedAt: new Date(),
-          supplierId,
-        },
-      });
+    // Fire-and-forget: transfers/orders'daki AYNI desen (bkz.
+    // enqueueSyncAfterPriceUpdate) — transaction commit olduktan SONRA,
+    // ana yanıtı bloklamadan sync_queue'ya yazılır.
+    this.enqueueSyncAfterPriceUpdate(uploadId, approved.branchId, priceChanges, {
+      tenantId,
+      userId: reviewerId,
+    }).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[Sync] Fiyat güncellemesi enqueue hatası: ${msg}`);
     });
+
+    return approved;
   }
 
   async rejectUpload(
@@ -403,64 +430,88 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     role?: string | null,
     planId?: string | null,
   ) {
-    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
-      if (role === 'PATRON' && planId !== 'STARTER') {
-        throw new ForbiddenException(
-          'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
-        );
-      }
+    const { updated, branchId, priceChanges } = await withTenantContext(
+      this.prisma,
+      { tenantId },
+      async (tx) => {
+        if (role === 'PATRON' && planId !== 'STARTER') {
+          throw new ForbiddenException(
+            'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+          );
+        }
 
-      const upload = await tx.supplierPortalUpload.findUnique({ where: { id: uploadId } });
-      assertTenantOwnership(upload, {
-        resourceType: 'SupplierPortalUpload',
-        resourceId: uploadId,
-        user: { tenantId },
-        notFoundMessage: 'Yükleme bulunamadı',
-        securityEvents: this.securityEvents,
-      });
+        const upload = await tx.supplierPortalUpload.findUnique({ where: { id: uploadId } });
+        assertTenantOwnership(upload, {
+          resourceType: 'SupplierPortalUpload',
+          resourceId: uploadId,
+          user: { tenantId },
+          notFoundMessage: 'Yükleme bulunamadı',
+          securityEvents: this.securityEvents,
+        });
 
-      const existingItems = Array.isArray(upload.parsedItems)
-        ? (upload.parsedItems as unknown as ParsedItem[])
-        : [];
+        const existingItems = Array.isArray(upload.parsedItems)
+          ? (upload.parsedItems as unknown as ParsedItem[])
+          : [];
 
-      const products = await tx.product.findMany({
-        where: { id: { in: dto.items.map((i) => i.productId) } },
-        select: { id: true, name: true },
-      });
-      const productNames = new Map(products.map((p) => [p.id, p.name]));
+        const products = await tx.product.findMany({
+          where: { id: { in: dto.items.map((i) => i.productId) } },
+          select: { id: true, name: true },
+        });
+        const productNames = new Map(products.map((p) => [p.id, p.name]));
 
-      const updatedItems: ParsedItem[] = dto.items.map((item) => {
-        const existing = existingItems.find((e) => e.productId === item.productId);
-        return {
-          productId: item.productId,
-          productName: existing?.productName ?? productNames.get(item.productId) ?? '',
-          oldPrice: existing?.oldPrice ?? null,
-          newPrice: item.newPrice,
-          discountPct: item.discountPct ?? existing?.discountPct ?? null,
-        };
-      });
+        const updatedItems: ParsedItem[] = dto.items.map((item) => {
+          const existing = existingItems.find((e) => e.productId === item.productId);
+          return {
+            productId: item.productId,
+            productName: existing?.productName ?? productNames.get(item.productId) ?? '',
+            oldPrice: existing?.oldPrice ?? null,
+            newPrice: item.newPrice,
+            // Her zaman KESİN değeri kullan (null dahil) — önceki indirimin
+            // sessizce geri gelmesine izin verme (bkz. Sorun 2).
+            discountPct: item.discountPct ?? null,
+            // Orijinal tedarikçi fiyatı DONUK — bir kez set edildiyse asla
+            // değişmez (bkz. Sorun 1). Eski kayıtlarda alan yoksa mevcut
+            // newPrice'ı donuk kabul et (geriye dönük uyumluluk).
+            supplierPrice: existing?.supplierPrice ?? existing?.newPrice ?? item.newPrice,
+          };
+        });
 
-      const mergedItems = [
-        ...existingItems.filter(
-          (e) => !updatedItems.some((u) => u.productId === e.productId),
-        ),
-        ...updatedItems,
-      ];
+        const mergedItems = [
+          ...existingItems.filter(
+            (e) => !updatedItems.some((u) => u.productId === e.productId),
+          ),
+          ...updatedItems,
+        ];
 
-      // Kayıt zaten APPROVED ise bu "Kaydet" artık bir taslak düzenlemesi değil
-      // — gerçek satış fiyatlarını da güncellemeli (approveUpload'daki fiyat
-      // uygulama bloğuyla birebir aynı mantık). status/reviewedBy/reviewedAt'a
-      // DOKUNULMAZ — kayıt sessizce ikinci bir onaya düşmez. PENDING_REVIEW
-      // (ve diğer durumlar) için davranış AYNEN korunur: yalnızca taslak kaydedilir.
-      if (upload.status === 'APPROVED') {
-        await this.applyPricesToProducts(tx, tenantId, upload.branchId, updatedItems, userId);
-      }
+        // Kayıt zaten APPROVED ise bu "Kaydet" artık bir taslak düzenlemesi değil
+        // — gerçek satış fiyatlarını da güncellemeli (approveUpload'daki fiyat
+        // uygulama bloğuyla birebir aynı mantık). status/reviewedBy/reviewedAt'a
+        // DOKUNULMAZ — kayıt sessizce ikinci bir onaya düşmez. PENDING_REVIEW
+        // (ve diğer durumlar) için davranış AYNEN korunur: yalnızca taslak kaydedilir.
+        const priceChanges = upload.status === 'APPROVED'
+          ? await this.applyPricesToProducts(tx, tenantId, upload.branchId, updatedItems, userId)
+          : [];
 
-      return tx.supplierPortalUpload.update({
-        where: { id: uploadId },
-        data: { parsedItems: mergedItems as object[] },
-      });
+        const updated = await tx.supplierPortalUpload.update({
+          where: { id: uploadId },
+          data: { parsedItems: mergedItems as object[] },
+        });
+
+        return { updated, branchId: upload.branchId, priceChanges };
+      },
+    );
+
+    // Fire-and-forget: approveUpload'daki AYNI desen — transaction commit
+    // olduktan SONRA, ana yanıtı bloklamadan sync_queue'ya yazılır.
+    this.enqueueSyncAfterPriceUpdate(uploadId, branchId, priceChanges, {
+      tenantId,
+      userId,
+    }).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[Sync] Fiyat güncellemesi enqueue hatası: ${msg}`);
     });
+
+    return updated;
   }
 
   // approveUpload ve updateUploadItems (APPROVED kayıt için) arasında paylaşılan
@@ -472,7 +523,8 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     branchId: string,
     items: ParsedItem[],
     changedBy: string,
-  ): Promise<void> {
+  ): Promise<{ productId: string; oldPrice: number | null; newPrice: number }[]> {
+    const applied: { productId: string; oldPrice: number | null; newPrice: number }[] = [];
     for (const item of items) {
       const product = await tx.product.findUnique({
         where: { id: item.productId },
@@ -514,6 +566,46 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
           changedBy,
         },
       });
+
+      applied.push({ productId: product.id, oldPrice, newPrice: finalPrice });
+    }
+    return applied;
+  }
+
+  // approveUpload ve updateUploadItems'ın (APPROVED kayıt için) transaction
+  // commit olduktan SONRA çağırdığı fire-and-forget adım: uygulanan her fiyat
+  // değişikliğini sync_queue'ya yazar (ocr/transfers/orders'daki AYNI desen —
+  // stok miktarı değişikliklerinin Agent'a haber verme şekli). Gerçek adaptör
+  // dispatch'i (callAdapter) henüz uygulanmadığı için bu yalnızca kuyruğa
+  // PENDING satır ekler; processQueue mock modda otomatik SUCCESS'e çevirir.
+  private async enqueueSyncAfterPriceUpdate(
+    uploadId: string,
+    branchId: string,
+    changes: { productId: string; oldPrice: number | null; newPrice: number }[],
+    user: { tenantId: string; userId: string },
+  ) {
+    if (changes.length === 0) return;
+
+    const integration = await this.prisma.branchIntegration.findUnique({
+      where: { branchId },
+      select: { adapterType: true },
+    });
+    const adapterType = integration?.adapterType ?? 'UNKNOWN';
+
+    for (const change of changes) {
+      await this.sync.addToQueue({
+        tenantId: user.tenantId,
+        branchId,
+        operationType: 'PRICE_UPDATE',
+        payload: {
+          uploadId,
+          productId: change.productId,
+          oldPrice: change.oldPrice,
+          newPrice: change.newPrice,
+        },
+        adapterType,
+        createdBy: user.userId,
+      });
     }
   }
 }
@@ -524,6 +616,10 @@ interface ParsedItem {
   oldPrice: number | null;
   newPrice: number;
   discountPct: number | null;
+  // Tedarikçinin bildirdiği ORİJİNAL liste fiyatı — bir kez set edildikten
+  // sonra hiçbir sonraki düzenleme/kaydetme bunu değiştirmez (frontend
+  // "Güncel Liste Fiyatı" olarak bunu gösterir, newPrice'ı değil).
+  supplierPrice?: number;
 }
 
 // |değişim| bu yüzdeyi aşarsa anomali olarak işaretlenir.

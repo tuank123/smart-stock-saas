@@ -62,7 +62,11 @@ function PriceUploadEditInner() {
       setItems(
         upload.parsedItems.map((i: ParsedPriceItem) => ({
           ...i,
-          originalListPrice: i.newPrice, // mesajdan gelen sabit fiyat
+          // Tedarikçinin bildirdiği ORİJİNAL fiyat — backend artık bunu
+          // ayrı (supplierPrice) tutup asla değiştirmiyor. Eski kayıtlarda
+          // bu alan yoksa mevcut newPrice donuk kabul edilir (geriye dönük
+          // uyumluluk — o kayıt için gerçek orijinal zaten kaybolmuştu).
+          originalListPrice: i.supplierPrice ?? i.newPrice,
           priceText: String(i.newPrice),
         })),
       );
@@ -81,7 +85,11 @@ function PriceUploadEditInner() {
         items: items.map((i) => ({
           productId: i.productId,
           newPrice: i.newPrice,
-          discountPct: i.discountPct ?? undefined,
+          // Her zaman KESİN değeri gönder (null dahil) — "gönderilmezse
+          // mevcut değeri koru" davranışına güvenilmiyor, çünkü bu tam da
+          // fiyat değiştiğinde eski indirimin sessizce geri gelmesine yol
+          // açan şeydi (bkz. portal.service.ts:updateUploadItems).
+          discountPct: i.discountPct,
         })),
       },
       { onSuccess },
@@ -148,6 +156,11 @@ function PriceUploadEditInner() {
                         priceText: text, // ham metni her zaman koru (boş dahil)
                         // yalnız geçerli sayıda newPrice'ı güncelle; aksi halde son geçerli değer kalsın
                         ...(text.trim() !== '' && !isNaN(v) && v >= 0 ? { newPrice: v } : {}),
+                        // Fiyat alanına her dokunuşta (silme ya da yeni değer
+                        // girme fark etmez) önceki indirim sıfırlanır — aksi
+                        // halde eski %'lik sessizce yeni fiyata da uygulanır
+                        // (istenmeyen kirlenme).
+                        discountPct: null,
                       });
                     }}
                     className="w-full text-sm"

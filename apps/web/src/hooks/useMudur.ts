@@ -929,7 +929,10 @@ export function useUpdatePriceItems() {
   return useMutation({
     mutationFn: (vars: {
       uploadId: string;
-      items: Array<{ productId: string; newPrice: number; discountPct?: number }>;
+      // null = "indirim yok" (fiyat değiştiğinde önceki indirimin sessizce
+      // geri gelmemesi için backend'e KESİN olarak gönderilir, bkz.
+      // portal.service.ts:updateUploadItems).
+      items: Array<{ productId: string; newPrice: number; discountPct?: number | null }>;
     }) =>
       api
         .patch(`/portal/uploads/${vars.uploadId}/items`, { items: vars.items })

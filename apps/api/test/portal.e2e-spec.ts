@@ -186,6 +186,71 @@ describe('Tedarikçi Portalı / Portal (e2e)', () => {
     const item = res.body.parsedItems.find((i: { productId: string }) => i.productId === productId);
     expect(item).toBeDefined();
     expect(item.newPrice).toBe(NEW_PRICE);
+    // İlk kayıtta supplierPrice = newPrice ile aynı (henüz "orijinal" olarak donuyor).
+    expect(item.supplierPrice).toBe(NEW_PRICE);
+  });
+
+  it('PATCH /portal/uploads/:uploadId/items — supplierPrice (orijinal tedarikçi fiyatı) art arda kayıtlarda ASLA değişmez, yalnızca newPrice güncellenir', async () => {
+    // Ayrı/izole bir upload — bu testin mutasyonları paylaşılan uploadId'nin
+    // (approve/reject testlerinin bel bağladığı) durumunu bozmasın diye.
+    const freshRes = await request(app.getHttpServer())
+      .post(`/api/v1/portal/${subdomain}/upload`)
+      .send({ phone: OTP_PHONE, sessionToken, supplierId })
+      .expect(201);
+    const freshUploadId = freshRes.body.uploadId;
+
+    const FIRST_PRICE = 88;
+    const first = await request(app.getHttpServer())
+      .patch(`/api/v1/portal/uploads/${freshUploadId}/items`)
+      .set('Authorization', authHeader)
+      .send({ items: [{ productId, newPrice: FIRST_PRICE }] })
+      .expect(200);
+    const firstItem = first.body.parsedItems.find((i: { productId: string }) => i.productId === productId);
+    expect(firstItem.newPrice).toBe(FIRST_PRICE);
+    expect(firstItem.supplierPrice).toBe(FIRST_PRICE); // ilk kayıtta = newPrice
+
+    const SECOND_PRICE = 125;
+    const second = await request(app.getHttpServer())
+      .patch(`/api/v1/portal/uploads/${freshUploadId}/items`)
+      .set('Authorization', authHeader)
+      .send({ items: [{ productId, newPrice: SECOND_PRICE }] })
+      .expect(200);
+    const secondItem = second.body.parsedItems.find((i: { productId: string }) => i.productId === productId);
+    expect(secondItem.newPrice).toBe(SECOND_PRICE); // güncellendi
+    expect(secondItem.supplierPrice).toBe(FIRST_PRICE); // ama donuk — hâlâ İLK değer
+  });
+
+  it('PATCH /portal/uploads/:uploadId/items — discountPct:null gönderilirse önceki indirim geri GELMEZ (sessiz kirlenme yok)', async () => {
+    const freshRes = await request(app.getHttpServer())
+      .post(`/api/v1/portal/${subdomain}/upload`)
+      .send({ phone: OTP_PHONE, sessionToken, supplierId })
+      .expect(201);
+    const freshUploadId = freshRes.body.uploadId;
+
+    // Önce bir indirim tanımlanıp kaydediliyor.
+    const withDiscount = await request(app.getHttpServer())
+      .patch(`/api/v1/portal/uploads/${freshUploadId}/items`)
+      .set('Authorization', authHeader)
+      .send({ items: [{ productId, newPrice: 200, discountPct: 10 }] })
+      .expect(200);
+    const itemWithDiscount = withDiscount.body.parsedItems.find(
+      (i: { productId: string }) => i.productId === productId,
+    );
+    expect(itemWithDiscount.discountPct).toBe(10);
+
+    // Frontend, fiyat alanı değiştiğinde indirimi KESİN olarak null gönderir
+    // (bkz. duzenle/page.tsx) — "gönderilmezse mevcut değeri koru" fallback'i
+    // burada devreye GİRMEMELİ, sessizce eski %10 geri gelmemeli.
+    const cleared = await request(app.getHttpServer())
+      .patch(`/api/v1/portal/uploads/${freshUploadId}/items`)
+      .set('Authorization', authHeader)
+      .send({ items: [{ productId, newPrice: 250, discountPct: null }] })
+      .expect(200);
+    const itemCleared = cleared.body.parsedItems.find(
+      (i: { productId: string }) => i.productId === productId,
+    );
+    expect(itemCleared.newPrice).toBe(250);
+    expect(itemCleared.discountPct).toBeNull();
   });
 
   let approvedReviewedBy: string;
@@ -215,6 +280,44 @@ describe('Tedarikçi Portalı / Portal (e2e)', () => {
     const log = logsRes.body.find((l: { productId: string }) => l.productId === productId);
     expect(log).toBeDefined();
     expect(Number(log.newPrice)).toBe(NEW_PRICE);
+  });
+
+  // enqueueSyncAfterPriceUpdate fire-and-forget'tir (ana yanıtı bloklamaz) —
+  // sync_queue satırı transaction commit'ten hemen sonra, ama HTTP yanıtından
+  // biraz sonra yazılabilir. scheduled-jobs.e2e-spec.ts'teki waitForErrorLogCount
+  // ile aynı kısa polling deseni.
+  async function waitForSyncQueueRow(
+    where: { tenantId: string; branchId: string; operationType: string },
+    timeoutMs = 1000,
+  ) {
+    const start = Date.now();
+    for (;;) {
+      const row = await prisma.syncQueue.findFirst({ where, orderBy: { createdAt: 'desc' } });
+      if (row || Date.now() - start > timeoutMs) return row;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
+  it('PATCH /portal/uploads/:uploadId/approve — sync_queue\'ya PRICE_UPDATE kaydı yazar (stok miktarı değişikliklerindeki AYNI desen)', async () => {
+    const row = await waitForSyncQueueRow({
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
+      operationType: 'PRICE_UPDATE',
+    });
+
+    expect(row).toBeDefined();
+    expect(row?.status).toBe('PENDING');
+    expect(row?.direction).toBe('OUTBOUND');
+    expect(row?.createdBy).toBe(approvedReviewedBy);
+    const payload = row?.payload as {
+      uploadId: string;
+      productId: string;
+      oldPrice: number | null;
+      newPrice: number;
+    };
+    expect(payload.uploadId).toBe(uploadId);
+    expect(payload.productId).toBe(productId);
+    expect(payload.newPrice).toBe(NEW_PRICE);
   });
 
   // ── (f) Red edilen bir güncelleme salePrice'ı etkilemez ──────────────────
@@ -306,6 +409,27 @@ describe('Tedarikçi Portalı / Portal (e2e)', () => {
     expect(newestLog.productId).toBe(productId);
     expect(Number(newestLog.oldPrice)).toBe(NEW_PRICE);
     expect(Number(newestLog.newPrice)).toBe(EDITED_PRICE);
+  });
+
+  it('PATCH /portal/uploads/:uploadId/items — APPROVED kayıtta da sync_queue\'ya YENİ bir PRICE_UPDATE kaydı yazar', async () => {
+    const row = await waitForSyncQueueRow({
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
+      operationType: 'PRICE_UPDATE',
+    });
+
+    expect(row).toBeDefined();
+    const payload = row?.payload as {
+      uploadId: string;
+      productId: string;
+      oldPrice: number | null;
+      newPrice: number;
+    };
+    // (e)'deki testten farklı bir kayıt: bu kez EDITED_PRICE'ı yansıtmalı.
+    expect(payload.uploadId).toBe(uploadId);
+    expect(payload.productId).toBe(productId);
+    expect(payload.oldPrice).toBe(NEW_PRICE);
+    expect(payload.newPrice).toBe(EDITED_PRICE);
   });
 
   it('PATCH /portal/uploads/:uploadId/items — PENDING_REVIEW kayıtta eski davranış korunur (gerçek fiyat DEĞİŞMEZ)', async () => {

@@ -222,6 +222,7 @@ export class WhatsappService {
         oldPrice: null;
         newPrice: number;
         discountPct: null;
+        supplierPrice: number;
       }[] = [];
       const unmatchedLines: string[] = [];
 
@@ -234,6 +235,10 @@ export class WhatsappService {
             oldPrice: null,
             newPrice: line.price,
             discountPct: null,
+            // Tedarikçinin WhatsApp mesajında bildirdiği orijinal fiyat —
+            // ilk kayıttan sonra ASLA değişmez (bkz. portal.service.ts:
+            // updateUploadItems). Oluşturma anında newPrice ile aynı.
+            supplierPrice: line.price,
           });
         } else {
           unmatchedLines.push(`${line.name} - ${line.price}`);

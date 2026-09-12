@@ -293,6 +293,9 @@ export interface ParsedPriceItem {
   oldPrice: number | null;
   newPrice: number;
   discountPct: number | null;
+  // Tedarikçinin bildirdiği orijinal liste fiyatı — ASLA değişmez ("Güncel
+  // Liste Fiyatı" olarak gösterilir). Eski kayıtlarda yok (opsiyonel).
+  supplierPrice?: number;
 }
 
 // GET /portal/uploads/detail/:uploadId — single upload with parsed items
