@@ -144,7 +144,13 @@ function OrderItemRow({
 
       {/* Otomatik Sipariş Eşiği (StockLevel.minThreshold) */}
       <div className="mt-3 space-y-1.5">
-        <Label htmlFor={`min-${item.productId}`}>Otomatik Sipariş Eşiği</Label>
+        <div className="flex items-center justify-between">
+          <Label htmlFor={`min-${item.productId}`}>Otomatik Sipariş Eşiği</Label>
+          {/* Mevcut stok — salt okunur, aynı useStockDetail yanıtından (quantity). */}
+          <span className="text-xs text-muted-foreground">
+            {stockDetail.data ? `Stokta: ${Number(stockDetail.data.quantity)} ${item.productUnit}` : ''}
+          </span>
+        </div>
         <Input
           id={`min-${item.productId}`}
           type="number"
@@ -333,7 +339,7 @@ function OrderEditInner() {
     fireThresholdUpdates();
     updateOrder.mutate(
       { orderId, data: buildPayload() },
-      { onSuccess: () => router.replace('/isletme-app/siparis-onerileri') },
+      { onSuccess: () => router.back() },
     );
   }
 
@@ -345,7 +351,7 @@ function OrderEditInner() {
       {
         onSuccess: () => {
           approveOrder.mutate(orderId, {
-            onSuccess: () => router.replace('/isletme-app/siparis-onerileri'),
+            onSuccess: () => router.back(),
           });
         },
       },
@@ -460,7 +466,7 @@ function OrderEditInner() {
                     type="button"
                     variant="outline"
                     className="sm:flex-1"
-                    onClick={() => router.replace('/isletme-app/siparis-onerileri')}
+                    onClick={() => router.back()}
                   >
                     ← Siparişlere Dön
                   </Button>
