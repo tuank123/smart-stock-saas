@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -15,7 +16,13 @@ import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { SendOtpDto, UpdatePriceItemsDto, UploadDto, VerifyOtpDto } from './dto/portal.dto';
+import {
+  ListUploadsQueryDto,
+  SendOtpDto,
+  UpdatePriceItemsDto,
+  UploadDto,
+  VerifyOtpDto,
+} from './dto/portal.dto';
 import { PortalService } from './portal.service';
 
 // ─── MANAGER ENDPOINTS (JWT required) ────────────────────────────────────────
@@ -53,10 +60,11 @@ export class PortalController {
   @Get('portal/uploads/:branchId')
   listUploads(
     @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Query() query: ListUploadsQueryDto,
     @CurrentUser()
     user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.service.listUploads(branchId, user.tenantId, user.role, user.planId);
+    return this.service.listUploads(branchId, query, user.tenantId, user.role, user.planId);
   }
 
   // NOTE: static 'detail' segment keeps this from colliding with the
@@ -77,9 +85,16 @@ export class PortalController {
     @Param('uploadId', ParseUUIDPipe) uploadId: string,
     @Body() dto: UpdatePriceItemsDto,
     @CurrentUser()
-    user: { tenantId: string; role?: string | null; planId?: string | null },
+    user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
   ) {
-    return this.service.updateUploadItems(uploadId, dto, user.tenantId, user.role, user.planId);
+    return this.service.updateUploadItems(
+      uploadId,
+      dto,
+      user.tenantId,
+      user.userId,
+      user.role,
+      user.planId,
+    );
   }
 
   @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)

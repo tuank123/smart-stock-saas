@@ -39,11 +39,18 @@ interface EditItem extends ParsedPriceItem {
 function PriceUploadEditInner() {
   const searchParams = useSearchParams();
   const uploadId = searchParams.get('uploadId') ?? '';
+  // "Güncel Fiyat Listeleri" ekranındaki "İncele" bu ekranı salt-okunur açar
+  // (?readOnly=1) — aynı form/detay, hiçbir input/aksiyon aktif değil.
+  const readOnly = searchParams.get('readOnly') === '1';
   const router = useRouter();
 
   const { data: upload, isPending, isError } = usePriceUploadDetail(uploadId);
   const updateItems = useUpdatePriceItems();
   const approveUpload = useApprovePriceUpload();
+  // Kayıt zaten onaylanmışsa (Güncel Fiyat Listeleri'nden "Düzenle") tekrar
+  // onaya gönderilmez — yalnızca "Kaydet" gösterilir (bkz. portal.service.ts:
+  // updateUploadItems artık APPROVED kayıtlarda gerçek fiyatı da uyguluyor).
+  const isApproved = upload?.status === 'APPROVED';
 
   const [items, setItems] = useState<EditItem[]>([]);
   const [initialized, setInitialized] = useState(false);
@@ -91,7 +98,7 @@ function PriceUploadEditInner() {
 
   return (
     <div>
-      <StationPageHeader title="Fiyat Listesi Düzenle" />
+      <StationPageHeader title={readOnly ? 'Fiyat Listesi İncele' : 'Fiyat Listesi Düzenle'} />
 
       {isError && (
         <div className="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
@@ -133,6 +140,7 @@ function PriceUploadEditInner() {
                     min="0"
                     step="0.01"
                     value={item.priceText}
+                    disabled={readOnly}
                     onChange={(e) => {
                       const text = e.target.value;
                       const v = Number(text);
@@ -155,6 +163,7 @@ function PriceUploadEditInner() {
                     max="100"
                     step="0.1"
                     value={item.discountPct ?? ''}
+                    disabled={readOnly}
                     onChange={(e) => {
                       const v = parseFloat(e.target.value);
                       updateItem(item.productId, {
@@ -175,14 +184,18 @@ function PriceUploadEditInner() {
             ))}
           </div>
 
-          <div className="mt-6 flex gap-2">
-            <Button variant="outline" className="flex-1" disabled={busy} onClick={() => handleSave()}>
-              Kaydet
-            </Button>
-            <Button className="flex-1" disabled={busy} onClick={handleApproveAll}>
-              Tümünü Onayla
-            </Button>
-          </div>
+          {!readOnly && (
+            <div className="mt-6 flex gap-2">
+              <Button variant="outline" className="flex-1" disabled={busy} onClick={() => handleSave()}>
+                Kaydet
+              </Button>
+              {!isApproved && (
+                <Button className="flex-1" disabled={busy} onClick={handleApproveAll}>
+                  Tümünü Onayla
+                </Button>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>

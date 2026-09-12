@@ -64,3 +64,10 @@ export class UpdatePriceItemsDto {
   @Type(() => PriceItemDto)
   items: PriceItemDto[] = [];
 }
+
+export class ListUploadsQueryDto {
+  // Verilmezse mevcut davranış: yalnızca PENDING_REVIEW.
+  @IsOptional()
+  @IsString()
+  status?: string;
+}

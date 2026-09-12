@@ -15,7 +15,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { withTenantContext } from '../../common/utils/tenant-context';
-import { UpdatePriceItemsDto, UploadDto } from './dto/portal.dto';
+import { Prisma } from '@prisma/client';
+import { ListUploadsQueryDto, UpdatePriceItemsDto, UploadDto } from './dto/portal.dto';
 
 const MOCK_OTP = '123456';
 const OTP_TTL_SECONDS = 300;
@@ -252,6 +253,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
 
   async listUploads(
     branchId: string,
+    query: ListUploadsQueryDto,
     tenantId: string,
     role?: string | null,
     planId?: string | null,
@@ -263,8 +265,9 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
         );
       }
 
+      // Verilmezse mevcut davranış: yalnızca PENDING_REVIEW.
       return tx.supplierPortalUpload.findMany({
-        where: { branchId, tenantId, status: 'PENDING_REVIEW' },
+        where: { branchId, tenantId, status: query.status ?? 'PENDING_REVIEW' },
         include: {
           supplier: { select: { id: true, name: true } },
         },
@@ -318,48 +321,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
         ? (upload.parsedItems as unknown as ParsedItem[])
         : [];
 
-      for (const item of items) {
-        const product = await tx.product.findUnique({
-          where: { id: item.productId },
-          select: { id: true, tenantId: true, salePrice: true },
-        });
-        // Başka tenant'a ait veya bulunamayan ürünleri atla (güvenlik).
-        if (!product || product.tenantId !== tenantId) continue;
-
-        // İndirim uygulanmış nihai fiyat (2 ondalık).
-        const discount = item.discountPct ?? 0;
-        const finalPrice = round2(item.newPrice * (1 - discount / 100));
-
-        // Eski fiyat = DB'deki mevcut salePrice (güvenilir kaynak); yoksa null.
-        const oldPrice = product.salePrice != null ? Number(product.salePrice) : null;
-
-        // Değişim yüzdesi + anomali. İlk fiyat atamasında (oldPrice yok/0) değişim 0,
-        // anomali sayılmaz.
-        let changePct = 0;
-        let anomalyFlag = false;
-        if (oldPrice != null && oldPrice !== 0) {
-          changePct = clampPct(round2(((finalPrice - oldPrice) / oldPrice) * 100));
-          anomalyFlag = Math.abs(changePct) > PRICE_ANOMALY_PCT;
-        }
-
-        await tx.product.update({
-          where: { id: product.id },
-          data: { salePrice: finalPrice },
-        });
-
-        await tx.priceChangeLog.create({
-          data: {
-            tenantId,
-            productId: product.id,
-            branchId: upload.branchId,
-            oldPrice: oldPrice ?? 0, // PriceChangeLog.oldPrice zorunlu; ilk atamada 0
-            newPrice: finalPrice,
-            changePct,
-            anomalyFlag,
-            changedBy: reviewerId,
-          },
-        });
-      }
+      await this.applyPricesToProducts(tx, tenantId, upload.branchId, items, reviewerId);
 
       return tx.supplierPortalUpload.update({
         where: { id: uploadId },
@@ -437,6 +399,7 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
     uploadId: string,
     dto: UpdatePriceItemsDto,
     tenantId: string,
+    userId: string,
     role?: string | null,
     planId?: string | null,
   ) {
@@ -484,11 +447,74 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
         ...updatedItems,
       ];
 
+      // Kayıt zaten APPROVED ise bu "Kaydet" artık bir taslak düzenlemesi değil
+      // — gerçek satış fiyatlarını da güncellemeli (approveUpload'daki fiyat
+      // uygulama bloğuyla birebir aynı mantık). status/reviewedBy/reviewedAt'a
+      // DOKUNULMAZ — kayıt sessizce ikinci bir onaya düşmez. PENDING_REVIEW
+      // (ve diğer durumlar) için davranış AYNEN korunur: yalnızca taslak kaydedilir.
+      if (upload.status === 'APPROVED') {
+        await this.applyPricesToProducts(tx, tenantId, upload.branchId, updatedItems, userId);
+      }
+
       return tx.supplierPortalUpload.update({
         where: { id: uploadId },
         data: { parsedItems: mergedItems as object[] },
       });
     });
+  }
+
+  // approveUpload ve updateUploadItems (APPROVED kayıt için) arasında paylaşılan
+  // fiyat uygulama mantığı: verilen `items` listesindeki her kalem için
+  // Product.salePrice günceller ve PriceChangeLog kaydı oluşturur.
+  private async applyPricesToProducts(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    branchId: string,
+    items: ParsedItem[],
+    changedBy: string,
+  ): Promise<void> {
+    for (const item of items) {
+      const product = await tx.product.findUnique({
+        where: { id: item.productId },
+        select: { id: true, tenantId: true, salePrice: true },
+      });
+      // Başka tenant'a ait veya bulunamayan ürünleri atla (güvenlik).
+      if (!product || product.tenantId !== tenantId) continue;
+
+      // İndirim uygulanmış nihai fiyat (2 ondalık).
+      const discount = item.discountPct ?? 0;
+      const finalPrice = round2(item.newPrice * (1 - discount / 100));
+
+      // Eski fiyat = DB'deki mevcut salePrice (güvenilir kaynak); yoksa null.
+      const oldPrice = product.salePrice != null ? Number(product.salePrice) : null;
+
+      // Değişim yüzdesi + anomali. İlk fiyat atamasında (oldPrice yok/0) değişim 0,
+      // anomali sayılmaz.
+      let changePct = 0;
+      let anomalyFlag = false;
+      if (oldPrice != null && oldPrice !== 0) {
+        changePct = clampPct(round2(((finalPrice - oldPrice) / oldPrice) * 100));
+        anomalyFlag = Math.abs(changePct) > PRICE_ANOMALY_PCT;
+      }
+
+      await tx.product.update({
+        where: { id: product.id },
+        data: { salePrice: finalPrice },
+      });
+
+      await tx.priceChangeLog.create({
+        data: {
+          tenantId,
+          productId: product.id,
+          branchId,
+          oldPrice: oldPrice ?? 0, // PriceChangeLog.oldPrice zorunlu; ilk atamada 0
+          newPrice: finalPrice,
+          changePct,
+          anomalyFlag,
+          changedBy,
+        },
+      });
+    }
   }
 }
 

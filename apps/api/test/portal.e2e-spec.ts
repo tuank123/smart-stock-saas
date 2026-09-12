@@ -188,6 +188,9 @@ describe('Tedarikçi Portalı / Portal (e2e)', () => {
     expect(item.newPrice).toBe(NEW_PRICE);
   });
 
+  let approvedReviewedBy: string;
+  let approvedReviewedAt: string;
+
   it('PATCH /portal/uploads/:uploadId/approve — onay Product.salePrice\'a gerçekten yazar', async () => {
     const res = await request(app.getHttpServer())
       .patch(`/api/v1/portal/uploads/${uploadId}/approve`)
@@ -195,6 +198,8 @@ describe('Tedarikçi Portalı / Portal (e2e)', () => {
       .expect(200);
 
     expect(res.body.status).toBe('APPROVED');
+    approvedReviewedBy = res.body.reviewedBy;
+    approvedReviewedAt = res.body.reviewedAt;
 
     const productRes = await request(app.getHttpServer())
       .get(`/api/v1/products/${productId}`)
@@ -253,5 +258,105 @@ describe('Tedarikçi Portalı / Portal (e2e)', () => {
       .patch(`/api/v1/portal/uploads/${uploadId}/approve`)
       .set('Authorization', authHeader2)
       .expect(404);
+  });
+
+  // ── (h) Onaylanmış bir listeyi düzenleme — "Güncel Fiyat Listeleri" ──────
+  //
+  // uploadId bu noktada APPROVED (test (e)'de onaylandı, salePrice=NEW_PRICE).
+  // PENDING_REVIEW'da "Kaydet" yalnızca taslağı günceller (gerçek fiyata
+  // dokunmaz — bkz. (d) testi); APPROVED'da ise artık gerçek fiyatı da
+  // uygulamalı, ama status/reviewedBy/reviewedAt'a DOKUNMAMALI.
+
+  const EDITED_PRICE = 179.5;
+
+  it('PATCH /portal/uploads/:uploadId/items — APPROVED kayıtta gerçek Product.salePrice\'ı da günceller, status/reviewedBy/reviewedAt DEĞİŞMEZ', async () => {
+    const beforeLogCount = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/stock/price-changes/${ctx.branchId}`)
+        .set('Authorization', authHeader)
+        .expect(200)
+    ).body.length;
+
+    const res = await request(app.getHttpServer())
+      .patch(`/api/v1/portal/uploads/${uploadId}/items`)
+      .set('Authorization', authHeader)
+      .send({ items: [{ productId, newPrice: EDITED_PRICE }] })
+      .expect(200);
+
+    // Kayıt sessizce ikinci bir onaya düşmemeli.
+    expect(res.body.status).toBe('APPROVED');
+    expect(res.body.reviewedBy).toBe(approvedReviewedBy);
+    expect(res.body.reviewedAt).toBe(approvedReviewedAt);
+
+    // Ama gerçek satış fiyatı artık EDITED_PRICE olmalı (NEW_PRICE değil).
+    const productRes = await request(app.getHttpServer())
+      .get(`/api/v1/products/${productId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(Number(productRes.body.salePrice)).toBe(EDITED_PRICE);
+
+    // Yeni bir PriceChangeLog kaydı (oldPrice=NEW_PRICE, newPrice=EDITED_PRICE)
+    // eklenmiş olmalı — mevcut loglar silinmez, üzerine eklenir.
+    const logsRes = await request(app.getHttpServer())
+      .get(`/api/v1/stock/price-changes/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(logsRes.body.length).toBe(beforeLogCount + 1);
+    const newestLog = logsRes.body[0];
+    expect(newestLog.productId).toBe(productId);
+    expect(Number(newestLog.oldPrice)).toBe(NEW_PRICE);
+    expect(Number(newestLog.newPrice)).toBe(EDITED_PRICE);
+  });
+
+  it('PATCH /portal/uploads/:uploadId/items — PENDING_REVIEW kayıtta eski davranış korunur (gerçek fiyat DEĞİŞMEZ)', async () => {
+    const draftRes = await request(app.getHttpServer())
+      .post(`/api/v1/portal/${subdomain}/upload`)
+      .send({ phone: OTP_PHONE, sessionToken, supplierId })
+      .expect(201);
+    const draftUploadId = draftRes.body.uploadId;
+    expect(draftRes.body.status).toBe('PENDING_REVIEW');
+
+    const beforeSalePrice = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/products/${productId}`)
+        .set('Authorization', authHeader)
+        .expect(200)
+    ).body.salePrice;
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/portal/uploads/${draftUploadId}/items`)
+      .set('Authorization', authHeader)
+      .send({ items: [{ productId, newPrice: 555 }] })
+      .expect(200);
+
+    const productRes = await request(app.getHttpServer())
+      .get(`/api/v1/products/${productId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(productRes.body.salePrice).toBe(beforeSalePrice);
+  });
+
+  // ── (i) listUploads — status query parametresi ───────────────────────────
+
+  it('GET /portal/uploads/:branchId — status verilmezse mevcut davranış: yalnızca PENDING_REVIEW döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/portal/uploads/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    expect(res.body.every((u: { status: string }) => u.status === 'PENDING_REVIEW')).toBe(true);
+    // uploadId (APPROVED) bu listede OLMAMALI.
+    expect(res.body.some((u: { id: string }) => u.id === uploadId)).toBe(false);
+  });
+
+  it('GET /portal/uploads/:branchId?status=APPROVED — yalnızca onaylanmış kayıtları döner', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/portal/uploads/${ctx.branchId}`)
+      .query({ status: 'APPROVED' })
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    expect(res.body.every((u: { status: string }) => u.status === 'APPROVED')).toBe(true);
+    expect(res.body.some((u: { id: string }) => u.id === uploadId)).toBe(true);
   });
 });

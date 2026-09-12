@@ -846,8 +846,15 @@ export function useAssignRole() {
 
 // ── Price update hooks ────────────────────────────────────────────────────────
 
-function fetchPendingPriceUploads(branchId: string): Promise<PendingPriceUpload[]> {
-  return api.get<PendingPriceUpload[]>(`/portal/uploads/${branchId}`).then((r) => r.data);
+function fetchPriceUploads(
+  branchId: string,
+  status?: string,
+): Promise<PendingPriceUpload[]> {
+  return api
+    .get<PendingPriceUpload[]>(`/portal/uploads/${branchId}`, {
+      params: status ? { status } : undefined,
+    })
+    .then((r) => r.data);
 }
 
 function fetchPriceChanges(branchId: string): Promise<PriceChange[]> {
@@ -858,8 +865,20 @@ export function usePendingPriceUploads() {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
   return useQuery<PendingPriceUpload[]>({
-    queryKey: ['price-uploads', branchId],
-    queryFn: () => fetchPendingPriceUploads(branchId),
+    queryKey: ['price-uploads', branchId, 'PENDING_REVIEW'],
+    queryFn: () => fetchPriceUploads(branchId),
+    staleTime: 1000 * 30,
+    enabled: !!branchId,
+  });
+}
+
+// Onaylanmış (uygulanmış) fiyat listeleri — "Güncel Fiyat Listeleri" ekranı.
+export function useApprovedPriceUploads() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<PendingPriceUpload[]>({
+    queryKey: ['price-uploads', branchId, 'APPROVED'],
+    queryFn: () => fetchPriceUploads(branchId, 'APPROVED'),
     staleTime: 1000 * 30,
     enabled: !!branchId,
   });
@@ -904,6 +923,8 @@ export function usePriceUploadDetail(uploadId: string) {
 }
 
 export function useUpdatePriceItems() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (vars: {
@@ -915,6 +936,11 @@ export function useUpdatePriceItems() {
         .then((r) => r.data),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['price-uploads', 'detail', vars.uploadId] });
+      // Onaylanmış bir liste düzenlenip kaydedildiyse gerçek satış fiyatları
+      // da değişmiş olabilir — "Güncel Fiyat Listeleri" ve stok/ürün
+      // sayfalarındaki fiyat gösterimleri tazelensin.
+      qc.invalidateQueries({ queryKey: ['price-uploads', branchId] });
+      qc.invalidateQueries({ queryKey: ['stock', branchId] });
       toast.success('Fiyat listesi kaydedildi');
     },
     onError: () => toast.error('Fiyat listesi kaydedilemedi'),
