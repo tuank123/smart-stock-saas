@@ -248,7 +248,14 @@ export class OcrService {
       const debtsCreated: string[] = [];
 
       // 1) Nakit borç: fatura tutarı > ödenen tutar ise fark kadar PAYABLE.
-      if (dto.invoiceTotal != null && dto.paidAmount != null) {
+      // paidAmount GÖNDERİLMEMİŞSE (kullanıcı "Ödenen Tutar"ı boş bıraktıysa)
+      // 0 kabul edilir — "hiç ödemedim" demek istiyor, "bu adımı atla" değil.
+      // Önceden dto.paidAmount != null şartı vardı: paidAmount boş
+      // bırakıldığında TÜM blok sessizce atlanıyor, invoiceTotal dolu olsa
+      // bile hiçbir borç kaydı oluşmuyordu (sessiz veri kaybı).
+      if (dto.invoiceTotal != null) {
+        const paidAmount = dto.paidAmount ?? 0;
+
         // ── Bütünlük kontrolü: ödenen tutar, onaylanan fatura tutarını
         // aşamaz. Aşarsa `diff < 0` olur ve aşağıdaki `if (diff > 0)` bloğu
         // sessizce atlanır — yani fazladan ödeme HİÇBİR borç/kayıt
@@ -256,7 +263,7 @@ export class OcrService {
         // yaptığı bir veri girişi hatasının (ör. rakam kayması) fark
         // edilmeden yutulmasıdır — recordSale/recordWaste'teki "sessiz
         // tutarsızlık" ile aynı sınıf hata, aynı desenle ele alınır.
-        if (dto.paidAmount - dto.invoiceTotal > AMOUNT_TOLERANCE) {
+        if (paidAmount - dto.invoiceTotal > AMOUNT_TOLERANCE) {
           await this.prisma.errorLog
             .create({
               data: {
@@ -268,7 +275,7 @@ export class OcrService {
                 context: {
                   scanId,
                   invoiceTotal: dto.invoiceTotal,
-                  paidAmount: dto.paidAmount,
+                  paidAmount,
                 },
               },
             })
@@ -277,7 +284,7 @@ export class OcrService {
           throw new DataIntegrityException('paid amount exceeds invoice total');
         }
 
-        const diff = dto.invoiceTotal - dto.paidAmount;
+        const diff = dto.invoiceTotal - paidAmount;
         if (diff > 0) {
           const cashDebt = await tx.debt.create({
             data: {
@@ -293,7 +300,7 @@ export class OcrService {
               // hem remainingAmount'tan düşüyor, iki kez çıkarılmış oluyordu.)
               amount: dto.invoiceTotal,
               // remainingAmount = amount - paidAmount (paidAmount 0 ise = amount).
-              // Aşağıda dto.paidAmount>0 için ayrıca bir DebtPayment kaydı
+              // Aşağıda paidAmount>0 için ayrıca bir DebtPayment kaydı
               // oluşturuluyor — o ödeme bu debt'e bağlanınca remainingAmount'ın
               // da onu düşmesi gerekir, yoksa recordCashPayment ilk manuel
               // ödemede current'ı hâlâ tam amount sanıp bu OCR-anı ödemesini
@@ -309,11 +316,11 @@ export class OcrService {
           debtsCreated.push(cashDebt.id);
 
           // Fatura anında yapılan ilk ödemeyi de geçmişe kaydet.
-          if (dto.paidAmount > 0) {
+          if (paidAmount > 0) {
             await tx.debtPayment.create({
               data: {
                 debtId: cashDebt.id,
-                amount: dto.paidAmount,
+                amount: paidAmount,
                 createdBy: user.userId,
               },
             });

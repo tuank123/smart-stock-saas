@@ -299,6 +299,53 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     expect(Number(debt.remainingAmount)).toBe(8000);
   });
 
+  // ── (f-2) paidAmount HİÇ GÖNDERİLMEZSE (undefined) — sessiz veri kaybı ───
+  //
+  // Düzeltmeden önce: dto.paidAmount != null şartı false olduğu için TÜM
+  // cash-borç bloğu atlanıyordu — invoiceTotal dolu olsa bile hiçbir borç
+  // kaydı oluşmuyordu (kullanıcı "Ödenen Tutar"ı boş bırakınca "hiç
+  // ödemedim" yerine "bu adımı atla" olarak yorumlanıyordu). Şimdi
+  // paidAmount ?? 0 ile 0 kabul ediliyor, fatura tutarının TAMAMI borç olarak
+  // kaydediliyor — tıpkı paidAmount:0 açıkça gönderilmiş gibi.
+
+  it('POST /ocr/scan/:scanId/confirm — paidAmount hiç gönderilmezse (undefined) borç kaydı YİNE DE oluşur, remainingAmount invoiceTotal\'a eşit olur', async () => {
+    const scan = await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/ocr/scan/${scan.body.scanId}/confirm`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        allItemsReceived: true,
+        lines: [{ productId, qty: 1, unit: 'adet' }],
+        invoiceTotal: 200000,
+        // paidAmount KASITLI OLARAK gönderilmiyor (frontend'de "Ödenen Tutar"
+        // boş bırakıldığında olan tam olarak bu).
+      })
+      .expect(200);
+
+    expect(res.body.debtsCreated).toHaveLength(1);
+
+    const debtsRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    const debt = debtsRes.body.find(
+      (d: { id: string }) => d.id === res.body.debtsCreated[0],
+    );
+    expect(debt).toBeDefined();
+    expect(debt.debtType).toBe('CASH');
+    expect(debt.direction).toBe('PAYABLE');
+    expect(debt.status).toBe('OPEN');
+    expect(Number(debt.amount)).toBe(200000);
+    expect(Number(debt.remainingAmount)).toBe(200000);
+  });
+
   // ── (g) Bütünlük kontrolü — ödenen tutar fatura tutarını aşarsa ──────────
   //
   // Düzeltmeden önce: paidAmount > invoiceTotal olduğunda diff negatif

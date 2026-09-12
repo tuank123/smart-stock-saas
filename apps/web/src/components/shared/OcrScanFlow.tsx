@@ -659,9 +659,9 @@ export function OcrScanFlow() {
                 </div>
 
                 {invoiceTotal.trim() && !paidAmount.trim() && (
-                  <p className="flex items-center gap-1.5 text-xs text-amber-600">
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <AlertTriangle className="h-3 w-3 shrink-0" />
-                    Fatura tutarı girdiniz — ödenen tutarı da girmezseniz borç kaydı oluşmaz.
+                    Ödenen tutar boş bırakılırsa, faturanın tamamı borç olarak kaydedilecek.
                   </p>
                 )}
 
