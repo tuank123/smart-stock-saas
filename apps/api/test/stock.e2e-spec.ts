@@ -297,6 +297,36 @@ describe('Stok (e2e)', () => {
       .expect(400);
   });
 
+  // ── (d-1) STARTER PATRON = fiilen şube müdürü (bkz. orders/stock/portal'daki
+  // aynı desen) — tek şubeli işletme sahibi artık eşik güncelleyebilir.
+
+  it('PATCH /stock/:branchId/:productId/threshold — STARTER PATRON (tek şubeli işletme sahibi) eşik güncelleyebilir', async () => {
+    // ctx = signupAndGetContext() → businessType='TEK_SUBE' → STARTER plan.
+    const res = await request(app.getHttpServer())
+      .patch(`/api/v1/stock/${ctx.branchId}/${productId}/threshold`)
+      .set('Authorization', authHeader)
+      .send({ minThreshold: 12 })
+      .expect(200);
+
+    expect(Number(res.body.minThreshold)).toBe(12);
+    expect(res.body.thresholdSource).toBe('MANUAL');
+  });
+
+  it('PATCH /stock/:branchId/:productId/threshold — çok şubeli PATRON (STARTER olmayan plan) 403 döner', async () => {
+    const multiPatron = await createRoleUser(app, prisma, {
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
+      role: UserRole.PATRON,
+      planId: 'PRO',
+    });
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/stock/${ctx.branchId}/${productId}/threshold`)
+      .set('Authorization', `Bearer ${multiPatron.accessToken}`)
+      .send({ minThreshold: 30 })
+      .expect(403);
+  });
+
   // ── (d-2) Stok listeleme — sayfalama ─────────────────────────────────────
   //
   // admin/tenants ve admin/errors ile aynı desen: {items,total,page,pageSize}.

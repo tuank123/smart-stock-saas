@@ -22,7 +22,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   useApproveOrder,
   useOrderDetail,
+  useStockDetail,
   useUpdateOrder,
+  useUpdateThreshold,
   useUpdateUnitsPerCase,
 } from '@/hooks/useMudur';
 import type { OrderItem } from '@/lib/types';
@@ -40,6 +42,129 @@ interface OrderItemDraft {
   unitsPerCase: number | null;
 }
 
+// ── Ürün satırı — kendi StockLevel'ını (minThreshold için) ayrıca çeker ────────
+//
+// Sipariş yanıtı minThreshold içermiyor (bkz. orders.service.ts ORDER_INCLUDE
+// — Product'ta değil, şube başına StockLevel'da tutulur). Her satır kendi
+// useStockDetail(productId)'ini çağırır (zaten mudur/stok/detay'da kullanılan
+// AYNI hook/endpoint — GET /stock/:branchId/:productId), ilk yüklenen değeri
+// bir kerelik ebeveyne bildirir (onThresholdLoaded) — sonraki refetch'ler
+// kullanıcının elle girdiği değerin üzerine yazmaz.
+
+interface OrderItemRowProps {
+  item: OrderItemDraft;
+  thresholdText: string;
+  thresholdLoaded: boolean;
+  onThresholdLoaded: (productId: string, minThreshold: number) => void;
+  onThresholdChange: (productId: string, value: string) => void;
+  onQuantityChange: (productId: string, value: string) => void;
+  onUnitsPerCaseBlur: (item: OrderItemDraft, e: React.FocusEvent<HTMLInputElement>) => void;
+  onRemove: (productId: string) => void;
+}
+
+function OrderItemRow({
+  item,
+  thresholdText,
+  thresholdLoaded,
+  onThresholdLoaded,
+  onThresholdChange,
+  onQuantityChange,
+  onUnitsPerCaseBlur,
+  onRemove,
+}: OrderItemRowProps) {
+  const stockDetail = useStockDetail(item.productId);
+
+  useEffect(() => {
+    if (stockDetail.data && !thresholdLoaded) {
+      onThresholdLoaded(item.productId, Number(stockDetail.data.minThreshold));
+    }
+  }, [stockDetail.data, thresholdLoaded, item.productId, onThresholdLoaded]);
+
+  // Koli, ham metinden canlı hesaplanır — her tuşta güncellenir.
+  const koli = formatCaseBreakdown(parseFloat(item.qtyText), item.unitsPerCase);
+  const caseEmpty = item.unitsPerCase === null;
+
+  return (
+    <div className="rounded-md border p-3">
+      {/* Başlık: ürün adı + SKU, sağ üstte sil */}
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{item.productName}</p>
+          <p className="text-xs text-muted-foreground">{item.productSku}</p>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+          onClick={() => onRemove(item.productId)}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Miktar — controlled, canlı koli */}
+      <div className="space-y-1.5">
+        <Label htmlFor={`qty-${item.productId}`}>Miktar ({item.productUnit})</Label>
+        <Input
+          id={`qty-${item.productId}`}
+          type="number"
+          min="0.001"
+          step="0.001"
+          value={item.qtyText}
+          onChange={(e) => onQuantityChange(item.productId, e.target.value)}
+          className="w-full text-sm"
+        />
+        <p className="text-xs text-muted-foreground">{koli ?? '–'}</p>
+      </div>
+
+      {/* Koli (adet/koli) — onBlur akışı (AlertDialog onayı) korunur */}
+      <div className="mt-3 space-y-1.5">
+        <Label htmlFor={`upc-${item.productId}`}>Koli (adet/koli)</Label>
+        <Input
+          id={`upc-${item.productId}`}
+          type="number"
+          min="1"
+          step="1"
+          defaultValue={item.unitsPerCase ?? ''}
+          onBlur={(e) => onUnitsPerCaseBlur(item, e)}
+          placeholder={caseEmpty ? 'Zorunlu' : ''}
+          className={`w-full text-sm ${
+            caseEmpty
+              ? 'border-destructive placeholder:text-destructive/60 focus-visible:ring-destructive'
+              : ''
+          }`}
+        />
+        <p className="text-xs text-muted-foreground">
+          {item.unitsPerCase != null
+            ? `1 kolide ${item.unitsPerCase} adet`
+            : 'Koli başına adet sayısını girin'}
+        </p>
+      </div>
+
+      {/* Otomatik Sipariş Eşiği (StockLevel.minThreshold) */}
+      <div className="mt-3 space-y-1.5">
+        <Label htmlFor={`min-${item.productId}`}>Otomatik Sipariş Eşiği</Label>
+        <Input
+          id={`min-${item.productId}`}
+          type="number"
+          min="0"
+          step="1"
+          value={thresholdText}
+          disabled={!thresholdLoaded}
+          onChange={(e) => onThresholdChange(item.productId, e.target.value)}
+          className="w-full text-sm"
+        />
+        <p className="text-xs text-muted-foreground">
+          {thresholdLoaded
+            ? 'Stok bu değerin altına düşünce otomatik sipariş önerisi tetiklenir.'
+            : 'Yükleniyor…'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Inner content — needs useSearchParams so wrapped in Suspense ──────────────
 
 function OrderEditInner() {
@@ -51,11 +176,45 @@ function OrderEditInner() {
   const updateOrder = useUpdateOrder();
   const approveOrder = useApproveOrder();
   const updateUnitsPerCase = useUpdateUnitsPerCase();
+  const updateThreshold = useUpdateThreshold();
 
   const [orderItems, setOrderItems] = useState<OrderItemDraft[]>([]);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [initialized, setInitialized] = useState(false);
+
+  // Otomatik Sipariş Eşiği (StockLevel.minThreshold) — sipariş yanıtında YOK
+  // (ürün başına değil, şube başına ayrı bir kayıt), bu yüzden her satır
+  // kendi useStockDetail(productId)'ini çekip ilk değeri buraya bildiriyor
+  // (bkz. OrderItemRow). productId → ham metin/yüklendi-mi/dokunuldu-mu.
+  const [thresholdText, setThresholdText] = useState<Record<string, string>>({});
+  const [thresholdLoaded, setThresholdLoaded] = useState<Record<string, boolean>>({});
+  const [thresholdDirty, setThresholdDirty] = useState<Record<string, boolean>>({});
+
+  function handleThresholdLoaded(productId: string, minThreshold: number) {
+    setThresholdText((prev) => ({ ...prev, [productId]: String(minThreshold) }));
+    setThresholdLoaded((prev) => ({ ...prev, [productId]: true }));
+  }
+
+  function handleThresholdChange(productId: string, value: string) {
+    setThresholdText((prev) => ({ ...prev, [productId]: value }));
+    setThresholdDirty((prev) => ({ ...prev, [productId]: true }));
+  }
+
+  // Yalnızca kullanıcının GERÇEKTEN elle değiştirdiği eşikler için ayrı bir
+  // PATCH /stock/:branchId/:productId/threshold isteği tetiklenir — aksi
+  // halde her Kaydet'te dokunulmamış AUTO eşikler sessizce MANUAL'a
+  // dönüşürdü (bkz. stock.service.ts:updateThreshold, thresholdSource her
+  // zaman 'MANUAL' set eder).
+  function fireThresholdUpdates() {
+    const activeProductIds = new Set(orderItems.map((i) => i.productId));
+    for (const [productId, dirty] of Object.entries(thresholdDirty)) {
+      if (!dirty || !activeProductIds.has(productId)) continue;
+      const min = parseFloat(thresholdText[productId]);
+      if (isNaN(min) || min < 0) continue;
+      updateThreshold.mutate({ productId, data: { minThreshold: min } });
+    }
+  }
 
   // Pending koli change waiting for AlertDialog confirmation
   const [pendingCase, setPendingCase] = useState<{
@@ -171,6 +330,7 @@ function OrderEditInner() {
 
   function handleSaveOnly() {
     if (!validate()) return;
+    fireThresholdUpdates();
     updateOrder.mutate(
       { orderId, data: buildPayload() },
       { onSuccess: () => router.replace('/isletme-app/siparis-onerileri') },
@@ -179,6 +339,7 @@ function OrderEditInner() {
 
   function handleSaveAndApprove() {
     if (!validate()) return;
+    fireThresholdUpdates();
     updateOrder.mutate(
       { orderId, data: buildPayload() },
       {
@@ -251,78 +412,19 @@ function OrderEditInner() {
                   ) : (
                     orderItems.length > 0 && (
                       <div className="space-y-3">
-                        {orderItems.map((item) => {
-                          // Koli, ham metinden canlı hesaplanır — her tuşta güncellenir.
-                          const koli = formatCaseBreakdown(
-                            parseFloat(item.qtyText),
-                            item.unitsPerCase,
-                          );
-                          const caseEmpty = item.unitsPerCase === null;
-
-                          return (
-                            <div key={item.productId} className="rounded-md border p-3">
-                              {/* Başlık: ürün adı + SKU, sağ üstte sil */}
-                              <div className="mb-3 flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-medium">{item.productName}</p>
-                                  <p className="text-xs text-muted-foreground">{item.productSku}</p>
-                                </div>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                                  onClick={() => removeItem(item.productId)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-
-                              {/* Miktar — controlled, canlı koli */}
-                              <div className="space-y-1.5">
-                                <Label htmlFor={`qty-${item.productId}`}>
-                                  Miktar ({item.productUnit})
-                                </Label>
-                                <Input
-                                  id={`qty-${item.productId}`}
-                                  type="number"
-                                  min="0.001"
-                                  step="0.001"
-                                  value={item.qtyText}
-                                  onChange={(e) => updateItemQuantity(item.productId, e.target.value)}
-                                  className="w-full text-sm"
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                  {koli ?? '–'}
-                                </p>
-                              </div>
-
-                              {/* Koli (adet/koli) — onBlur akışı (AlertDialog onayı) korunur */}
-                              <div className="mt-3 space-y-1.5">
-                                <Label htmlFor={`upc-${item.productId}`}>Koli (adet/koli)</Label>
-                                <Input
-                                  id={`upc-${item.productId}`}
-                                  type="number"
-                                  min="1"
-                                  step="1"
-                                  defaultValue={item.unitsPerCase ?? ''}
-                                  onBlur={(e) => handleUnitsPerCaseBlur(item, e)}
-                                  placeholder={caseEmpty ? 'Zorunlu' : ''}
-                                  className={`w-full text-sm ${
-                                    caseEmpty
-                                      ? 'border-destructive placeholder:text-destructive/60 focus-visible:ring-destructive'
-                                      : ''
-                                  }`}
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                  {item.unitsPerCase != null
-                                    ? `1 kolide ${item.unitsPerCase} adet`
-                                    : 'Koli başına adet sayısını girin'}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })}
+                        {orderItems.map((item) => (
+                          <OrderItemRow
+                            key={item.productId}
+                            item={item}
+                            thresholdText={thresholdText[item.productId] ?? ''}
+                            thresholdLoaded={thresholdLoaded[item.productId] ?? false}
+                            onThresholdLoaded={handleThresholdLoaded}
+                            onThresholdChange={handleThresholdChange}
+                            onQuantityChange={updateItemQuantity}
+                            onUnitsPerCaseBlur={handleUnitsPerCaseBlur}
+                            onRemove={removeItem}
+                          />
+                        ))}
                       </div>
                     )
                   )}

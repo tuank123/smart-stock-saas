@@ -907,8 +907,14 @@ export class StockService {
     branchId: string,
     productId: string,
     dto: UpdateThresholdDto,
-    user: { tenantId: string },
+    user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
+    if (user.role === 'PATRON' && user.planId !== 'STARTER') {
+      throw new ForbiddenException(
+        'Bu işlem yalnızca şube müdürleri veya tek şubeli işletme sahipleri tarafından yapılabilir',
+      );
+    }
+
     if (dto.minThreshold === undefined && dto.maxThreshold === undefined) {
       throw new BadRequestException('En az bir eşik değeri girilmelidir');
     }

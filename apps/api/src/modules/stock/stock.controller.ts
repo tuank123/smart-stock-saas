@@ -176,13 +176,13 @@ export class StockController {
     return this.service.recordSale(branchId, dto, user);
   }
 
-  @Roles(UserRole.SUBE_MUDURU)
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Patch(':branchId/:productId/threshold')
   updateThreshold(
     @Param('branchId', ParseUUIDPipe) branchId: string,
     @Param('productId', ParseUUIDPipe) productId: string,
     @Body() dto: UpdateThresholdDto,
-    @CurrentUser() user: { tenantId: string },
+    @CurrentUser() user: { tenantId: string; role?: string | null; planId?: string | null },
   ) {
     return this.service.updateThreshold(branchId, productId, dto, user);
   }
