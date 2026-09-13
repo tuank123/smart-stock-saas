@@ -45,13 +45,13 @@ function ReportCardSkeleton() {
 
 // ── Report card ───────────────────────────────────────────────────────────────
 
-function ReportCard({ report }: { report: Report }) {
+function ReportCard({ report, detailBasePath }: { report: Report; detailBasePath: string }) {
   const typeLabel = TYPE_LABEL[report.reportType] ?? report.reportType;
   const date = fmtDate(report.reportDate);
 
   return (
     <Link
-      href={`/reports/detay?id=${report.id}`}
+      href={`${detailBasePath}?id=${report.id}`}
       className="group block rounded-lg border bg-card p-4 shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-start justify-between gap-3">
@@ -101,8 +101,18 @@ const FILTERS: { value: FilterType; label: string }[] = [
   { value: 'MONTHLY', label: 'Aylık' },
 ];
 
-export function ReportsContent() {
-  const [filter, setFilter] = useState<FilterType>('all');
+interface ReportsContentProps {
+  // Verilirse filtre butonları gizlenir, sorgu bu tipe kilitlenir (ör.
+  // isletme-app/aylik-rapor yalnızca MONTHLY göstermek istiyor — günlük
+  // rapor zaten isletme-app/gunluk-rapor'da canlı gösteriliyor).
+  fixedType?: Exclude<FilterType, 'all'>;
+  // Her kartın Link hedefi — isletme-app kendi detay rotasını (kabuğundan
+  // çıkmadan) kullanabilsin diye parametrize edildi.
+  detailBasePath?: string;
+}
+
+export function ReportsContent({ fixedType, detailBasePath = '/reports/detay' }: ReportsContentProps = {}) {
+  const [filter, setFilter] = useState<FilterType>(fixedType ?? 'all');
   const [page, setPage] = useState(1);
   const query = useReports({
     type: filter === 'all' ? undefined : filter,
@@ -120,18 +130,19 @@ export function ReportsContent() {
 
   return (
     <>
-      {/* Filter buttons */}
+      {/* Filter buttons — fixedType varsa gizlenir (isletme-app/aylik-rapor). */}
       <div className="mb-5 flex items-center gap-2">
-        {FILTERS.map(({ value, label }) => (
-          <Button
-            key={value}
-            size="sm"
-            variant={filter === value ? 'default' : 'outline'}
-            onClick={() => handleFilterChange(value)}
-          >
-            {label}
-          </Button>
-        ))}
+        {!fixedType &&
+          FILTERS.map(({ value, label }) => (
+            <Button
+              key={value}
+              size="sm"
+              variant={filter === value ? 'default' : 'outline'}
+              onClick={() => handleFilterChange(value)}
+            >
+              {label}
+            </Button>
+          ))}
         <span className="ml-auto text-sm text-muted-foreground">
           {query.isSuccess ? `Toplam ${total} rapor` : ' '}
         </span>
@@ -160,7 +171,7 @@ export function ReportsContent() {
       ) : (
         <div className="space-y-3">
           {reports.map((r: Report) => (
-            <ReportCard key={r.id} report={r} />
+            <ReportCard key={r.id} report={r} detailBasePath={detailBasePath} />
           ))}
 
           {/* Sayfalama — admin/errors ile aynı desen */}

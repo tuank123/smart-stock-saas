@@ -12,6 +12,7 @@ import {
   Settings,
   AlertTriangle,
   PackageX,
+  CalendarDays,
   type LucideIcon,
 } from 'lucide-react';
 import { useDebtReminders } from '@/hooks/useMudur';
@@ -35,6 +36,7 @@ const actions: StationAction[] = [
   { href: '/isletme-app/stok-sorgu', label: 'Stok Sorgulama', icon: Search },
   { href: '/isletme-app/urun-zayiati', label: 'Ürün Zayiatları', icon: PackageX },
   { href: '/isletme-app/gunluk-rapor', label: 'Günlük Rapor', icon: BarChart3 },
+  { href: '/isletme-app/aylik-rapor', label: 'Aylık Raporlar', icon: CalendarDays },
   { href: '/isletme-app/ayarlar', label: 'Ayarlar', icon: Settings },
 ];
 
