@@ -804,12 +804,32 @@ export class StockService {
         sessionTotal: round2(revenueBySession.get(s.id) ?? 0),
       }));
 
+      // Zayiatlar: o gün içinde ZİYAN OLDU'ya geçen kayıtlar (Ürün Zayiatları
+      // özelliği — Fire/WASTE'den TAMAMEN AYRI bir akış). resolvedAt'e göre
+      // filtrelenir (createdAt DEĞİL) — bir kayıt bugün oluşturulup yarın
+      // "Ziyan Oldu" denebilir, o gün SAYILIR, oluşturulduğu gün değil.
+      const wastedItems = await tx.defectiveItemReport.findMany({
+        where: {
+          tenantId: user.tenantId,
+          branchId,
+          status: 'WASTED',
+          resolvedAt: { gte: dayStart, lte: dayEnd },
+        },
+        include: { product: { select: { id: true, name: true } } },
+      });
+      const defectiveItems = wastedItems.map((d) => ({
+        productId: d.productId,
+        productName: d.product.name,
+        quantity: Number(d.quantity),
+      }));
+
       return {
         date: dateStr,
         grossRevenue: round2(grossRevenue),
         topSellers,
         bottomSellers,
         cashierSessions,
+        defectiveItems,
       };
     });
   }

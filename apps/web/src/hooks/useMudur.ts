@@ -1161,12 +1161,19 @@ export interface DailyReportSession {
   sessionTotal: number;
 }
 
+export interface DailyReportDefectiveItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
+
 export interface DailyReport {
   date: string;
   grossRevenue: number;
   topSellers: DailyReportProduct[];
   bottomSellers: DailyReportProduct[];
   cashierSessions: DailyReportSession[];
+  defectiveItems: DailyReportDefectiveItem[];
 }
 
 export function useDailyReport(date?: string) {
@@ -1216,5 +1223,75 @@ export function useCloseMembership() {
       router.replace('/login');
     },
     onError: () => toast.error('Üyelik sonlandırılamadı'),
+  });
+}
+
+// ── Ürün Zayiatları (isletme-app, yalnızca STARTER PATRON) — Fire'dan (waste)
+// TAMAMEN AYRI bir akış (bkz. görev notları). ─────────────────────────────────
+
+export interface DefectiveItemReport {
+  id: string;
+  productId: string;
+  quantity: string;
+  photoBase64: string;
+  status: 'PENDING' | 'WASTED' | 'EXCHANGED';
+  createdAt: string;
+  resolvedAt: string | null;
+  product: { id: string; sku: string; name: string; unit: string };
+}
+
+export function useDefectiveItems() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  return useQuery<DefectiveItemReport[]>({
+    queryKey: ['defective-items', branchId],
+    queryFn: () =>
+      api.get<DefectiveItemReport[]>(`/defective-items/${branchId}`).then((r) => r.data),
+    enabled: !!branchId,
+  });
+}
+
+export function useCreateDefectiveItem() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: { productId: string; quantity: number; photoBase64: string }) =>
+      api.post(`/defective-items/${branchId}`, dto).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['defective-items', branchId] });
+      qc.invalidateQueries({ queryKey: ['stock', branchId] });
+      toast.success('Zayiat kaydı oluşturuldu');
+    },
+    onError: () => toast.error('Zayiat kaydı oluşturulamadı'),
+  });
+}
+
+export function useMarkDefectiveItemWasted() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.patch(`/defective-items/${id}/waste`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['defective-items', branchId] });
+      toast.success('Ziyan olarak işaretlendi');
+    },
+    onError: () => toast.error('İşlem gerçekleştirilemedi'),
+  });
+}
+
+export function useMarkDefectiveItemExchanged() {
+  const { user } = useAuthStore();
+  const branchId = user?.branchId ?? '';
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.patch(`/defective-items/${id}/exchange`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['defective-items', branchId] });
+      qc.invalidateQueries({ queryKey: ['stock', branchId] });
+      toast.success('Değişim kaydedildi, stok geri eklendi');
+    },
+    onError: () => toast.error('İşlem gerçekleştirilemedi'),
   });
 }

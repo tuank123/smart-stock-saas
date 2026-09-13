@@ -11,6 +11,7 @@ import {
   BarChart3,
   Settings,
   AlertTriangle,
+  PackageX,
   type LucideIcon,
 } from 'lucide-react';
 import { useDebtReminders } from '@/hooks/useMudur';
@@ -32,6 +33,7 @@ const actions: StationAction[] = [
   { href: '/isletme-app/gecici-kasa', label: 'Geçici Kasa', icon: Store },
   { href: '/isletme-app/alacak-verecek', label: 'Alacak Verecek Listeleri', icon: Wallet },
   { href: '/isletme-app/stok-sorgu', label: 'Stok Sorgulama', icon: Search },
+  { href: '/isletme-app/urun-zayiati', label: 'Ürün Zayiatları', icon: PackageX },
   { href: '/isletme-app/gunluk-rapor', label: 'Günlük Rapor', icon: BarChart3 },
   { href: '/isletme-app/ayarlar', label: 'Ayarlar', icon: Settings },
 ];

@@ -47,168 +47,172 @@ enum StaffTokenStatus {
 
 /// Multi-tenant root entity
 model Tenant {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  planId    TenantPlan @default(STARTER) @map("plan_id")
-  companyName String @map("company_name")
-  taxNumber String @unique @map("tax_number")
-  status    TenantStatus @default(ACTIVE)
-  settings  Json? // flexible config storage
-  
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  planId      TenantPlan   @default(STARTER) @map("plan_id")
+  companyName String       @map("company_name")
+  taxNumber   String       @unique @map("tax_number")
+  status      TenantStatus @default(ACTIVE)
+  settings    Json? // flexible config storage
+
   // Relations
-  users                    User[]
-  branches                 Branch[]
-  staffRegistrationTokens  StaffRegistrationToken[]
-  branchIntegrations       BranchIntegration[]
-  categories               Category[]
-  products                 Product[]
-  stockLevels              StockLevel[]
-  stockMovements           StockMovement[]
-  suppliers                Supplier[]
-  purchaseOrders           PurchaseOrder[]
-  stockTransfers           StockTransfer[]
-  whatsappMessageLogs      WhatsappMessageLog[]
-  ocrScans                 OcrScan[]
-  syncQueues               SyncQueue[]
-  syncLogs                 SyncLog[]
-  branchSupplierPortals    BranchSupplierPortal[]
-  supplierPortalUploads    SupplierPortalUpload[]
-  scheduledReports         ScheduledReport[]
-  priceChangeLogs          PriceChangeLog[]
-  cashierSessions          CashierSession[]
-  debts                    Debt[]
-  feedback                 UserFeedback[]
+  users                   User[]
+  branches                Branch[]
+  staffRegistrationTokens StaffRegistrationToken[]
+  branchIntegrations      BranchIntegration[]
+  categories              Category[]
+  products                Product[]
+  stockLevels             StockLevel[]
+  stockMovements          StockMovement[]
+  suppliers               Supplier[]
+  purchaseOrders          PurchaseOrder[]
+  stockTransfers          StockTransfer[]
+  whatsappMessageLogs     WhatsappMessageLog[]
+  ocrScans                OcrScan[]
+  syncQueues              SyncQueue[]
+  syncLogs                SyncLog[]
+  branchSupplierPortals   BranchSupplierPortal[]
+  supplierPortalUploads   SupplierPortalUpload[]
+  scheduledReports        ScheduledReport[]
+  priceChangeLogs         PriceChangeLog[]
+  cashierSessions         CashierSession[]
+  debts                   Debt[]
+  feedback                UserFeedback[]
+  defectiveItemReports    DefectiveItemReport[]
 
   // Timestamps
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at") // soft delete
   closedAt  DateTime? @map("closed_at") // üyeliğin sonlandırıldığı (SUSPENDED/DELETED) an
   isTest    Boolean   @default(false) @map("is_test") // test/demo hesabı → admin listesinde varsayılan gizli
 
-  @@map("tenants")
   @@index([status])
   @@index([deletedAt])
+  @@map("tenants")
 }
 
 /// User accounts - multi-tenant
 model User {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String   @db.Uuid @map("tenant_id")
-  branchId        String?  @db.Uuid @map("branch_id")
-  email           String   @map("email")
-  fullName        String?  @map("full_name")
-  passwordHash    String   @map("password_hash")
-  role            UserRole?
-  isActive        Boolean  @default(true) @map("is_active")
-  emailVerified   Boolean  @default(false) @map("email_verified")
-  lastLoginAt     DateTime? @map("last_login_at")
-  
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  branchId      String?   @map("branch_id") @db.Uuid
+  email         String    @map("email")
+  fullName      String?   @map("full_name")
+  passwordHash  String    @map("password_hash")
+  role          UserRole?
+  isActive      Boolean   @default(true) @map("is_active")
+  emailVerified Boolean   @default(false) @map("email_verified")
+  lastLoginAt   DateTime? @map("last_login_at")
+
   // Relations
-  tenant          Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branch          Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  stockMovements          StockMovement[]
-  approvedOrders          PurchaseOrder[]  @relation("POApprover")
-  requestedTransfers      StockTransfer[]  @relation("TransferRequester")
-  approvedTransfers       StockTransfer[]  @relation("TransferApprover")
-  dispatchedTransfers     StockTransfer[]  @relation("TransferDispatcher")
-  receivedTransfers       StockTransfer[]  @relation("TransferReceiver")
-  ocrScansAsScanner       OcrScan[]        @relation("OcrScanner")
-  ocrScansAsConfirmer     OcrScan[]        @relation("OcrConfirmer")
-  syncQueues              SyncQueue[]      @relation("SyncQueueCreator")
-  reviewedUploads         SupplierPortalUpload[] @relation("PortalReviewer")
-  priceChangeLogs         PriceChangeLog[]
-  openedCashierSessions   CashierSession[]
-  createdDebts            Debt[]
-  debtPayments            DebtPayment[]
-  feedback                UserFeedback[]
+  tenant                 Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch                 Branch?                @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  stockMovements         StockMovement[]
+  approvedOrders         PurchaseOrder[]        @relation("POApprover")
+  requestedTransfers     StockTransfer[]        @relation("TransferRequester")
+  approvedTransfers      StockTransfer[]        @relation("TransferApprover")
+  dispatchedTransfers    StockTransfer[]        @relation("TransferDispatcher")
+  receivedTransfers      StockTransfer[]        @relation("TransferReceiver")
+  ocrScansAsScanner      OcrScan[]              @relation("OcrScanner")
+  ocrScansAsConfirmer    OcrScan[]              @relation("OcrConfirmer")
+  syncQueues             SyncQueue[]            @relation("SyncQueueCreator")
+  reviewedUploads        SupplierPortalUpload[] @relation("PortalReviewer")
+  priceChangeLogs        PriceChangeLog[]
+  openedCashierSessions  CashierSession[]
+  createdDebts           Debt[]
+  debtPayments           DebtPayment[]
+  feedback               UserFeedback[]
+  createdDefectiveItems  DefectiveItemReport[]  @relation("DefectiveItemCreator")
+  resolvedDefectiveItems DefectiveItemReport[]  @relation("DefectiveItemResolver")
 
   // Timestamps
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  deletedAt       DateTime? @map("deleted_at") // soft delete
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at") // soft delete
 
   @@unique([tenantId, email])
-  @@map("users")
   @@index([tenantId])
   @@index([branchId])
   @@index([isActive])
   @@index([deletedAt])
+  @@map("users")
 }
 
 /// Business branches/locations
 model Branch {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId  String   @db.Uuid @map("tenant_id")
-  name      String
-  slug      String   @map("slug")
-  address   String?
-  phone     String?
-  timezone  String   @default("UTC")
-  closingTime String @default("00:00") @map("closing_time") // HH:mm — günlük raporun gün sınırı
-  isActive  Boolean  @default(true) @map("is_active")
-  debtsLastViewedAt DateTime? @map("debts_last_viewed_at")
-  debtRemindersEnabled Boolean @default(true) @map("debt_reminders_enabled")
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  name                 String
+  slug                 String    @map("slug")
+  address              String?
+  phone                String?
+  timezone             String    @default("UTC")
+  closingTime          String    @default("00:00") @map("closing_time") // HH:mm — günlük raporun gün sınırı
+  isActive             Boolean   @default(true) @map("is_active")
+  debtsLastViewedAt    DateTime? @map("debts_last_viewed_at")
+  debtRemindersEnabled Boolean   @default(true) @map("debt_reminders_enabled")
 
   // Relations
-  tenant                   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  users                    User[]
-  staffRegistrationTokens  StaffRegistrationToken[]
-  integration              BranchIntegration?
-  stockLevels              StockLevel[]
-  stockMovements           StockMovement[]
-  branchSuppliers          BranchSupplier[]
-  purchaseOrders           PurchaseOrder[]
-  transfersFrom            StockTransfer[]  @relation("TransferFrom")
-  transfersTo              StockTransfer[]  @relation("TransferTo")
-  whatsappMessageLogs      WhatsappMessageLog[]
-  ocrScans                 OcrScan[]
-  syncQueues               SyncQueue[]
-  supplierPortal           BranchSupplierPortal?
-  supplierPortalUploads    SupplierPortalUpload[]
-  scheduledReports         ScheduledReport[]
-  priceChangeLogs          PriceChangeLog[]
-  cashierSessions          CashierSession[]
-  debts                    Debt[]
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users                   User[]
+  staffRegistrationTokens StaffRegistrationToken[]
+  integration             BranchIntegration?
+  stockLevels             StockLevel[]
+  stockMovements          StockMovement[]
+  branchSuppliers         BranchSupplier[]
+  purchaseOrders          PurchaseOrder[]
+  transfersFrom           StockTransfer[]          @relation("TransferFrom")
+  transfersTo             StockTransfer[]          @relation("TransferTo")
+  whatsappMessageLogs     WhatsappMessageLog[]
+  ocrScans                OcrScan[]
+  syncQueues              SyncQueue[]
+  supplierPortal          BranchSupplierPortal?
+  supplierPortalUploads   SupplierPortalUpload[]
+  scheduledReports        ScheduledReport[]
+  priceChangeLogs         PriceChangeLog[]
+  cashierSessions         CashierSession[]
+  debts                   Debt[]
+  defectiveItemReports    DefectiveItemReport[]
 
   // Timestamps
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at") // soft delete
 
   @@unique([tenantId, slug])
-  @@map("branches")
   @@index([tenantId])
   @@index([isActive])
   @@index([deletedAt])
+  @@map("branches")
 }
 
 /// ERP/POS integration config per branch
 model BranchIntegration {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId            String    @db.Uuid @map("tenant_id")
-  branchId            String    @db.Uuid @map("branch_id")
-  adapterType         String    @map("adapter_type")
-  agentId             String?   @map("agent_id")
-  agentVersion        String?   @map("agent_version")
-  apiKeyHash          String?   @map("api_key_hash") // bcrypt hash; ham anahtar yalnız üretim anında Agent'a gösterilir
-  webserviceUrl       String?   @map("webservice_url")
-  apiKeyEncrypted     String?   @map("api_key_encrypted")
-  apiSecretEncrypted  String?   @map("api_secret_encrypted")
-  pollingIntervalSec  Int       @default(10) @map("polling_interval_sec")
-  connectionStatus    String    @default("PENDING_INSTALL") @map("connection_status")
-  lastReadSyncAt      DateTime? @map("last_read_sync_at")
-  lastWriteSyncAt     DateTime? @map("last_write_sync_at")
-  errorMessage        String?   @map("error_message")
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  branchId           String    @map("branch_id") @db.Uuid
+  adapterType        String    @map("adapter_type")
+  agentId            String?   @map("agent_id")
+  agentVersion       String?   @map("agent_version")
+  apiKeyHash         String?   @map("api_key_hash") // bcrypt hash; ham anahtar yalnız üretim anında Agent'a gösterilir
+  webserviceUrl      String?   @map("webservice_url")
+  apiKeyEncrypted    String?   @map("api_key_encrypted")
+  apiSecretEncrypted String?   @map("api_secret_encrypted")
+  pollingIntervalSec Int       @default(10) @map("polling_interval_sec")
+  connectionStatus   String    @default("PENDING_INSTALL") @map("connection_status")
+  lastReadSyncAt     DateTime? @map("last_read_sync_at")
+  lastWriteSyncAt    DateTime? @map("last_write_sync_at")
+  errorMessage       String?   @map("error_message")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  tenant  Tenant  @relation(fields: [tenantId], references: [id])
-  branch  Branch  @relation(fields: [branchId], references: [id])
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  branch Branch @relation(fields: [branchId], references: [id])
 
   @@unique([branchId])
-  @@map("branch_integrations")
   @@index([tenantId])
   @@index([connectionStatus])
+  @@map("branch_integrations")
 }
 
 /// Catalogue of supported ERP/POS adapter definitions
@@ -230,35 +234,35 @@ model IntegrationAdapter {
 
 /// Staff registration tokens for inviting team members
 model StaffRegistrationToken {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String   @db.Uuid @map("tenant_id")
-  branchId      String   @db.Uuid @map("branch_id")
-  token         String   @unique
-  applicantName String?  @map("applicant_name")
-  applicantEmail String? @map("applicant_email")
-  status        StaffTokenStatus @default(PENDING)
-  createdUserId String?  @db.Uuid @map("created_user_id")
-  approvedBy    String?  @db.Uuid @map("approved_by")
-  approvedAt    DateTime? @map("approved_at")
-  usedAt        DateTime? @map("used_at")
-  cancelledBy   String?  @db.Uuid @map("cancelled_by")
-  cancelledAt   DateTime? @map("cancelled_at")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String           @map("tenant_id") @db.Uuid
+  branchId       String           @map("branch_id") @db.Uuid
+  token          String           @unique
+  applicantName  String?          @map("applicant_name")
+  applicantEmail String?          @map("applicant_email")
+  status         StaffTokenStatus @default(PENDING)
+  createdUserId  String?          @map("created_user_id") @db.Uuid
+  approvedBy     String?          @map("approved_by") @db.Uuid
+  approvedAt     DateTime?        @map("approved_at")
+  usedAt         DateTime?        @map("used_at")
+  cancelledBy    String?          @map("cancelled_by") @db.Uuid
+  cancelledAt    DateTime?        @map("cancelled_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
 
-  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  @@map("staff_registration_tokens")
   @@index([branchId, status])
   @@index([tenantId])
+  @@map("staff_registration_tokens")
 }
 
 /// Agent kurulum kodu — Agent (yerel Windows servisi) tek kullanımlık bu kodla
 /// kendini şubeye bağlar. İlişki alanı yok; tenantId/branchId salt scalar.
 model AgentSetupToken {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String    @db.Uuid @map("tenant_id")
-  branchId    String    @db.Uuid @map("branch_id")
+  tenantId    String    @map("tenant_id") @db.Uuid
+  branchId    String    @map("branch_id") @db.Uuid
   token       String    @unique
   adapterType String    @map("adapter_type")
   status      String    @default("PENDING")
@@ -266,8 +270,8 @@ model AgentSetupToken {
   expiresAt   DateTime  @map("expires_at")
   createdAt   DateTime  @default(now()) @map("created_at")
 
-  @@map("agent_setup_tokens")
   @@index([branchId, status])
+  @@map("agent_setup_tokens")
 }
 
 // ============================================
@@ -276,11 +280,11 @@ model AgentSetupToken {
 
 /// Product categories — supports one level of nesting via self-relation
 model Category {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId  String   @db.Uuid @map("tenant_id")
-  parentId  String?  @db.Uuid @map("parent_id")
-  name      String
-  slug      String
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String  @map("tenant_id") @db.Uuid
+  parentId String? @map("parent_id") @db.Uuid
+  name     String
+  slug     String
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -290,40 +294,41 @@ model Category {
   products Product[]
 
   @@unique([tenantId, slug])
-  @@map("categories")
   @@index([tenantId])
+  @@map("categories")
 }
 
 /// Tenant-level product catalogue
 model Product {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId   String    @db.Uuid @map("tenant_id")
-  categoryId String    @db.Uuid @map("category_id")
-  sku        String
-  barcode    String?
-  name       String
-  unit          String
-  unitsPerCase  Int?      @map("units_per_case")
-  salePrice     Decimal?  @db.Decimal(12, 2) @map("sale_price")
-  variants      Json      @default("[]")
-  imageUrl   String?   @map("image_url")
-  isActive   Boolean   @default(true) @map("is_active")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
-  deletedAt  DateTime? @map("deleted_at")
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  categoryId   String    @map("category_id") @db.Uuid
+  sku          String
+  barcode      String?
+  name         String
+  unit         String
+  unitsPerCase Int?      @map("units_per_case")
+  salePrice    Decimal?  @map("sale_price") @db.Decimal(12, 2)
+  variants     Json      @default("[]")
+  imageUrl     String?   @map("image_url")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
 
-  tenant              Tenant              @relation(fields: [tenantId], references: [id])
-  category            Category            @relation(fields: [categoryId], references: [id])
-  stockLevels         StockLevel[]
-  stockMovements      StockMovement[]
-  purchaseOrderItems  PurchaseOrderItem[]
-  stockTransfers      StockTransfer[]
-  priceChangeLogs     PriceChangeLog[]
+  tenant               Tenant                @relation(fields: [tenantId], references: [id])
+  category             Category              @relation(fields: [categoryId], references: [id])
+  stockLevels          StockLevel[]
+  stockMovements       StockMovement[]
+  purchaseOrderItems   PurchaseOrderItem[]
+  stockTransfers       StockTransfer[]
+  priceChangeLogs      PriceChangeLog[]
+  defectiveItemReports DefectiveItemReport[]
 
   @@unique([tenantId, sku])
-  @@map("products")
   @@index([tenantId])
   @@index([tenantId, barcode])
+  @@map("products")
 }
 
 // ============================================
@@ -333,9 +338,9 @@ model Product {
 /// Current stock quantity per product per branch
 model StockLevel {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String    @db.Uuid @map("tenant_id")
-  productId         String    @db.Uuid @map("product_id")
-  branchId          String    @db.Uuid @map("branch_id")
+  tenantId          String    @map("tenant_id") @db.Uuid
+  productId         String    @map("product_id") @db.Uuid
+  branchId          String    @map("branch_id") @db.Uuid
   quantity          Decimal   @default(0) @db.Decimal(12, 3)
   reservedQty       Decimal   @default(0) @map("reserved_qty") @db.Decimal(12, 3)
   minThreshold      Decimal   @map("min_threshold") @db.Decimal(12, 3)
@@ -351,48 +356,48 @@ model StockLevel {
   branch  Branch  @relation(fields: [branchId], references: [id])
 
   @@unique([productId, branchId])
-  @@map("stock_levels")
   @@index([tenantId])
   @@index([branchId, quantity])
+  @@map("stock_levels")
 }
 
 /// Immutable log of every stock change
 model StockMovement {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String    @db.Uuid @map("tenant_id")
-  productId     String    @db.Uuid @map("product_id")
-  branchId      String    @db.Uuid @map("branch_id")
-  movementType  String    @map("movement_type")
-  quantity      Decimal   @db.Decimal(12, 3)
-  referenceId   String?   @db.Uuid @map("reference_id")
-  referenceType String?   @map("reference_type")
-  notes         String?
-  photoUrl      String?   @map("photo_url")
-  unitPrice        Decimal?  @db.Decimal(12, 2) @map("unit_price")
-  paymentMethod    String?   @map("payment_method")
-  cashierSessionId String?   @db.Uuid @map("cashier_session_id")
-  createdBy        String    @db.Uuid @map("created_by")
-  createdAt        DateTime  @default(now()) @map("created_at")
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  branchId         String   @map("branch_id") @db.Uuid
+  movementType     String   @map("movement_type")
+  quantity         Decimal  @db.Decimal(12, 3)
+  referenceId      String?  @map("reference_id") @db.Uuid
+  referenceType    String?  @map("reference_type")
+  notes            String?
+  photoUrl         String?  @map("photo_url")
+  unitPrice        Decimal? @map("unit_price") @db.Decimal(12, 2)
+  paymentMethod    String?  @map("payment_method")
+  cashierSessionId String?  @map("cashier_session_id") @db.Uuid
+  createdBy        String   @map("created_by") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
 
-  tenant  Tenant  @relation(fields: [tenantId], references: [id])
-  product Product @relation(fields: [productId], references: [id])
-  branch  Branch  @relation(fields: [branchId], references: [id])
-  user    User    @relation(fields: [createdBy], references: [id])
+  tenant  Tenant          @relation(fields: [tenantId], references: [id])
+  product Product         @relation(fields: [productId], references: [id])
+  branch  Branch          @relation(fields: [branchId], references: [id])
+  user    User            @relation(fields: [createdBy], references: [id])
   session CashierSession? @relation(fields: [cashierSessionId], references: [id])
 
-  @@map("stock_movements")
   @@index([branchId, createdAt(sort: Desc)])
   @@index([productId, branchId, createdAt(sort: Desc)])
+  @@map("stock_movements")
 }
 
 /// Geçici Kasa açılış/kapanış oturumu — satışları oturuma bağlar.
 model CashierSession {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId  String    @db.Uuid @map("tenant_id")
-  branchId  String    @db.Uuid @map("branch_id")
-  openedBy  String    @db.Uuid @map("opened_by")
-  openedAt  DateTime  @default(now()) @map("opened_at")
-  closedAt  DateTime? @map("closed_at")
+  id       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String    @map("tenant_id") @db.Uuid
+  branchId String    @map("branch_id") @db.Uuid
+  openedBy String    @map("opened_by") @db.Uuid
+  openedAt DateTime  @default(now()) @map("opened_at")
+  closedAt DateTime? @map("closed_at")
 
   tenant         Tenant          @relation(fields: [tenantId], references: [id])
   branch         Branch          @relation(fields: [branchId], references: [id])
@@ -409,12 +414,12 @@ model Debt {
   tenantId            String    @map("tenant_id") @db.Uuid
   branchId            String    @map("branch_id") @db.Uuid
   supplierId          String    @map("supplier_id") @db.Uuid
-  direction           String    // 'PAYABLE' (işletme borçlu) | 'RECEIVABLE' (tedarikçi borçlu)
+  direction           String // 'PAYABLE' (işletme borçlu) | 'RECEIVABLE' (tedarikçi borçlu)
   debtType            String    @default("CASH") @map("debt_type") // 'CASH' | 'PRODUCT'
   source              String    @default("MANUAL") @map("source") // 'MANUAL' | 'OCR'
   amount              Decimal?  @db.Decimal(12, 2) // nakit borçlarda dolu, ürün borçlarında null
-  remainingAmount     Decimal?  @db.Decimal(12, 2) @map("remaining_amount") // CASH için, oluşturulunca amount'a eşitlenir
-  lastPaymentAmount   Decimal?  @db.Decimal(12, 2) @map("last_payment_amount")
+  remainingAmount     Decimal?  @map("remaining_amount") @db.Decimal(12, 2) // CASH için, oluşturulunca amount'a eşitlenir
+  lastPaymentAmount   Decimal?  @map("last_payment_amount") @db.Decimal(12, 2)
   lastPaymentDate     DateTime? @map("last_payment_date")
   paidAt              DateTime? @map("paid_at") // tam kapandığı an, 3-gün gösterim için
   productDescription  String?   @map("product_description") // backend otomatik özet metin
@@ -429,10 +434,10 @@ model Debt {
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  tenant   Tenant   @relation(fields: [tenantId], references: [id])
-  branch   Branch   @relation(fields: [branchId], references: [id])
-  supplier Supplier @relation(fields: [supplierId], references: [id])
-  creator  User     @relation(fields: [createdBy], references: [id])
+  tenant   Tenant        @relation(fields: [tenantId], references: [id])
+  branch   Branch        @relation(fields: [branchId], references: [id])
+  supplier Supplier      @relation(fields: [supplierId], references: [id])
+  creator  User          @relation(fields: [createdBy], references: [id])
   payments DebtPayment[]
 
   @@index([branchId, status])
@@ -454,6 +459,36 @@ model DebtPayment {
   @@map("debt_payments")
 }
 
+/// Ürün Zayiatları (isletme-app, yalnızca tek şubeli/STARTER PATRON) — defolu/
+/// kullanılamaz bir ürün fotoğraflanıp stoktan hemen düşülür (PENDING), sonra
+/// kullanıcı "Ziyan Oldu" (kalıcı zayiat) ya da "Değişim Gerçekleşti" (stoğa
+/// geri eklenir) der. Fire (StockMovement:'WASTE', recordWaste) ile aynı
+/// amaca hizmet eden ama TAMAMEN AYRI bir akış — birbirine dokunmaz.
+model DefectiveItemReport {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  branchId    String    @map("branch_id") @db.Uuid
+  productId   String    @map("product_id") @db.Uuid
+  quantity    Decimal   @db.Decimal(12, 3)
+  // Gerçek foto verisi (base64, sıkıştırılmış — max 1200px/JPEG 0.8). Projenin
+  // geri kalanındaki "sahte URL üret" deseni KASITLI OLARAK burada kullanılmıyor.
+  photoBase64 String    @map("photo_base64")
+  status      String    @default("PENDING") // PENDING | WASTED | EXCHANGED
+  createdBy   String    @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  resolvedAt  DateTime? @map("resolved_at")
+  resolvedBy  String?   @map("resolved_by") @db.Uuid
+
+  tenant   Tenant  @relation(fields: [tenantId], references: [id])
+  branch   Branch  @relation(fields: [branchId], references: [id])
+  product  Product @relation(fields: [productId], references: [id])
+  creator  User    @relation("DefectiveItemCreator", fields: [createdBy], references: [id])
+  resolver User?   @relation("DefectiveItemResolver", fields: [resolvedBy], references: [id])
+
+  @@index([branchId, status])
+  @@map("defective_item_reports")
+}
+
 // ============================================
 // SUPPLIERS & PURCHASE ORDERS
 // ============================================
@@ -461,7 +496,7 @@ model DebtPayment {
 /// Supplier/vendor master data
 model Supplier {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String    @db.Uuid @map("tenant_id")
+  tenantId          String    @map("tenant_id") @db.Uuid
   name              String
   contactName       String?   @map("contact_name")
   whatsappNumber    String    @map("whatsapp_number")
@@ -473,22 +508,22 @@ model Supplier {
   createdAt         DateTime  @default(now()) @map("created_at")
   deletedAt         DateTime? @map("deleted_at")
 
-  tenant              Tenant               @relation(fields: [tenantId], references: [id])
+  tenant              Tenant                 @relation(fields: [tenantId], references: [id])
   branchSuppliers     BranchSupplier[]
   purchaseOrders      PurchaseOrder[]
   whatsappMessageLogs WhatsappMessageLog[]
   portalUploads       SupplierPortalUpload[]
   debts               Debt[]
 
-  @@map("suppliers")
   @@index([tenantId])
+  @@map("suppliers")
 }
 
 /// Junction: which branches work with which suppliers
 model BranchSupplier {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  branchId   String   @db.Uuid @map("branch_id")
-  supplierId String   @db.Uuid @map("supplier_id")
+  branchId   String   @map("branch_id") @db.Uuid
+  supplierId String   @map("supplier_id") @db.Uuid
   isPrimary  Boolean  @default(false) @map("is_primary")
   notes      String?
   createdAt  DateTime @default(now()) @map("created_at")
@@ -497,18 +532,18 @@ model BranchSupplier {
   supplier Supplier @relation(fields: [supplierId], references: [id])
 
   @@unique([branchId, supplierId])
-  @@map("branch_suppliers")
   @@index([branchId, isPrimary])
+  @@map("branch_suppliers")
 }
 
 /// Purchase order header
 model PurchaseOrder {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId   String    @db.Uuid @map("tenant_id")
-  branchId   String    @db.Uuid @map("branch_id")
-  supplierId String    @db.Uuid @map("supplier_id")
+  tenantId   String    @map("tenant_id") @db.Uuid
+  branchId   String    @map("branch_id") @db.Uuid
+  supplierId String    @map("supplier_id") @db.Uuid
   status     String    @default("DRAFT")
-  approvedBy String?   @db.Uuid @map("approved_by")
+  approvedBy String?   @map("approved_by") @db.Uuid
   approvedAt DateTime? @map("approved_at")
   notes      String?
   createdAt  DateTime  @default(now()) @map("created_at")
@@ -521,16 +556,16 @@ model PurchaseOrder {
   items               PurchaseOrderItem[]
   whatsappMessageLogs WhatsappMessageLog[]
 
-  @@map("purchase_orders")
   @@index([tenantId])
   @@index([branchId, status])
+  @@map("purchase_orders")
 }
 
 /// Purchase order line items
 model PurchaseOrderItem {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  poId             String   @db.Uuid @map("po_id")
-  productId        String   @db.Uuid @map("product_id")
+  poId             String   @map("po_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
   quantityOrdered  Decimal  @map("quantity_ordered") @db.Decimal(12, 3)
   quantityReceived Decimal  @default(0) @map("quantity_received") @db.Decimal(12, 3)
   unitPrice        Decimal? @map("unit_price") @db.Decimal(12, 2)
@@ -539,8 +574,8 @@ model PurchaseOrderItem {
   purchaseOrder PurchaseOrder @relation(fields: [poId], references: [id])
   product       Product       @relation(fields: [productId], references: [id])
 
-  @@map("purchase_order_items")
   @@index([poId])
+  @@map("purchase_order_items")
 }
 
 // ============================================
@@ -550,35 +585,35 @@ model PurchaseOrderItem {
 /// Inter-branch stock transfer lifecycle: REQUESTED→APPROVED→IN_TRANSIT→DELIVERED
 model StockTransfer {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String    @db.Uuid @map("tenant_id")
-  fromBranchId String    @db.Uuid @map("from_branch_id")
-  toBranchId   String    @db.Uuid @map("to_branch_id")
-  productId    String    @db.Uuid @map("product_id")
+  tenantId     String    @map("tenant_id") @db.Uuid
+  fromBranchId String    @map("from_branch_id") @db.Uuid
+  toBranchId   String    @map("to_branch_id") @db.Uuid
+  productId    String    @map("product_id") @db.Uuid
   quantity     Decimal   @db.Decimal(12, 3)
   status       String    @default("REQUESTED")
-  requestedBy  String    @db.Uuid @map("requested_by")
-  approvedBy   String?   @db.Uuid @map("approved_by")
+  requestedBy  String    @map("requested_by") @db.Uuid
+  approvedBy   String?   @map("approved_by") @db.Uuid
   approvedAt   DateTime? @map("approved_at")
-  dispatchedBy String?   @db.Uuid @map("dispatched_by")
+  dispatchedBy String?   @map("dispatched_by") @db.Uuid
   dispatchedAt DateTime? @map("dispatched_at")
-  receivedBy   String?   @db.Uuid @map("received_by")
+  receivedBy   String?   @map("received_by") @db.Uuid
   receivedAt   DateTime? @map("received_at")
   notes        String?
   createdAt    DateTime  @default(now()) @map("created_at")
 
-  tenant     Tenant   @relation(fields: [tenantId], references: [id])
-  fromBranch Branch   @relation("TransferFrom", fields: [fromBranchId], references: [id])
-  toBranch   Branch   @relation("TransferTo", fields: [toBranchId], references: [id])
-  product    Product  @relation(fields: [productId], references: [id])
-  requester  User     @relation("TransferRequester", fields: [requestedBy], references: [id])
-  approver   User?    @relation("TransferApprover", fields: [approvedBy], references: [id])
-  dispatcher User?    @relation("TransferDispatcher", fields: [dispatchedBy], references: [id])
-  receiver   User?    @relation("TransferReceiver", fields: [receivedBy], references: [id])
+  tenant     Tenant  @relation(fields: [tenantId], references: [id])
+  fromBranch Branch  @relation("TransferFrom", fields: [fromBranchId], references: [id])
+  toBranch   Branch  @relation("TransferTo", fields: [toBranchId], references: [id])
+  product    Product @relation(fields: [productId], references: [id])
+  requester  User    @relation("TransferRequester", fields: [requestedBy], references: [id])
+  approver   User?   @relation("TransferApprover", fields: [approvedBy], references: [id])
+  dispatcher User?   @relation("TransferDispatcher", fields: [dispatchedBy], references: [id])
+  receiver   User?   @relation("TransferReceiver", fields: [receivedBy], references: [id])
 
-  @@map("stock_transfers")
   @@index([tenantId])
   @@index([fromBranchId, status])
   @@index([toBranchId, status])
+  @@map("stock_transfers")
 }
 
 // ============================================
@@ -587,10 +622,10 @@ model StockTransfer {
 
 model WhatsappMessageLog {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String    @db.Uuid @map("tenant_id")
-  branchId       String    @db.Uuid @map("branch_id")
-  supplierId     String    @db.Uuid @map("supplier_id")
-  poId           String    @db.Uuid @map("po_id")
+  tenantId       String    @map("tenant_id") @db.Uuid
+  branchId       String    @map("branch_id") @db.Uuid
+  supplierId     String    @map("supplier_id") @db.Uuid
+  poId           String    @map("po_id") @db.Uuid
   messageBody    String    @map("message_body")
   whatsappNumber String    @map("whatsapp_number")
   status         String    @default("PENDING")
@@ -603,9 +638,9 @@ model WhatsappMessageLog {
   supplier Supplier      @relation(fields: [supplierId], references: [id])
   order    PurchaseOrder @relation(fields: [poId], references: [id])
 
-  @@map("whatsapp_message_logs")
   @@index([tenantId])
   @@index([poId, status])
+  @@map("whatsapp_message_logs")
 }
 
 // ============================================
@@ -614,14 +649,14 @@ model WhatsappMessageLog {
 
 model OcrScan {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId     String    @db.Uuid @map("tenant_id")
-  branchId     String    @db.Uuid @map("branch_id")
-  scannedBy    String    @db.Uuid @map("scanned_by")
+  tenantId     String    @map("tenant_id") @db.Uuid
+  branchId     String    @map("branch_id") @db.Uuid
+  scannedBy    String    @map("scanned_by") @db.Uuid
   imageUrl     String    @map("image_url")
   rawOcrResult Json?     @map("raw_ocr_result")
   parsedLines  Json?     @map("parsed_lines")
   status       String    @default("PENDING")
-  confirmedBy  String?   @db.Uuid @map("confirmed_by")
+  confirmedBy  String?   @map("confirmed_by") @db.Uuid
   confirmedAt  DateTime? @map("confirmed_at")
   createdAt    DateTime  @default(now()) @map("created_at")
 
@@ -630,9 +665,9 @@ model OcrScan {
   scanner   User   @relation("OcrScanner", fields: [scannedBy], references: [id])
   confirmer User?  @relation("OcrConfirmer", fields: [confirmedBy], references: [id])
 
-  @@map("ocr_scans")
   @@index([tenantId])
   @@index([branchId, status])
+  @@map("ocr_scans")
 }
 
 // ============================================
@@ -641,8 +676,8 @@ model OcrScan {
 
 model SyncQueue {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String    @db.Uuid @map("tenant_id")
-  branchId      String    @db.Uuid @map("branch_id")
+  tenantId      String    @map("tenant_id") @db.Uuid
+  branchId      String    @map("branch_id") @db.Uuid
   direction     String    @default("OUTBOUND")
   operationType String    @map("operation_type")
   payload       Json
@@ -651,7 +686,7 @@ model SyncQueue {
   attemptCount  Int       @default(0) @map("attempt_count")
   lastAttemptAt DateTime? @map("last_attempt_at")
   errorMessage  String?   @map("error_message")
-  createdBy     String?   @db.Uuid @map("created_by")
+  createdBy     String?   @map("created_by") @db.Uuid
   createdAt     DateTime  @default(now()) @map("created_at")
   processedAt   DateTime? @map("processed_at")
 
@@ -660,15 +695,15 @@ model SyncQueue {
   creator User?     @relation("SyncQueueCreator", fields: [createdBy], references: [id])
   logs    SyncLog[]
 
-  @@map("sync_queue")
   @@index([tenantId])
   @@index([branchId, status])
+  @@map("sync_queue")
 }
 
 model SyncLog {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId        String   @db.Uuid @map("tenant_id")
-  queueId         String   @db.Uuid @map("queue_id")
+  tenantId        String   @map("tenant_id") @db.Uuid
+  queueId         String   @map("queue_id") @db.Uuid
   attemptNumber   Int      @map("attempt_number")
   direction       String
   requestPayload  String?  @map("request_payload")
@@ -680,9 +715,9 @@ model SyncLog {
   tenant    Tenant    @relation(fields: [tenantId], references: [id])
   syncQueue SyncQueue @relation(fields: [queueId], references: [id])
 
-  @@map("sync_logs")
   @@index([tenantId])
   @@index([queueId])
+  @@map("sync_logs")
 }
 
 // ============================================
@@ -691,8 +726,8 @@ model SyncLog {
 
 model BranchSupplierPortal {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId  String   @db.Uuid @map("tenant_id")
-  branchId  String   @db.Uuid @map("branch_id")
+  tenantId  String   @map("tenant_id") @db.Uuid
+  branchId  String   @map("branch_id") @db.Uuid
   subdomain String   @unique
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
@@ -702,16 +737,16 @@ model BranchSupplierPortal {
   uploads SupplierPortalUpload[]
 
   @@unique([branchId])
-  @@map("branch_supplier_portals")
   @@index([subdomain])
+  @@map("branch_supplier_portals")
 }
 
 model SupplierPortalUpload {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String    @db.Uuid @map("tenant_id")
-  branchId          String    @db.Uuid @map("branch_id")
-  supplierId        String?   @db.Uuid @map("supplier_id")
-  portalId          String?   @db.Uuid @map("portal_id")
+  tenantId          String    @map("tenant_id") @db.Uuid
+  branchId          String    @map("branch_id") @db.Uuid
+  supplierId        String?   @map("supplier_id") @db.Uuid
+  portalId          String?   @map("portal_id") @db.Uuid
   uploaderPhone     String    @map("uploader_phone")
   otpVerifiedAt     DateTime? @map("otp_verified_at")
   pdfUrl            String?   @map("pdf_url")
@@ -721,20 +756,20 @@ model SupplierPortalUpload {
   ocrStatus         String?   @default("PENDING") @map("ocr_status")
   uploadType        String    @map("upload_type")
   status            String    @default("PENDING_REVIEW") @map("status")
-  reviewedBy        String?   @db.Uuid @map("reviewed_by")
+  reviewedBy        String?   @map("reviewed_by") @db.Uuid
   reviewedAt        DateTime? @map("reviewed_at")
   parsedItems       Json?     @map("parsed_items") // [{ productId, productName, oldPrice, newPrice, discountPct }]
   createdAt         DateTime  @default(now()) @map("created_at")
 
-  tenant   Tenant               @relation(fields: [tenantId], references: [id])
-  branch   Branch               @relation(fields: [branchId], references: [id])
+  tenant   Tenant                @relation(fields: [tenantId], references: [id])
+  branch   Branch                @relation(fields: [branchId], references: [id])
   portal   BranchSupplierPortal? @relation(fields: [portalId], references: [id])
-  supplier Supplier?            @relation(fields: [supplierId], references: [id])
-  reviewer User?                @relation("PortalReviewer", fields: [reviewedBy], references: [id])
+  supplier Supplier?             @relation(fields: [supplierId], references: [id])
+  reviewer User?                 @relation("PortalReviewer", fields: [reviewedBy], references: [id])
 
-  @@map("supplier_portal_uploads")
   @@index([tenantId])
   @@index([branchId, status])
+  @@map("supplier_portal_uploads")
 }
 
 // ============================================
@@ -743,8 +778,8 @@ model SupplierPortalUpload {
 
 model ScheduledReport {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String    @db.Uuid @map("tenant_id")
-  branchId    String?   @db.Uuid @map("branch_id")
+  tenantId    String    @map("tenant_id") @db.Uuid
+  branchId    String?   @map("branch_id") @db.Uuid
   reportType  String    @map("report_type")
   reportDate  DateTime  @map("report_date") @db.Date
   generatedAt DateTime  @default(now()) @map("generated_at")
@@ -757,47 +792,47 @@ model ScheduledReport {
   branch Branch? @relation(fields: [branchId], references: [id])
 
   @@unique([tenantId, reportType, reportDate])
-  @@map("scheduled_reports")
   @@index([tenantId, isRead])
+  @@map("scheduled_reports")
 }
 
 model PriceChangeLog {
   id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId            String   @db.Uuid @map("tenant_id")
-  productId           String   @db.Uuid @map("product_id")
-  branchId            String?  @db.Uuid @map("branch_id")
-  oldPrice            Decimal  @map("old_price") @db.Decimal(12,2)
-  newPrice            Decimal  @map("new_price") @db.Decimal(12,2)
-  changePct           Decimal  @map("change_pct") @db.Decimal(5,2)
-  categoryAvgIncrease Decimal? @map("category_avg_increase") @db.Decimal(5,2)
+  tenantId            String   @map("tenant_id") @db.Uuid
+  productId           String   @map("product_id") @db.Uuid
+  branchId            String?  @map("branch_id") @db.Uuid
+  oldPrice            Decimal  @map("old_price") @db.Decimal(12, 2)
+  newPrice            Decimal  @map("new_price") @db.Decimal(12, 2)
+  changePct           Decimal  @map("change_pct") @db.Decimal(5, 2)
+  categoryAvgIncrease Decimal? @map("category_avg_increase") @db.Decimal(5, 2)
   anomalyFlag         Boolean  @default(false) @map("anomaly_flag")
-  anomalyRatio        Decimal? @map("anomaly_ratio") @db.Decimal(5,2)
-  changedBy           String   @db.Uuid @map("changed_by")
+  anomalyRatio        Decimal? @map("anomaly_ratio") @db.Decimal(5, 2)
+  changedBy           String   @map("changed_by") @db.Uuid
   createdAt           DateTime @default(now()) @map("created_at")
 
-  tenant  Tenant   @relation(fields: [tenantId], references: [id])
-  product Product  @relation(fields: [productId], references: [id])
-  branch  Branch?  @relation(fields: [branchId], references: [id])
-  changer User     @relation(fields: [changedBy], references: [id])
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+  branch  Branch? @relation(fields: [branchId], references: [id])
+  changer User    @relation(fields: [changedBy], references: [id])
 
-  @@map("price_change_logs")
   @@index([tenantId])
   @@index([tenantId, anomalyFlag])
+  @@map("price_change_logs")
 }
 
 /// Platform geneli hata/başarısız işlem toplama (super-admin sistem tablosu, RLS'siz).
 model ErrorLog {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  source      String    // 'API_EXCEPTION' | 'SYNC_JOB' | 'LOGIN_FAILED' | 'OCR_SCAN' | 'WHATSAPP_WEBHOOK' | 'SECURITY_EVENT' | 'DATA_INTEGRITY' | 'SCHEDULED_JOB' | 'FRONTEND_ERROR'
-  severity    String    @default("ERROR") // 'ERROR' | 'WARNING'
-  message     String
-  stackTrace  String?   @map("stack_trace")
-  tenantId    String?   @map("tenant_id") @db.Uuid
-  branchId    String?   @map("branch_id") @db.Uuid
-  context     Json?
-  resolved    Boolean   @default(false)
-  resolvedAt  DateTime? @map("resolved_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  source     String // 'API_EXCEPTION' | 'SYNC_JOB' | 'LOGIN_FAILED' | 'OCR_SCAN' | 'WHATSAPP_WEBHOOK' | 'SECURITY_EVENT' | 'DATA_INTEGRITY' | 'SCHEDULED_JOB' | 'FRONTEND_ERROR'
+  severity   String    @default("ERROR") // 'ERROR' | 'WARNING'
+  message    String
+  stackTrace String?   @map("stack_trace")
+  tenantId   String?   @map("tenant_id") @db.Uuid
+  branchId   String?   @map("branch_id") @db.Uuid
+  context    Json?
+  resolved   Boolean   @default(false)
+  resolvedAt DateTime? @map("resolved_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
 
   @@index([resolved, createdAt])
   @@index([source])

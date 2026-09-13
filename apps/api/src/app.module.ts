@@ -23,6 +23,7 @@ import { SyncModule } from './modules/sync/sync.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { DebtsModule } from './modules/debts/debts.module';
+import { DefectiveItemsModule } from './modules/defective-items/defective-items.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { ErrorsModule } from './modules/errors/errors.module';
@@ -81,6 +82,7 @@ import { validateEnv } from './config/env.validation';
     PortalModule,
     ReportsModule,
     DebtsModule,
+    DefectiveItemsModule,
     AdminModule,
     FeedbackModule,
     ErrorsModule,

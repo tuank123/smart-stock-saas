@@ -3,7 +3,7 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertTriangle, CalendarDays, TrendingDown, TrendingUp, Store } from 'lucide-react';
+import { AlertTriangle, CalendarDays, TrendingDown, TrendingUp, Store, PackageX } from 'lucide-react';
 import { StationPageHeader } from '@/components/layout/StationPageHeader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -13,6 +13,7 @@ import {
   type DailyReportProduct,
   type DailyReportSession,
   type DailyReportHistoryDay,
+  type DailyReportDefectiveItem,
 } from '@/hooks/useMudur';
 
 function fmtMoney(n: number) {
@@ -168,6 +169,31 @@ function GunlukRaporInner() {
                       {fmtMoney(s.sessionTotal)}
                     </span>
                   </Link>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Zayiatlar — o gün ZİYAN OLDU'ya geçen Ürün Zayiatları kayıtları */}
+          <div>
+            <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold">
+              <PackageX className="h-4 w-4 text-destructive" />
+              Zayiatlar
+            </h2>
+            {data.defectiveItems.length === 0 ? (
+              <p className="px-1 text-sm text-muted-foreground">Bu gün zayiat kaydı yok.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {data.defectiveItems.map((d: DailyReportDefectiveItem) => (
+                  <div
+                    key={d.productId}
+                    className="flex items-center justify-between gap-3 rounded-lg border bg-card p-3"
+                  >
+                    <span className="truncate text-sm font-medium">{d.productName}</span>
+                    <span className="shrink-0 text-sm font-semibold tabular-nums">
+                      {d.quantity.toLocaleString('tr-TR')}
+                    </span>
+                  </div>
                 ))}
               </div>
             )}

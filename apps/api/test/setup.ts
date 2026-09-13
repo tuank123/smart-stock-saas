@@ -201,6 +201,9 @@ export async function deleteTenantByTaxNumber(
     // agent_setup_tokens'ta FK yok (migration'da tanımsız) ama hijyen için
     // yine de temizlenir.
     await tx.agentSetupToken.deleteMany({ where: { tenantId } });
+    // defective_item_reports.product_id/branch_id RESTRICT — product/branch
+    // silinmeden önce temizlenmeli (defective-items.e2e-spec.ts).
+    await tx.defectiveItemReport.deleteMany({ where: { tenantId } });
     await tx.stockMovement.deleteMany({ where: { tenantId } });
     await tx.stockLevel.deleteMany({ where: { tenantId } });
     await tx.ocrScan.deleteMany({ where: { tenantId } });
