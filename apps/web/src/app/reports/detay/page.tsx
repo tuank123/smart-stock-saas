@@ -12,6 +12,7 @@ import {
   ArrowDown,
   ArrowUp,
   Calendar,
+  PackageX,
 } from 'lucide-react';
 
 import { PageLayout } from '@/components/layout/PageLayout';
@@ -218,7 +219,7 @@ function DailyDetail({ payload }: { payload: DailyPayload }) {
 // ── MONTHLY detail ────────────────────────────────────────────────────────────
 
 function MonthlyDetail({ payload }: { payload: MonthlyPayload }) {
-  const { totals, branchComparison, dailyReportCount } = payload;
+  const { totals, branchComparison, dailyReportCount, defectiveItems } = payload;
 
   return (
     <>
@@ -273,6 +274,33 @@ function MonthlyDetail({ payload }: { payload: MonthlyPayload }) {
             </TableBody>
           </Table>
         </div>
+      </div>
+
+      {/* Zayiatlar — isletme-app/gunluk-rapor'daki AYNI görsel desen */}
+      <div className="mt-6">
+        <SectionHeading>
+          <span className="flex items-center gap-1.5 text-destructive">
+            <PackageX className="h-3.5 w-3.5" />
+            Zayiatlar
+          </span>
+        </SectionHeading>
+        {defectiveItems.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Bu ay zayiat kaydı yok.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {defectiveItems.map((d) => (
+              <div
+                key={d.productId}
+                className="flex items-center justify-between gap-3 rounded-lg border bg-card p-3"
+              >
+                <span className="truncate text-sm font-medium">{d.productName}</span>
+                <span className="shrink-0 text-sm font-semibold tabular-nums">
+                  {d.totalQuantity.toLocaleString('tr-TR')}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </>
   );

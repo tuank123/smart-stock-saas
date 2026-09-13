@@ -16,8 +16,10 @@ import request from 'supertest';
 import {
   createTestApp,
   cleanupTenants,
+  createCategory,
   createRoleUser,
   signupAndGetContext,
+  uniqueSuffix,
   type SignedUpContext,
 } from './setup';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -108,6 +110,62 @@ describe('Raporlar / Reports (e2e)', () => {
     expect(res.body.reportType).toBe('MONTHLY');
     expect(res.body.payload.period).toBe(`${year}-${String(month).padStart(2, '0')}`);
     monthlyReportId = res.body.id;
+  });
+
+  // ── (c-2) Aylık rapor — Zayiatlar (Ürün Zayiatları'ndan WASTED kayıtlar) ──
+  //
+  // Aynı üründen ay içinde 2 AYRI WASTED kaydı oluşturulur — aylık rapor
+  // bunları TEK bir satırda toplamalı (bkz. generateMonthlyReport'taki
+  // defectiveByProduct Map'i).
+
+  it('POST /reports/generate/monthly — ay içindeki WASTED zayiat kayıtları ürün bazında TOPLANMIŞ olarak defectiveItems\'ta görünür', async () => {
+    const category = await createCategory(prisma, ctx1.tenantId, 'E2E Rapor Zayiat Kategorisi');
+    const productRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader1)
+      .send({
+        sku: `E2E-RAPOR-ZAYIAT-${uniqueSuffix()}`,
+        name: 'E2E Rapor Zayiat Ürünü',
+        unit: 'adet',
+        categoryId: category.id,
+      })
+      .expect(201);
+    const productId = productRes.body.id;
+
+    await request(app.getHttpServer())
+      .post('/api/v1/stock/initialize')
+      .set('Authorization', authHeader1)
+      .send({ branchId: ctx1.branchId, items: [{ productId, quantity: 20 }] })
+      .expect(201);
+
+    // İki AYRI zayiat kaydı, ikisi de WASTED — aylık raporda tek satırda
+    // toplanmalı: 3 + 4 = 7.
+    for (const qty of [3, 4]) {
+      const createRes = await request(app.getHttpServer())
+        .post(`/api/v1/defective-items/${ctx1.branchId}`)
+        .set('Authorization', authHeader1)
+        .send({ productId, quantity: qty, photoBase64: 'data:image/jpeg;base64,ZmFrZS1waG90bw==' })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/defective-items/${createRes.body.id}/waste`)
+        .set('Authorization', authHeader1)
+        .expect(200);
+    }
+
+    const now = new Date();
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/reports/generate/monthly')
+      .set('Authorization', authHeader1)
+      .send({ year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 })
+      .expect(201);
+
+    const entries = res.body.payload.defectiveItems.filter(
+      (d: { productId: string }) => d.productId === productId,
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0].totalQuantity).toBe(7);
+    expect(entries[0].productName).toBe('E2E Rapor Zayiat Ürünü');
   });
 
   // ── (d) Anomaliler ────────────────────────────────────────────────────────

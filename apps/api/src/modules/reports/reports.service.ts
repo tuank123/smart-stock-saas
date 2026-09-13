@@ -175,6 +175,29 @@ export class ReportsService {
         select: { id: true, reportDate: true },
       });
 
+      // Zayiatlar: ay içinde ZİYAN OLDU'ya geçen kayıtlar, TÜM ŞUBELER dahil
+      // (bu metodun geri kalanıyla tutarlı — branchId filtresi yok). Fotoğraf
+      // dahil edilmiyor (isletme-app/gunluk-rapor'daki aynı prensip). Aynı
+      // ürün birden fazla kez zayiat olduysa tek satırda toplanır.
+      const wastedItems = await tx.defectiveItemReport.findMany({
+        where: { tenantId, status: 'WASTED', resolvedAt: range },
+        include: { product: { select: { id: true, name: true } } },
+      });
+      const defectiveByProduct = new Map<string, { productId: string; productName: string; totalQuantity: number }>();
+      for (const d of wastedItems) {
+        const existing = defectiveByProduct.get(d.productId);
+        if (existing) {
+          existing.totalQuantity += Number(d.quantity);
+        } else {
+          defectiveByProduct.set(d.productId, {
+            productId: d.productId,
+            productName: d.product.name,
+            totalQuantity: Number(d.quantity),
+          });
+        }
+      }
+      const defectiveItems = Array.from(defectiveByProduct.values());
+
       const payload: Prisma.JsonObject = {
         year,
         month,
@@ -182,6 +205,7 @@ export class ReportsService {
         branchComparison: branchComparison as unknown as Prisma.JsonArray,
         totals: { totalOrders, totalMovements, priceAnomalies } as unknown as Prisma.JsonObject,
         dailyReportCount: existingDailyReports.length,
+        defectiveItems: defectiveItems as unknown as Prisma.JsonArray,
       };
 
       return tx.scheduledReport.upsert({

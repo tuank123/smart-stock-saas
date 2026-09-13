@@ -108,6 +108,12 @@ interface MonthlyBranchStat {
   criticalStockCount: number;
 }
 
+export interface MonthlyDefectiveItem {
+  productId: string;
+  productName: string;
+  totalQuantity: number;
+}
+
 interface MonthlyTotals {
   totalOrders: number;
   totalMovements: number;
@@ -121,6 +127,7 @@ export interface MonthlyPayload {
   branchComparison: MonthlyBranchStat[];
   totals: MonthlyTotals;
   dailyReportCount: number;
+  defectiveItems: MonthlyDefectiveItem[];
 }
 
 export interface ReportDetail extends Report {
