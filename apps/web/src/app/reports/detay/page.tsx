@@ -219,7 +219,12 @@ function DailyDetail({ payload }: { payload: DailyPayload }) {
 // ── MONTHLY detail ────────────────────────────────────────────────────────────
 
 function MonthlyDetail({ payload }: { payload: MonthlyPayload }) {
-  const { totals, branchComparison, dailyReportCount, defectiveItems } = payload;
+  const { totals, branchComparison, dailyReportCount } = payload;
+  // ScheduledReport.payload şema-sürümsüz bir JSON blob — bu alan bu
+  // özellikten ÖNCE üretilmiş eski raporlarda hiç yok (undefined), TypeScript
+  // tipinin "zorunlu" demesi DB'deki gerçek veriyi garanti etmiyor (bkz.
+  // manuel testte bulunan çökme: id=d0fadac2..., 2026-07-31'de üretilmiş).
+  const defectiveItems = payload.defectiveItems ?? [];
 
   return (
     <>
