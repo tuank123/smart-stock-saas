@@ -12,6 +12,13 @@ export default defineConfig({
   reporter: [['list']],
   timeout: 30_000,
 
+  // Bu koşuda gerçek POST /tenants/signup ile oluşturulan test tenant'larını
+  // (onboarding-help/feedback-submit/whatsapp-fiyat-price-discount/
+  // reports-monthly-legacy-payload vb.) koşu bitince otomatik temizler —
+  // bkz. global-setup.ts/global-teardown.ts.
+  globalSetup: require.resolve('./e2e-ui/global-setup'),
+  globalTeardown: require.resolve('./e2e-ui/global-teardown'),
+
   use: {
     baseURL: BASE_URL,
     trace: 'retain-on-failure',

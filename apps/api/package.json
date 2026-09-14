@@ -21,7 +21,8 @@
     "cleanup:extra-branches": "ts-node src/scripts/cleanup-extra-branches.ts",
     "cleanup:test-tenants": "ts-node src/scripts/cleanup-test-tenants.ts",
     "cleanup:test-users": "ts-node src/scripts/cleanup-test-users.ts",
-    "refresh:monthly-report": "ts-node src/scripts/refresh-monthly-report.ts"
+    "refresh:monthly-report": "ts-node src/scripts/refresh-monthly-report.ts",
+    "cleanup:playwright-tenants": "ts-node src/scripts/cleanup-playwright-tenants.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.3",
