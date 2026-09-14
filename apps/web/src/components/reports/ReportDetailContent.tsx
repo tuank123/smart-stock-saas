@@ -4,7 +4,6 @@ import {
   TrendingDown,
   ArrowDown,
   ArrowUp,
-  Calendar,
   PackageX,
   Wallet,
 } from 'lucide-react';
@@ -204,7 +203,45 @@ export function DailyDetail({ payload }: { payload: DailyPayload }) {
         )}
       </div>
 
-      {/* Anomalies */}
+      {/* Fiyat Anomalisi Detayları — MonthlyDetail'deki AYNI görsel desen
+          (kart listesi). PriceChangeLog.branchId OPSİYONEL olduğu için
+          (Zayiatlar'ın aksine) tenant-geneli tek düz liste. */}
+      <div className="mt-6">
+        <SectionHeading>
+          <span className="flex items-center gap-1.5 text-amber-600">
+            <TrendingDown className="h-3.5 w-3.5" />
+            Fiyat Anomalisi Detayları
+          </span>
+        </SectionHeading>
+        {(payload.priceAnomalyDetails ?? []).length === 0 ? (
+          <p className="text-sm text-muted-foreground">Bu gün fiyat anomalisi yok.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {(payload.priceAnomalyDetails ?? []).map((a, i) => (
+              <div
+                key={`${a.productId}-${a.createdAt}-${i}`}
+                className="flex items-center justify-between gap-3 rounded-lg border bg-card p-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{a.productName}</p>
+                  <p className="text-xs text-muted-foreground">{fmtDate(a.createdAt)}</p>
+                </div>
+                <div className="shrink-0 text-right text-xs text-muted-foreground">
+                  <p className="text-sm font-semibold text-foreground">
+                    {currency(a.oldPrice)} → {currency(a.newPrice)}
+                  </p>
+                  <p className={a.changePct > 0 ? 'text-red-600' : 'text-green-600'}>
+                    {a.changePct > 0 ? '+' : ''}
+                    {a.changePct.toFixed(1)}%
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Anomalies (eski tablo görünümü — korunuyor) */}
       {anomalies.length > 0 && (
         <div className="mt-6">
           <SectionHeading>
@@ -263,7 +300,7 @@ export function DailyDetail({ payload }: { payload: DailyPayload }) {
 // ── MONTHLY detail ────────────────────────────────────────────────────────────
 
 export function MonthlyDetail({ payload }: { payload: MonthlyPayload }) {
-  const { totals, branchComparison, dailyReportCount } = payload;
+  const { totals, branchComparison } = payload;
   // ScheduledReport.payload şema-sürümsüz bir JSON blob — bu alan bu
   // özellikten ÖNCE üretilmiş eski raporlarda hiç yok (undefined), TypeScript
   // tipinin "zorunlu" demesi DB'deki gerçek veriyi garanti etmiyor (bkz.
@@ -287,7 +324,7 @@ export function MonthlyDetail({ payload }: { payload: MonthlyPayload }) {
   return (
     <>
       {/* Stat cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
           label="Toplam Ciro"
           value={currency(monthlyRevenue)}
@@ -303,11 +340,6 @@ export function MonthlyDetail({ payload }: { payload: MonthlyPayload }) {
           value={totals.priceAnomalies}
           icon={<TrendingDown className="h-4 w-4" />}
           highlight="warning"
-        />
-        <StatCard
-          label="Günlük Rapor Sayısı"
-          value={dailyReportCount}
-          icon={<Calendar className="h-4 w-4" />}
         />
       </div>
 

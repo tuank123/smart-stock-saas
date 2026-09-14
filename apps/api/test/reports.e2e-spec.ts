@@ -172,6 +172,58 @@ describe('Raporlar / Reports (e2e)', () => {
     expect(defectiveEntry.quantity).toBe(2);
   });
 
+  // ── (b-3) Günlük rapor — Fiyat Anomalisi Detayları (tenant-geneli) ────────
+  //
+  // PriceChangeLog.branchId OPSİYONEL (schema.prisma) — bu yüzden
+  // priceAnomalyDetails, defectiveItems/revenue'nun aksine, şube bazlı DEĞİL,
+  // tenant-geneli tek düz liste (generateMonthlyReport'taki AYNI karar).
+
+  it('POST /reports/generate/daily — priceAnomalyDetails, anomali kayıtlarının ürün/fiyat/tarih bilgilerini doğru taşır', async () => {
+    const category = await createCategory(prisma, ctx1.tenantId, 'E2E Rapor Günlük Anomali Kategorisi');
+    const productRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader1)
+      .send({
+        sku: `E2E-RAPOR-GUNLUK-ANOMALI-${uniqueSuffix()}`,
+        name: 'E2E Rapor Günlük Anomali Ürünü',
+        unit: 'adet',
+        categoryId: category.id,
+      })
+      .expect(201);
+    const productId = productRes.body.id;
+
+    await withTenantContext(prisma, { isSuperAdmin: true }, (tx) =>
+      tx.priceChangeLog.create({
+        data: {
+          tenantId: ctx1.tenantId,
+          productId,
+          branchId: ctx1.branchId,
+          oldPrice: 50,
+          newPrice: 150,
+          changePct: 200,
+          anomalyFlag: true,
+          changedBy: ctx1.userId,
+        },
+      }),
+    );
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/reports/generate/daily')
+      .set('Authorization', authHeader1)
+      .send({})
+      .expect(201);
+
+    const detail = res.body.payload.priceAnomalyDetails.find(
+      (d: { productId: string }) => d.productId === productId,
+    );
+    expect(detail).toBeDefined();
+    expect(detail.productName).toBe('E2E Rapor Günlük Anomali Ürünü');
+    expect(detail.oldPrice).toBe(50);
+    expect(detail.newPrice).toBe(150);
+    expect(detail.changePct).toBe(200);
+    expect(typeof detail.createdAt).toBe('string');
+  });
+
   // ── (c) Aylık rapor üretimi ───────────────────────────────────────────────
 
   let monthlyReportId: string;

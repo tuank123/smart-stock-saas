@@ -107,6 +107,7 @@ export interface DailyPayload {
   branches: DailyBranchStat[];
   totals: DailyTotals;
   anomalies: PriceAnomaly[];
+  priceAnomalyDetails: PriceAnomalyDetail[];
 }
 
 interface MonthlyBranchStat {
@@ -123,7 +124,7 @@ export interface MonthlyDefectiveItem {
   totalQuantity: number;
 }
 
-export interface MonthlyPriceAnomaly {
+export interface PriceAnomalyDetail {
   productId: string;
   productName: string;
   oldPrice: number;
@@ -147,7 +148,7 @@ export interface MonthlyPayload {
   totals: MonthlyTotals;
   dailyReportCount: number;
   defectiveItems: MonthlyDefectiveItem[];
-  priceAnomalyDetails: MonthlyPriceAnomaly[];
+  priceAnomalyDetails: PriceAnomalyDetail[];
 }
 
 export interface ReportDetail extends Report {

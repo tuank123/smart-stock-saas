@@ -91,7 +91,7 @@ test('reports/detay — defectiveItems alanı OLMAYAN eski bir MONTHLY payload �
   await expect(page.getByText('Bir şeyler ters gitti')).not.toBeVisible();
 
   // Sayfa normal şekilde render olmuş: mevcut alanlar görünüyor...
-  await expect(page.getByText('Günlük Rapor Sayısı')).toBeVisible();
+  await expect(page.getByText('Toplam Sipariş')).toBeVisible();
 
   // ...ve defectiveItems olmayan (undefined) payload'da Zayiatlar bölümü
   // boş-durum mesajıyla düşmeden render oluyor.

@@ -146,6 +146,25 @@ export class ReportsService {
         },
       });
 
+      // priceAnomalyDetails: generateMonthlyReport'taki AYNI ürün-adlı liste
+      // (ürün adı için ayrı bir include) — PriceChangeLog.branchId OPSİYONEL
+      // olduğu için (schema.prisma) tenant-geneli tek düz liste, şube bazlı
+      // DEĞİL (defectiveItems/revenue'nun aksine — DefectiveItemReport.branchId
+      // ZORUNLU olduğu için onlar şube bazlıydı).
+      const priceAnomalyLogs = await tx.priceChangeLog.findMany({
+        where: { tenantId, createdAt: range, anomalyFlag: true },
+        include: { product: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+      const priceAnomalyDetails = priceAnomalyLogs.map((a) => ({
+        productId: a.productId,
+        productName: a.product.name,
+        oldPrice: a.oldPrice.toNumber(),
+        newPrice: a.newPrice.toNumber(),
+        changePct: a.changePct.toNumber(),
+        createdAt: a.createdAt.toISOString(),
+      }));
+
       const totals = branchData.reduce(
         (acc, b) => ({
           totalOrders: acc.totalOrders + b.totalOrders,
@@ -176,6 +195,7 @@ export class ReportsService {
           changePct: a.changePct.toNumber(),
           createdAt: a.createdAt.toISOString(),
         })) as unknown as Prisma.JsonArray,
+        priceAnomalyDetails: priceAnomalyDetails as unknown as Prisma.JsonArray,
       };
 
       return tx.scheduledReport.upsert({
