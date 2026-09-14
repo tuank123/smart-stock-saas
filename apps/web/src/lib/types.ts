@@ -65,6 +65,12 @@ export interface Report {
 
 // ── Report detail (GET /reports/:id) ─────────────────────────────────────────
 
+export interface DailyBranchDefectiveItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
+
 interface DailyBranchStat {
   branchId: string;
   branchName: string;
@@ -73,6 +79,8 @@ interface DailyBranchStat {
   criticalStockCount: number;
   stockMovementsIn: number;
   stockMovementsOut: number;
+  revenue: number;
+  defectiveItems: DailyBranchDefectiveItem[];
 }
 
 interface DailyTotals {
@@ -81,6 +89,7 @@ interface DailyTotals {
   totalCriticalStock: number;
   totalMovementsIn: number;
   totalMovementsOut: number;
+  totalRevenue: number;
 }
 
 interface PriceAnomaly {

@@ -86,11 +86,23 @@ export function SectionHeading({ children }: { children: React.ReactNode }) {
 
 export function DailyDetail({ payload }: { payload: DailyPayload }) {
   const { totals, branches, anomalies } = payload;
+  // ScheduledReport.payload şema-sürümsüz bir JSON blob — bu alanlar bu
+  // özellikten ÖNCE üretilmiş eski (arşivlenmiş) günlük raporlarda hiç yok
+  // (bkz. MonthlyDetail'deki aynı gerekçe).
+  const totalRevenue = totals.totalRevenue ?? 0;
+  const allDefectiveItems = branches.flatMap((b) =>
+    (b.defectiveItems ?? []).map((d) => ({ ...d, branchName: b.branchName })),
+  );
 
   return (
     <>
       {/* Stat cards */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Toplam Ciro"
+          value={currency(totalRevenue)}
+          icon={<Wallet className="h-4 w-4" />}
+        />
         <StatCard
           label="Toplam Sipariş"
           value={totals.totalOrders}
@@ -127,6 +139,7 @@ export function DailyDetail({ payload }: { payload: DailyPayload }) {
             <TableHeader>
               <TableRow>
                 <TableHead>Şube</TableHead>
+                <TableHead className="text-right">Ciro</TableHead>
                 <TableHead className="text-right">Sipariş</TableHead>
                 <TableHead className="text-right">Onaylanan Değer</TableHead>
                 <TableHead className="text-right">Kritik Stok</TableHead>
@@ -138,6 +151,7 @@ export function DailyDetail({ payload }: { payload: DailyPayload }) {
               {branches.map((b) => (
                 <TableRow key={b.branchId}>
                   <TableCell className="font-medium">{b.branchName}</TableCell>
+                  <TableCell className="text-right">{currency(b.revenue ?? 0)}</TableCell>
                   <TableCell className="text-right">{b.totalOrders}</TableCell>
                   <TableCell className="text-right">{currency(b.approvedOrdersValue)}</TableCell>
                   <TableCell className="text-right">
@@ -154,6 +168,40 @@ export function DailyDetail({ payload }: { payload: DailyPayload }) {
             </TableBody>
           </Table>
         </div>
+      </div>
+
+      {/* Zayiatlar — MonthlyDetail'deki AYNI görsel desen, şube adı eklenmiş
+          (bu veri per-branch — birden fazla şube varsa hangi şubeden geldiği
+          görünsün). */}
+      <div className="mt-6">
+        <SectionHeading>
+          <span className="flex items-center gap-1.5 text-destructive">
+            <PackageX className="h-3.5 w-3.5" />
+            Zayiatlar
+          </span>
+        </SectionHeading>
+        {allDefectiveItems.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Bu gün zayiat kaydı yok.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {allDefectiveItems.map((d, i) => (
+              <div
+                key={`${d.branchName}-${d.productId}-${i}`}
+                className="flex items-center justify-between gap-3 rounded-lg border bg-card p-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{d.productName}</p>
+                  {branches.length > 1 && (
+                    <p className="text-xs text-muted-foreground">{d.branchName}</p>
+                  )}
+                </div>
+                <span className="shrink-0 text-sm font-semibold tabular-nums">
+                  {d.quantity.toLocaleString('tr-TR')}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Anomalies */}

@@ -94,6 +94,84 @@ describe('Raporlar / Reports (e2e)', () => {
     dailyReportId = res.body.id;
   });
 
+  // ── (b-2) Günlük rapor — Ciro + Zayiatlar (şube bazlı) ────────────────────
+  //
+  // generateDailyReport'un branches[] dizisindeki her şube artık kendi
+  // revenue/defectiveItems'ını taşımalı (getDailyReport, stock.service.ts
+  // ile AYNI formül/mantık — SALE hareketleri, WASTED durumundaki
+  // DefectiveItemReport'lar). "Önce/sonra" karşılaştırması yapılıyor ki bu
+  // tenant'ta testten önce zaten var olabilecek başka veriden etkilenmesin.
+
+  it('POST /reports/generate/daily — şube bazlı revenue ve defectiveItems doğru hesaplanır', async () => {
+    const before = await request(app.getHttpServer())
+      .post('/api/v1/reports/generate/daily')
+      .set('Authorization', authHeader1)
+      .send({})
+      .expect(201);
+    const branchBefore = before.body.payload.branches.find(
+      (b: { branchId: string }) => b.branchId === ctx1.branchId,
+    );
+    const revenueBefore = branchBefore.revenue;
+    const totalRevenueBefore = before.body.payload.totals.totalRevenue;
+
+    const category = await createCategory(prisma, ctx1.tenantId, 'E2E Rapor Günlük Kategorisi');
+    const productRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader1)
+      .send({
+        sku: `E2E-RAPOR-GUNLUK-${uniqueSuffix()}`,
+        name: 'E2E Rapor Günlük Ürünü',
+        unit: 'adet',
+        categoryId: category.id,
+      })
+      .expect(201);
+    const productId = productRes.body.id;
+    await setProductSalePrice(prisma, productId, 10);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/stock/initialize')
+      .set('Authorization', authHeader1)
+      .send({ branchId: ctx1.branchId, items: [{ productId, quantity: 50 }] })
+      .expect(201);
+
+    // Satış: 4 adet × 10 TL = 40 TL.
+    await request(app.getHttpServer())
+      .post(`/api/v1/stock/${ctx1.branchId}/sale`)
+      .set('Authorization', authHeader1)
+      .send({ items: [{ productId, quantity: 4 }], paymentMethod: 'CASH' })
+      .expect(201);
+
+    // Zayiat: 2 adet, bugün WASTED.
+    const defectiveRes = await request(app.getHttpServer())
+      .post(`/api/v1/defective-items/${ctx1.branchId}`)
+      .set('Authorization', authHeader1)
+      .send({ productId, quantity: 2, photoBase64: 'data:image/jpeg;base64,ZmFrZS1waG90bw==' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/defective-items/${defectiveRes.body.id}/waste`)
+      .set('Authorization', authHeader1)
+      .expect(200);
+
+    const after = await request(app.getHttpServer())
+      .post('/api/v1/reports/generate/daily')
+      .set('Authorization', authHeader1)
+      .send({})
+      .expect(201);
+    const branchAfter = after.body.payload.branches.find(
+      (b: { branchId: string }) => b.branchId === ctx1.branchId,
+    );
+
+    expect(branchAfter.revenue).toBe(revenueBefore + 40);
+    expect(after.body.payload.totals.totalRevenue).toBe(totalRevenueBefore + 40);
+
+    const defectiveEntry = branchAfter.defectiveItems.find(
+      (d: { productId: string }) => d.productId === productId,
+    );
+    expect(defectiveEntry).toBeDefined();
+    expect(defectiveEntry.productName).toBe('E2E Rapor Günlük Ürünü');
+    expect(defectiveEntry.quantity).toBe(2);
+  });
+
   // ── (c) Aylık rapor üretimi ───────────────────────────────────────────────
 
   let monthlyReportId: string;

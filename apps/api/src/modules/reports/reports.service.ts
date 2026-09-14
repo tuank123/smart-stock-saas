@@ -48,21 +48,63 @@ export class ReportsService {
 
       const branchData = await Promise.all(
         branches.map(async (b) => {
-          const [orders, criticalStock, movementsIn, movementsOut] = await Promise.all([
-            tx.purchaseOrder.findMany({
-              where: { tenantId, branchId: b.id, createdAt: range },
-              include: { items: { select: { quantityOrdered: true, unitPrice: true } } },
-            }),
-            tx.stockLevel.count({
-              where: { tenantId, branchId: b.id, quantity: { lte: tx.stockLevel.fields.minThreshold } as any },
-            }),
-            tx.stockMovement.count({
-              where: { tenantId, branchId: b.id, createdAt: range, quantity: { gt: 0 } },
-            }),
-            tx.stockMovement.count({
-              where: { tenantId, branchId: b.id, createdAt: range, quantity: { lt: 0 } },
-            }),
-          ]);
+          const [orders, criticalStock, movementsIn, movementsOut, saleMovements, wastedItems] =
+            await Promise.all([
+              tx.purchaseOrder.findMany({
+                where: { tenantId, branchId: b.id, createdAt: range },
+                include: { items: { select: { quantityOrdered: true, unitPrice: true } } },
+              }),
+              tx.stockLevel.count({
+                where: { tenantId, branchId: b.id, quantity: { lte: tx.stockLevel.fields.minThreshold } as any },
+              }),
+              tx.stockMovement.count({
+                where: { tenantId, branchId: b.id, createdAt: range, quantity: { gt: 0 } },
+              }),
+              tx.stockMovement.count({
+                where: { tenantId, branchId: b.id, createdAt: range, quantity: { lt: 0 } },
+              }),
+              // Ciro: getDailyReport (stock.service.ts) ile AYNI formül
+              // (SALE hareketlerinde quantity × unitPrice toplamı), bu şube
+              // ve bu güne scoped.
+              tx.stockMovement.findMany({
+                where: { tenantId, branchId: b.id, movementType: 'SALE', createdAt: range },
+                select: { quantity: true, unitPrice: true },
+              }),
+              // Zayiatlar: getDailyReport ile AYNI mantık (resolvedAt bazlı,
+              // WASTED durumundakiler), bu şube ve bu güne scoped.
+              // DefectiveItemReport.branchId ZORUNLU bir alan olduğu için
+              // (PriceChangeLog.branchId'nin aksine, ki o yüzden anomalies
+              // tek düz liste kalıyor) şube bazlı ayrıştırma güvenilir.
+              tx.defectiveItemReport.findMany({
+                where: { tenantId, branchId: b.id, status: 'WASTED', resolvedAt: range },
+                include: { product: { select: { name: true } } },
+              }),
+            ]);
+
+          const revenue = this.round2(
+            saleMovements.reduce(
+              (sum, m) => sum + Math.abs(Number(m.quantity)) * Number(m.unitPrice ?? 0),
+              0,
+            ),
+          );
+
+          const defectiveByProduct = new Map<
+            string,
+            { productId: string; productName: string; quantity: number }
+          >();
+          for (const d of wastedItems) {
+            const existing = defectiveByProduct.get(d.productId);
+            if (existing) {
+              existing.quantity += Number(d.quantity);
+            } else {
+              defectiveByProduct.set(d.productId, {
+                productId: d.productId,
+                productName: d.product.name,
+                quantity: Number(d.quantity),
+              });
+            }
+          }
+          const defectiveItems = Array.from(defectiveByProduct.values());
 
           const approvedOrders = orders.filter((o) => o.status === 'APPROVED' || o.status === 'SENT');
           const approvedValue = approvedOrders.reduce((sum, o) => {
@@ -90,6 +132,8 @@ export class ReportsService {
             criticalStockCount: criticalCount,
             stockMovementsIn: movementsIn,
             stockMovementsOut: movementsOut,
+            revenue,
+            defectiveItems,
           };
         }),
       );
@@ -109,8 +153,16 @@ export class ReportsService {
           totalCriticalStock: acc.totalCriticalStock + b.criticalStockCount,
           totalMovementsIn: acc.totalMovementsIn + b.stockMovementsIn,
           totalMovementsOut: acc.totalMovementsOut + b.stockMovementsOut,
+          totalRevenue: this.round2(acc.totalRevenue + b.revenue),
         }),
-        { totalOrders: 0, totalApprovedValue: 0, totalCriticalStock: 0, totalMovementsIn: 0, totalMovementsOut: 0 },
+        {
+          totalOrders: 0,
+          totalApprovedValue: 0,
+          totalCriticalStock: 0,
+          totalMovementsIn: 0,
+          totalMovementsOut: 0,
+          totalRevenue: 0,
+        },
       );
 
       const payload: Prisma.JsonObject = {
