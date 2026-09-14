@@ -114,10 +114,20 @@ export interface MonthlyDefectiveItem {
   totalQuantity: number;
 }
 
+export interface MonthlyPriceAnomaly {
+  productId: string;
+  productName: string;
+  oldPrice: number;
+  newPrice: number;
+  changePct: number;
+  createdAt: string;
+}
+
 interface MonthlyTotals {
   totalOrders: number;
   totalMovements: number;
   priceAnomalies: number;
+  monthlyRevenue: number;
 }
 
 export interface MonthlyPayload {
@@ -128,6 +138,7 @@ export interface MonthlyPayload {
   totals: MonthlyTotals;
   dailyReportCount: number;
   defectiveItems: MonthlyDefectiveItem[];
+  priceAnomalyDetails: MonthlyPriceAnomaly[];
 }
 
 export interface ReportDetail extends Report {

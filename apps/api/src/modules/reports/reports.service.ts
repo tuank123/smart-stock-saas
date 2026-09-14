@@ -28,6 +28,10 @@ export class ReportsService {
     return { gte: start, lt: end };
   }
 
+  private round2(n: number): number {
+    return Math.round(n * 100) / 100;
+  }
+
   // ─── DAILY REPORT ────────────────────────────────────────────────────────
 
   async generateDailyReport(tenantId: string, dateStr?: string) {
@@ -170,6 +174,39 @@ export class ReportsService {
         tx.priceChangeLog.count({ where: { tenantId, createdAt: range, anomalyFlag: true } }),
       ]);
 
+      // Toplam ciro: getDailyReport (stock.service.ts) ile AYNI formül
+      // (movementType:'SALE' hareketlerinde quantity × unitPrice toplamı) —
+      // ama günlük raporların var olup olmamasından bağımsız, doğrudan
+      // StockMovement'tan, tüm şubeler dahil (bu metodun geri kalanıyla
+      // tutarlı — branchId filtresi yok).
+      const saleMovements = await tx.stockMovement.findMany({
+        where: { tenantId, movementType: 'SALE', createdAt: range },
+        select: { quantity: true, unitPrice: true },
+      });
+      const monthlyRevenue = this.round2(
+        saleMovements.reduce(
+          (sum, m) => sum + Math.abs(Number(m.quantity)) * Number(m.unitPrice ?? 0),
+          0,
+        ),
+      );
+
+      // Fiyat anomalisi detayları: yalnızca sayı değil, hangi ürün/hangi
+      // fiyattan hangi fiyata/ne zaman — DAILY rapordaki `anomalies` ile
+      // aynı Decimal→number dönüşümü, artı ürün adı (include).
+      const priceAnomalyLogs = await tx.priceChangeLog.findMany({
+        where: { tenantId, createdAt: range, anomalyFlag: true },
+        include: { product: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+      const priceAnomalyDetails = priceAnomalyLogs.map((a) => ({
+        productId: a.productId,
+        productName: a.product.name,
+        oldPrice: a.oldPrice.toNumber(),
+        newPrice: a.newPrice.toNumber(),
+        changePct: a.changePct.toNumber(),
+        createdAt: a.createdAt.toISOString(),
+      }));
+
       const existingDailyReports = await tx.scheduledReport.findMany({
         where: { tenantId, reportType: 'DAILY', reportDate: range },
         select: { id: true, reportDate: true },
@@ -203,9 +240,10 @@ export class ReportsService {
         month,
         period: `${year}-${String(month).padStart(2, '0')}`,
         branchComparison: branchComparison as unknown as Prisma.JsonArray,
-        totals: { totalOrders, totalMovements, priceAnomalies } as unknown as Prisma.JsonObject,
+        totals: { totalOrders, totalMovements, priceAnomalies, monthlyRevenue } as unknown as Prisma.JsonObject,
         dailyReportCount: existingDailyReports.length,
         defectiveItems: defectiveItems as unknown as Prisma.JsonArray,
+        priceAnomalyDetails: priceAnomalyDetails as unknown as Prisma.JsonArray,
       };
 
       return tx.scheduledReport.upsert({

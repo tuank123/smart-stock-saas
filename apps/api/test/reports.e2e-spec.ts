@@ -18,11 +18,13 @@ import {
   cleanupTenants,
   createCategory,
   createRoleUser,
+  setProductSalePrice,
   signupAndGetContext,
   uniqueSuffix,
   type SignedUpContext,
 } from './setup';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { withTenantContext } from '../src/common/utils/tenant-context';
 
 describe('Raporlar / Reports (e2e)', () => {
   let app: INestApplication;
@@ -166,6 +168,124 @@ describe('Raporlar / Reports (e2e)', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].totalQuantity).toBe(7);
     expect(entries[0].productName).toBe('E2E Rapor Zayiat Ürünü');
+  });
+
+  // ── (c-3) Aylık rapor — Toplam Ciro (DAILY rapor üretilmeden) ────────────
+  //
+  // monthlyRevenue, getDailyReport'taki (stock.service.ts) AYNI formülü
+  // (SALE hareketlerinde quantity × unitPrice) doğrudan StockMovement'tan
+  // hesaplıyor — hiçbir DAILY ScheduledReport üretilmemiş olsa bile doğru
+  // sonucu vermeli. "Önce/sonra" karşılaştırması yapılıyor ki bu tenant'ta
+  // testten önce zaten var olabilecek başka satışlardan etkilenmesin.
+
+  it('POST /reports/generate/monthly — hiç DAILY rapor üretilmemiş olsa bile monthlyRevenue SALE hareketlerinden doğru hesaplanır', async () => {
+    const now = new Date();
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth() + 1;
+
+    const before = await request(app.getHttpServer())
+      .post('/api/v1/reports/generate/monthly')
+      .set('Authorization', authHeader1)
+      .send({ year, month })
+      .expect(201);
+    const revenueBefore = before.body.payload.totals.monthlyRevenue;
+
+    const category = await createCategory(prisma, ctx1.tenantId, 'E2E Rapor Ciro Kategorisi');
+    const productRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader1)
+      .send({
+        sku: `E2E-RAPOR-CIRO-${uniqueSuffix()}`,
+        name: 'E2E Rapor Ciro Ürünü',
+        unit: 'adet',
+        categoryId: category.id,
+      })
+      .expect(201);
+    const productId = productRes.body.id;
+    await setProductSalePrice(prisma, productId, 25);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/stock/initialize')
+      .set('Authorization', authHeader1)
+      .send({ branchId: ctx1.branchId, items: [{ productId, quantity: 100 }] })
+      .expect(201);
+
+    // İki ayrı satış: 3 + 2 = 5 adet × 25 TL = 125 TL.
+    await request(app.getHttpServer())
+      .post(`/api/v1/stock/${ctx1.branchId}/sale`)
+      .set('Authorization', authHeader1)
+      .send({ items: [{ productId, quantity: 3 }], paymentMethod: 'CASH' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/api/v1/stock/${ctx1.branchId}/sale`)
+      .set('Authorization', authHeader1)
+      .send({ items: [{ productId, quantity: 2 }], paymentMethod: 'CASH' })
+      .expect(201);
+
+    const after = await request(app.getHttpServer())
+      .post('/api/v1/reports/generate/monthly')
+      .set('Authorization', authHeader1)
+      .send({ year, month })
+      .expect(201);
+
+    expect(after.body.payload.totals.monthlyRevenue).toBe(revenueBefore + 125);
+  });
+
+  // ── (c-4) Aylık rapor — Fiyat Anomalisi Detayları ─────────────────────────
+  //
+  // Anomali TESPİTİ (`%50 eşiği) portal.service.ts:applyPricesToProducts'ta
+  // yapılıyor — burada test edilen o değil, generateMonthlyReport'un mevcut
+  // PriceChangeLog(anomalyFlag:true) kayıtlarını doğru ürün/fiyat/tarih
+  // bilgisiyle priceAnomalyDetails'e YÜZEYE ÇIKARIP ÇIKARMADIĞI. Bu yüzden
+  // gerçek portal/WhatsApp akışını kurmak yerine, o akışın YAZACAĞI şekli
+  // doğrudan simüle ediyoruz (withTenantContext ile, debts.e2e-spec.ts'teki
+  // AYNI desen).
+
+  it('POST /reports/generate/monthly — priceAnomalyDetails, anomali kayıtlarının ürün/fiyat/tarih bilgilerini doğru taşır', async () => {
+    const category = await createCategory(prisma, ctx1.tenantId, 'E2E Rapor Anomali Kategorisi');
+    const productRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader1)
+      .send({
+        sku: `E2E-RAPOR-ANOMALI-${uniqueSuffix()}`,
+        name: 'E2E Rapor Anomali Ürünü',
+        unit: 'adet',
+        categoryId: category.id,
+      })
+      .expect(201);
+    const productId = productRes.body.id;
+
+    await withTenantContext(prisma, { isSuperAdmin: true }, (tx) =>
+      tx.priceChangeLog.create({
+        data: {
+          tenantId: ctx1.tenantId,
+          productId,
+          branchId: ctx1.branchId,
+          oldPrice: 100,
+          newPrice: 200,
+          changePct: 100,
+          anomalyFlag: true,
+          changedBy: ctx1.userId,
+        },
+      }),
+    );
+
+    const now = new Date();
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/reports/generate/monthly')
+      .set('Authorization', authHeader1)
+      .send({ year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 })
+      .expect(201);
+
+    const detail = res.body.payload.priceAnomalyDetails.find(
+      (d: { productId: string }) => d.productId === productId,
+    );
+    expect(detail).toBeDefined();
+    expect(detail.productName).toBe('E2E Rapor Anomali Ürünü');
+    expect(detail.oldPrice).toBe(100);
+    expect(detail.newPrice).toBe(200);
+    expect(detail.changePct).toBe(100);
+    expect(typeof detail.createdAt).toBe('string');
   });
 
   // ── (d) Anomaliler ────────────────────────────────────────────────────────
