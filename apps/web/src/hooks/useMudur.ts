@@ -1167,6 +1167,15 @@ export interface DailyReportDefectiveItem {
   quantity: number;
 }
 
+export interface DailyReportPriceAnomaly {
+  productId: string;
+  productName: string;
+  oldPrice: number;
+  newPrice: number;
+  changePct: number;
+  createdAt: string;
+}
+
 export interface DailyReport {
   date: string;
   grossRevenue: number;
@@ -1174,6 +1183,7 @@ export interface DailyReport {
   bottomSellers: DailyReportProduct[];
   cashierSessions: DailyReportSession[];
   defectiveItems: DailyReportDefectiveItem[];
+  priceAnomalyDetails: DailyReportPriceAnomaly[];
 }
 
 export function useDailyReport(date?: string) {

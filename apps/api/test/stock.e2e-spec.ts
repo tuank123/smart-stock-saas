@@ -22,6 +22,7 @@ import {
   type SignedUpContext,
 } from './setup';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { withTenantContext } from '../src/common/utils/tenant-context';
 
 const SALE_PRICE = 12.75;
 const INITIAL_QUANTITY = 100;
@@ -449,6 +450,58 @@ describe('Stok (e2e)', () => {
     expect(soldProduct).toBeDefined();
     expect(soldProduct.totalQty).toBe(8);
     expect(soldProduct.totalRevenue).toBeCloseTo(8 * SALE_PRICE, 2);
+  });
+
+  // ── (e-2) Günlük özet — Fiyat Anomalisi Detayları ────────────────────────
+  //
+  // reports.service.ts:generateDailyReport (zamanlanmış/arşivlenmiş sistem)
+  // ile AYNI mantık — PriceChangeLog.branchId OPSİYONEL olduğu için
+  // tenant-geneli tek düz liste.
+
+  it('GET /stock/:branchId/daily-report — priceAnomalyDetails, anomali kayıtlarının ürün/fiyat/tarih bilgilerini doğru taşır', async () => {
+    const category = await createCategory(prisma, ctx.tenantId, 'E2E Stok Günlük Anomali Kategorisi');
+    const anomalyProductRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader)
+      .send({
+        sku: `E2E-STOK-ANOMALI-${uniqueSuffix()}`,
+        name: 'E2E Stok Anomali Ürünü',
+        unit: 'adet',
+        categoryId: category.id,
+      })
+      .expect(201);
+    const anomalyProductId = anomalyProductRes.body.id;
+
+    await withTenantContext(prisma, { isSuperAdmin: true }, (tx) =>
+      tx.priceChangeLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          productId: anomalyProductId,
+          branchId: ctx.branchId,
+          oldPrice: 20,
+          newPrice: 80,
+          changePct: 300,
+          anomalyFlag: true,
+          changedBy: ctx.userId,
+        },
+      }),
+    );
+
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/stock/${ctx.branchId}/daily-report`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    expect(Array.isArray(res.body.priceAnomalyDetails)).toBe(true);
+    const detail = res.body.priceAnomalyDetails.find(
+      (d: { productId: string }) => d.productId === anomalyProductId,
+    );
+    expect(detail).toBeDefined();
+    expect(detail.productName).toBe('E2E Stok Anomali Ürünü');
+    expect(detail.oldPrice).toBe(20);
+    expect(detail.newPrice).toBe(80);
+    expect(detail.changePct).toBe(300);
+    expect(typeof detail.createdAt).toBe('string');
   });
 
   // ── (f) Stok hareketleri listeleme — sayfalama ───────────────────────────

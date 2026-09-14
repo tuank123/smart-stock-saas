@@ -823,6 +823,28 @@ export class StockService {
         quantity: Number(d.quantity),
       }));
 
+      // Fiyat Anomalisi Detayları: reports.service.ts:generateDailyReport
+      // (zamanlanmış/arşivlenmiş sistem) ile AYNI mantık — PriceChangeLog.
+      // branchId OPSİYONEL olduğu için (schema.prisma) tenant-geneli tek düz
+      // liste, Zayiatlar'ın aksine şube bazlı DEĞİL.
+      const priceAnomalyLogs = await tx.priceChangeLog.findMany({
+        where: {
+          tenantId: user.tenantId,
+          createdAt: { gte: dayStart, lte: dayEnd },
+          anomalyFlag: true,
+        },
+        include: { product: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+      const priceAnomalyDetails = priceAnomalyLogs.map((a) => ({
+        productId: a.productId,
+        productName: a.product.name,
+        oldPrice: a.oldPrice.toNumber(),
+        newPrice: a.newPrice.toNumber(),
+        changePct: a.changePct.toNumber(),
+        createdAt: a.createdAt.toISOString(),
+      }));
+
       return {
         date: dateStr,
         grossRevenue: round2(grossRevenue),
@@ -830,6 +852,7 @@ export class StockService {
         bottomSellers,
         cashierSessions,
         defectiveItems,
+        priceAnomalyDetails,
       };
     });
   }

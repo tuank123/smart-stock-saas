@@ -16,6 +16,7 @@ import {
   type DailyReportSession,
   type DailyReportHistoryDay,
   type DailyReportDefectiveItem,
+  type DailyReportPriceAnomaly,
 } from '@/hooks/useMudur';
 
 type ReportTab = 'daily' | 'monthly';
@@ -26,6 +27,13 @@ function fmtMoney(n: number) {
 
 function fmtTime(dateStr: string) {
   return new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' }).format(
+    new Date(dateStr),
+  );
+}
+
+// ISO zaman damgası (ör. priceAnomalyDetails[].createdAt) → "14 Eylül 2026".
+function fmtAnomalyDate(dateStr: string): string {
+  return new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }).format(
     new Date(dateStr),
   );
 }
@@ -212,6 +220,40 @@ function GunlukRaporInner() {
                     <span className="shrink-0 text-sm font-semibold tabular-nums">
                       {d.quantity.toLocaleString('tr-TR')}
                     </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Fiyat Anomalisi Detayları — Zayiatlar'daki AYNI görsel desen */}
+          <div>
+            <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold">
+              <TrendingDown className="h-4 w-4 text-amber-600" />
+              Fiyat Anomalisi Detayları
+            </h2>
+            {(data.priceAnomalyDetails ?? []).length === 0 ? (
+              <p className="px-1 text-sm text-muted-foreground">Bu gün fiyat anomalisi yok.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {(data.priceAnomalyDetails ?? []).map((a: DailyReportPriceAnomaly, i: number) => (
+                  <div
+                    key={`${a.productId}-${a.createdAt}-${i}`}
+                    className="flex items-center justify-between gap-3 rounded-lg border bg-card p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{a.productName}</p>
+                      <p className="text-xs text-muted-foreground">{fmtAnomalyDate(a.createdAt)}</p>
+                    </div>
+                    <div className="shrink-0 text-right text-xs text-muted-foreground">
+                      <p className="text-sm font-semibold text-foreground">
+                        {fmtMoney(a.oldPrice)} → {fmtMoney(a.newPrice)}
+                      </p>
+                      <p className={a.changePct > 0 ? 'text-red-600' : 'text-green-600'}>
+                        {a.changePct > 0 ? '+' : ''}
+                        {a.changePct.toFixed(1)}%
+                      </p>
+                    </div>
                   </div>
                 ))}
               </div>
