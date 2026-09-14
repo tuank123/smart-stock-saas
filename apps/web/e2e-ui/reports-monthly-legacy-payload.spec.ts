@@ -91,11 +91,16 @@ test('reports/detay — defectiveItems alanı OLMAYAN eski bir MONTHLY payload �
   await expect(page.getByText('Bir şeyler ters gitti')).not.toBeVisible();
 
   // Sayfa normal şekilde render olmuş: mevcut alanlar görünüyor...
-  await expect(page.getByText('Şube Karşılaştırma')).toBeVisible();
-  await expect(page.getByText('Merkez')).toBeVisible();
+  await expect(page.getByText('Günlük Rapor Sayısı')).toBeVisible();
 
   // ...ve defectiveItems olmayan (undefined) payload'da Zayiatlar bölümü
   // boş-durum mesajıyla düşmeden render oluyor.
   await expect(page.getByText('Zayiatlar')).toBeVisible();
   await expect(page.getByText('Bu ay zayiat kaydı yok.')).toBeVisible();
+
+  // Bu kullanıcı STARTER PATRON — Şube Karşılaştırma (çok şubeli PATRON'a
+  // özel) rol bazlı gizleniyor, payload'da branchComparison olsa bile
+  // (bkz. ReportDetailContent.tsx:MonthlyDetail).
+  await expect(page.getByText('Şube Karşılaştırma')).not.toBeVisible();
+  await expect(page.getByText('Merkez')).not.toBeVisible();
 });

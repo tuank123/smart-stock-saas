@@ -1,12 +1,14 @@
 'use client';
 
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, CalendarDays, TrendingDown, TrendingUp, Store, PackageX } from 'lucide-react';
 import { StationPageHeader } from '@/components/layout/StationPageHeader';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ReportsContent } from '@/components/reports/ReportsContent';
 import {
   useDailyReport,
   useDailyReportHistory,
@@ -15,6 +17,8 @@ import {
   type DailyReportHistoryDay,
   type DailyReportDefectiveItem,
 } from '@/hooks/useMudur';
+
+type ReportTab = 'daily' | 'monthly';
 
 function fmtMoney(n: number) {
   return `${n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺`;
@@ -80,14 +84,29 @@ function GunlukRaporInner() {
   const searchParams = useSearchParams();
   const dateParam = searchParams.get('date') ?? '';
   const isToday = !dateParam || dateParam === todayStr();
+  const [tab, setTab] = useState<ReportTab>('daily');
 
   const { data, isPending, isError } = useDailyReport(dateParam || undefined);
   const history = useDailyReportHistory(10);
 
   return (
     <div className="mx-auto w-full max-w-lg">
-      <StationPageHeader title="Günlük Rapor" />
+      <StationPageHeader title="Raporlar" />
 
+      {/* Günlük/Aylık sekmesi — varsayılan Günlük (mevcut görünüm). */}
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <Button variant={tab === 'daily' ? 'default' : 'outline'} onClick={() => setTab('daily')}>
+          Günlük
+        </Button>
+        <Button variant={tab === 'monthly' ? 'default' : 'outline'} onClick={() => setTab('monthly')}>
+          Aylık
+        </Button>
+      </div>
+
+      {tab === 'monthly' ? (
+        <ReportsContent fixedType="MONTHLY" detailBasePath="/isletme-app/aylik-rapor/detay" />
+      ) : (
+        <>
       {/* Geçmiş bir gün görüntüleniyorsa tarih başlığı + Bugüne Dön */}
       {!isToday && (
         <div className="mb-4 flex items-center justify-between gap-2">
@@ -234,6 +253,8 @@ function GunlukRaporInner() {
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

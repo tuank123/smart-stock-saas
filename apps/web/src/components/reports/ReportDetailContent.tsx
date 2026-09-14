@@ -11,6 +11,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useAuthStore } from '@/store/auth.store';
 import type { DailyPayload, MonthlyPayload } from '@/lib/types';
 
 // isletme-app/aylik-rapor/detay ve web/reports/detay TARAFINDAN PAYLAŞILIR —
@@ -220,6 +221,16 @@ export function MonthlyDetail({ payload }: { payload: MonthlyPayload }) {
   // manuel testte bulunan çökme: id=d0fadac2..., 2026-07-31'de üretilmiş).
   const defectiveItems = payload.defectiveItems ?? [];
 
+  // Şube Karşılaştırma, tek şubeli (STARTER) PATRON için ANLAMSIZ — ROL
+  // bazlı gizleniyor (payload.branchComparison.length'e göre DEĞİL): eski
+  // (tenant temizliğinden önce üretilmiş) raporlar hâlâ o zamanki fazla
+  // şubeyi payload'da taşıyor olabilir (JSON blob geriye dönük güncellenmez),
+  // veri-bazlı bir kontrol bu durumda yanlışlıkla tabloyu gösterirdi. Bu
+  // component hem web (/reports/detay) hem isletme-app (aylik-rapor/detay)
+  // tarafından paylaşıldığı için tek bir yerde tutarlı davranış sağlanıyor.
+  const { user } = useAuthStore();
+  const isStarterPatron = user?.role === 'PATRON' && user?.planId === 'STARTER';
+
   return (
     <>
       {/* Stat cards */}
@@ -242,38 +253,40 @@ export function MonthlyDetail({ payload }: { payload: MonthlyPayload }) {
         />
       </div>
 
-      {/* Branch comparison table */}
-      <div className="mt-6">
-        <SectionHeading>Şube Karşılaştırma</SectionHeading>
-        <div className="overflow-x-auto rounded-xl border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Şube</TableHead>
-                <TableHead className="text-right">Sipariş</TableHead>
-                <TableHead className="text-right">Stok Hareketi</TableHead>
-                <TableHead className="text-right">Kritik Stok</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {branchComparison.map((b) => (
-                <TableRow key={b.branchId}>
-                  <TableCell className="font-medium">{b.branchName}</TableCell>
-                  <TableCell className="text-right">{b.orderCount}</TableCell>
-                  <TableCell className="text-right">{b.stockMovementCount}</TableCell>
-                  <TableCell className="text-right">
-                    {b.criticalStockCount > 0 ? (
-                      <span className="font-semibold text-amber-600">{b.criticalStockCount}</span>
-                    ) : (
-                      b.criticalStockCount
-                    )}
-                  </TableCell>
+      {/* Branch comparison table — çok şubeli PATRON'a özel */}
+      {!isStarterPatron && (
+        <div className="mt-6">
+          <SectionHeading>Şube Karşılaştırma</SectionHeading>
+          <div className="overflow-x-auto rounded-xl border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Şube</TableHead>
+                  <TableHead className="text-right">Sipariş</TableHead>
+                  <TableHead className="text-right">Stok Hareketi</TableHead>
+                  <TableHead className="text-right">Kritik Stok</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {branchComparison.map((b) => (
+                  <TableRow key={b.branchId}>
+                    <TableCell className="font-medium">{b.branchName}</TableCell>
+                    <TableCell className="text-right">{b.orderCount}</TableCell>
+                    <TableCell className="text-right">{b.stockMovementCount}</TableCell>
+                    <TableCell className="text-right">
+                      {b.criticalStockCount > 0 ? (
+                        <span className="font-semibold text-amber-600">{b.criticalStockCount}</span>
+                      ) : (
+                        b.criticalStockCount
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Zayiatlar — isletme-app/gunluk-rapor'daki AYNI görsel desen */}
       <div className="mt-6">
