@@ -14,6 +14,7 @@ export interface AgentContext {
   branchId: string;
   tenantId: string;
   adapterType: string;
+  integrationId: string;
 }
 
 // Agent'ın X-Agent-Id + X-Agent-Key header'larıyla kendini doğruladığı guard.
@@ -46,6 +47,7 @@ export class AgentAuthGuard implements CanActivate {
       return tx.branchIntegration.findFirst({
         where: { agentId, connectionStatus: 'CONNECTED' },
         select: {
+          id: true,
           branchId: true,
           tenantId: true,
           adapterType: true,
@@ -85,6 +87,7 @@ export class AgentAuthGuard implements CanActivate {
       branchId: integration.branchId,
       tenantId: integration.tenantId,
       adapterType: integration.adapterType,
+      integrationId: integration.id,
     };
 
     return true;

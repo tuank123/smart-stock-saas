@@ -41,7 +41,7 @@ export class AgentController {
   @Post('inbound-sync')
   @HttpCode(200)
   inboundSync(@Body() dto: InboundSyncDto, @AgentContext() ctx: AgentCtx) {
-    return this.service.inboundSync(dto.products, ctx.branchId, ctx.tenantId);
+    return this.service.inboundSync(dto.products, ctx.branchId, ctx.tenantId, ctx.integrationId);
   }
 
   @Post('heartbeat')

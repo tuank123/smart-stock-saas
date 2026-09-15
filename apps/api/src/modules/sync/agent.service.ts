@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AckJobDto, HeartbeatDto, InboundProductDto } from './dto/agent.dto';
 import { withTenantContext } from '../../common/utils/tenant-context';
+import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 
 @Injectable()
 export class AgentService {
@@ -54,10 +55,20 @@ export class AgentService {
   }
 
   // Barkod sisteminden okunan ürün verisini StokPilot'a aktarır (inbound).
+  //
+  // Stok miktarı Agent'tan MUTLAK değer olarak gelir (delta değil) — bu yüzden
+  // recordWaste/recordSale'deki "yalnızca azalış" ön-kontrolü burada geçerli
+  // değil; onun yerine iyimser kilit (eski miktarı WHERE koşuluna koyarak
+  // güncelleme) kullanılır: okuma ile yazma arasında başka bir işlem
+  // (recordSale, recordWaste, transfer vb.) aynı satırı değiştirirse
+  // updateMany 0 satır etkiler, bu da DataIntegrityException ile tüm batch'in
+  // (transaction) rollback edilmesini tetikler — Agent bir sonraki
+  // senkronizasyonda tekrar dener.
   async inboundSync(
     products: InboundProductDto[],
     branchId: string,
     tenantId: string,
+    integrationId: string,
   ) {
     return withTenantContext(this.prisma, { tenantId }, async (tx) => {
 
@@ -82,10 +93,58 @@ export class AgentService {
         }
 
         if (p.stockQuantity != null) {
-          await tx.stockLevel.updateMany({
+          const level = await tx.stockLevel.findFirst({
             where: { productId: product.id, branchId },
-            data: { quantity: p.stockQuantity, version: { increment: 1 } },
+            select: { id: true, quantity: true },
           });
+
+          if (level) {
+            const oldQuantity = Number(level.quantity);
+            const delta = p.stockQuantity - oldQuantity;
+
+            if (delta !== 0) {
+              const result = await tx.stockLevel.updateMany({
+                where: { id: level.id, quantity: oldQuantity },
+                data: { quantity: p.stockQuantity, version: { increment: 1 } },
+              });
+
+              if (result.count === 0) {
+                await this.prisma.errorLog
+                  .create({
+                    data: {
+                      source: 'DATA_INTEGRITY',
+                      severity: 'ERROR',
+                      message: 'Agent senkronizasyonu sırasında eşzamanlı stok değişikliği tespit edildi',
+                      tenantId,
+                      branchId,
+                      context: {
+                        productId: product.id,
+                        stockLevelId: level.id,
+                        expectedQuantityBefore: oldQuantity,
+                        incomingQuantity: p.stockQuantity,
+                        integrationId,
+                      },
+                    },
+                  })
+                  .catch(() => undefined);
+
+                throw new DataIntegrityException('agent sync detected a concurrent stock level change');
+              }
+
+              await tx.stockMovement.create({
+                data: {
+                  tenantId,
+                  productId: product.id,
+                  branchId,
+                  movementType: 'AGENT_SYNC',
+                  quantity: delta,
+                  referenceType: 'AGENT_SYNC',
+                  referenceId: integrationId,
+                  createdBy: null,
+                },
+              });
+            }
+          }
         }
 
         updated++;

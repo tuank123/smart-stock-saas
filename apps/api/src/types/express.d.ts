@@ -14,6 +14,7 @@ declare global {
         branchId: string;
         tenantId: string;
         adapterType: string;
+        integrationId: string;
       };
     }
   }

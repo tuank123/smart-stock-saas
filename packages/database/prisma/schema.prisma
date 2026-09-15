@@ -376,13 +376,13 @@ model StockMovement {
   unitPrice        Decimal? @map("unit_price") @db.Decimal(12, 2)
   paymentMethod    String?  @map("payment_method")
   cashierSessionId String?  @map("cashier_session_id") @db.Uuid
-  createdBy        String   @map("created_by") @db.Uuid
+  createdBy        String?  @map("created_by") @db.Uuid // null: insan aktör yok (ör. AGENT_SYNC) — referenceId/referenceType kaynağı taşır
   createdAt        DateTime @default(now()) @map("created_at")
 
   tenant  Tenant          @relation(fields: [tenantId], references: [id])
   product Product         @relation(fields: [productId], references: [id])
   branch  Branch          @relation(fields: [branchId], references: [id])
-  user    User            @relation(fields: [createdBy], references: [id])
+  user    User?           @relation(fields: [createdBy], references: [id])
   session CashierSession? @relation(fields: [cashierSessionId], references: [id])
 
   @@index([branchId, createdAt(sort: Desc)])

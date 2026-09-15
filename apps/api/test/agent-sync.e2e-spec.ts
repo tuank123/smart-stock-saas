@@ -269,6 +269,59 @@ describe('StokPilot Agent Senkronizasyonu (e2e)', () => {
     expect(Number(stockAfter.body.quantity)).toBe(42);
   });
 
+  it('POST /agent/inbound-sync — miktar düşüşü için AGENT_SYNC türünde bir StockMovement kaydı oluşturur', async () => {
+    const barcode = `E2E-AGENT-MOVEMENT-${uniqueSuffix()}`;
+    const category = await createCategory(prisma, ctx.tenantId, 'E2E Agent Hareket Kategorisi');
+
+    const productRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader)
+      .send({
+        sku: `E2E-AGENT-MOVEMENT-${uniqueSuffix()}`,
+        name: 'E2E Agent Hareket Ürünü',
+        unit: 'adet',
+        categoryId: category.id,
+        barcode,
+      })
+      .expect(201);
+    const productId = productRes.body.id;
+
+    await request(app.getHttpServer())
+      .post('/api/v1/stock/initialize')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId, items: [{ productId, quantity: 500 }] })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/agent/inbound-sync')
+      .set(agentHeaders())
+      .send({ products: [{ barcode, stockQuantity: 300 }] })
+      .expect(200);
+
+    const stockAfter = await request(app.getHttpServer())
+      .get(`/api/v1/stock/${ctx.branchId}/${productId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(Number(stockAfter.body.quantity)).toBe(300);
+
+    // StockMovement immutable/denetlenebilirlik garantisi: her stok değişikliği
+    // (Agent kaynaklı dahi) bir hareket kaydı bırakmalı — bkz. agent.service.ts.
+    const integration = await prisma.branchIntegration.findUnique({
+      where: { branchId: ctx.branchId },
+      select: { id: true },
+    });
+
+    const movement = await prisma.stockMovement.findFirst({
+      where: { tenantId: ctx.tenantId, productId, branchId: ctx.branchId, movementType: 'AGENT_SYNC' },
+    });
+
+    expect(movement).not.toBeNull();
+    expect(Number(movement!.quantity)).toBe(-200);
+    expect(movement!.referenceType).toBe('AGENT_SYNC');
+    expect(movement!.referenceId).toBe(integration!.id);
+    expect(movement!.createdBy).toBeNull();
+  });
+
   it('POST /agent/inbound-sync — tenant izolasyonu: aynı barkoda sahip başka bir tenant\'ın ürünü ETKİLENMEZ', async () => {
     const sharedBarcode = `E2E-AGENT-SHARED-${uniqueSuffix()}`;
 
