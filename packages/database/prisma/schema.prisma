@@ -271,6 +271,7 @@ model AgentSetupToken {
   createdAt   DateTime  @default(now()) @map("created_at")
 
   @@index([branchId, status])
+  @@index([tenantId])
   @@map("agent_setup_tokens")
 }
 
@@ -387,6 +388,7 @@ model StockMovement {
 
   @@index([branchId, createdAt(sort: Desc)])
   @@index([productId, branchId, createdAt(sort: Desc)])
+  @@index([tenantId, createdAt])
   @@map("stock_movements")
 }
 
@@ -405,6 +407,7 @@ model CashierSession {
   stockMovements StockMovement[]
 
   @@index([branchId, openedAt(sort: Desc)])
+  @@index([tenantId])
   @@map("cashier_sessions")
 }
 
@@ -441,6 +444,7 @@ model Debt {
   payments DebtPayment[]
 
   @@index([branchId, status])
+  @@index([tenantId])
   @@map("debts")
 }
 
@@ -486,6 +490,7 @@ model DefectiveItemReport {
   resolver User?   @relation("DefectiveItemResolver", fields: [resolvedBy], references: [id])
 
   @@index([branchId, status])
+  @@index([tenantId, branchId, status])
   @@map("defective_item_reports")
 }
 
@@ -738,6 +743,7 @@ model BranchSupplierPortal {
 
   @@unique([branchId])
   @@index([subdomain])
+  @@index([tenantId])
   @@map("branch_supplier_portals")
 }
 
