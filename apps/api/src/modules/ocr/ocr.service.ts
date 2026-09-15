@@ -3,11 +3,12 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
-  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SyncService } from '../sync/sync.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { withTenantContext } from '../../common/utils/tenant-context';
 import { findBestFuzzyMatch } from '../../common/utils/fuzzyMatch';
 import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
@@ -60,6 +61,7 @@ export class OcrService {
     private prisma: PrismaService,
     private config: ConfigService,
     private sync: SyncService,
+    private securityEvents: SecurityEventLogger,
   ) {}
 
   async scan(
@@ -177,9 +179,13 @@ export class OcrService {
         select: { id: true, tenantId: true, status: true, branchId: true },
       });
 
-      if (!scan || scan.tenantId !== user.tenantId) {
-        throw new NotFoundException('Tarama bulunamadı');
-      }
+      assertTenantOwnership(scan, {
+        resourceType: 'OcrScan',
+        resourceId: scanId,
+        user,
+        notFoundMessage: 'Tarama bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (scan.status !== 'PROCESSED') {
         throw new BadRequestException(
           `Yalnızca PROCESSED taramalar onaylanabilir (mevcut: ${scan.status})`,
@@ -436,9 +442,13 @@ export class OcrService {
         where: { id: scanId },
         select: { id: true, tenantId: true, status: true, branchId: true },
       });
-      if (!scan || scan.tenantId !== user.tenantId) {
-        throw new NotFoundException('Tarama bulunamadı');
-      }
+      assertTenantOwnership(scan, {
+        resourceType: 'OcrScan',
+        resourceId: scanId,
+        user,
+        notFoundMessage: 'Tarama bulunamadı',
+        securityEvents: this.securityEvents,
+      });
       if (scan.status !== 'PROCESSED') {
         throw new BadRequestException(
           `Yalnızca PROCESSED taramalar onaylanabilir (mevcut: ${scan.status})`,

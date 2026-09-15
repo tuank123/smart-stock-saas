@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -52,10 +51,8 @@ export class ReportsController {
   @Get(':reportId')
   async getOne(
     @Param('reportId', ParseUUIDPipe) reportId: string,
-    @CurrentUser() user: { tenantId: string },
+    @CurrentUser() user: { tenantId: string; userId?: string | null },
   ) {
-    const report = await this.service.getReport(reportId, user.tenantId);
-    if (!report) throw new NotFoundException('Rapor bulunamadı');
-    return report;
+    return this.service.getReport(reportId, user);
   }
 }

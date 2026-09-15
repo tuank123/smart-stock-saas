@@ -531,8 +531,25 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
         where: { id: item.productId },
         select: { id: true, tenantId: true, salePrice: true },
       });
-      // Başka tenant'a ait veya bulunamayan ürünleri atla (güvenlik).
-      if (!product || product.tenantId !== tenantId) continue;
+      // Başka tenant'a ait veya bulunamayan ürünleri atla (güvenlik) — ama
+      // bunu batch'in GERİ KALANINI etkilemeden yapmalıyız: recordSale/
+      // ocr/stock'taki tekil-kaynak assertTenantOwnership çağrılarının
+      // aksine, burada TEK bir kötü kalem tüm onayı (ve onunla birlikte
+      // batch'teki diğer GEÇERLİ kalemlerin fiyat güncellemesini) iptal
+      // etmemeli — bu yüzden fırlatılan NotFoundException burada yerel
+      // olarak yakalanıp yutuluyor (loglama yine de gerçekleşir, yalnızca
+      // dışarıya fırlatılmıyor) ve döngü `continue` ile devam ediyor.
+      try {
+        assertTenantOwnership(product, {
+          resourceType: 'Product',
+          resourceId: item.productId,
+          user: { tenantId, userId: changedBy },
+          notFoundMessage: 'Ürün bulunamadı',
+          securityEvents: this.securityEvents,
+        });
+      } catch {
+        continue;
+      }
 
       // İndirim uygulanmış nihai fiyat (2 ondalık).
       const discount = item.discountPct ?? 0;

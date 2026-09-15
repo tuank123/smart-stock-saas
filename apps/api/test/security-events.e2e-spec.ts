@@ -283,5 +283,200 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
       expect(match!.tenantId).toBe(ctx1.tenantId);
       expect(JSON.stringify(match)).not.toContain(ctx2.tenantId);
     });
+
+    // stock.service.ts — bu 10 raw-check migrasyonundan biri (getStockLevel).
+    // StockLevel'ın kendi RLS'i YOK (yalnızca tenants/users/branches/
+    // staff_registration_tokens'ta var), bu yüzden tenantId eşleşmesi
+    // TAMAMEN bu assertTenantOwnership çağrısına bağlı.
+    it('Başka bir tenant\'ın stok kaydına erişim denemesi 404 döner VE CROSS_TENANT_ACCESS_ATTEMPT loglanır (stock.service.ts)', async () => {
+      const authHeader2 = `Bearer ${ctx2.accessToken}`;
+      const category2 = await createCategory(prisma, ctx2.tenantId, 'E2E CrossTenant Stok Kategorisi');
+      const productRes = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', authHeader2)
+        .send({
+          sku: `E2E-XT-STOCK-${uniqueSuffix()}`,
+          name: 'E2E CrossTenant Stok Ürünü',
+          unit: 'adet',
+          categoryId: category2.id,
+        })
+        .expect(201);
+      const foreignProductId = productRes.body.id;
+
+      const initRes = await request(app.getHttpServer())
+        .post('/api/v1/stock/initialize')
+        .set('Authorization', authHeader2)
+        .send({ branchId: ctx2.branchId, items: [{ productId: foreignProductId, quantity: 10 }] })
+        .expect(201);
+      const foreignStockLevelId = initRes.body[0].id;
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/stock/${ctx2.branchId}/${foreignProductId}`)
+        .set('Authorization', `Bearer ${ctx1.accessToken}`)
+        .expect(404);
+
+      const events = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
+      const match = events.find((e) => e.context?.resourceId === foreignStockLevelId);
+      expect(match).toBeDefined();
+      expect(match!.context?.resourceType).toBe('StockLevel');
+      expect(match!.tenantId).toBe(ctx1.tenantId);
+      expect(JSON.stringify(match)).not.toContain(ctx2.tenantId);
+    });
+
+    it('Gerçekten var olmayan bir şube/ürün kombinasyonuyla stok sorgusu 404 döner ama HİÇBİR SecurityEvent oluşmaz (yanlış pozitif yok)', async () => {
+      const fakeBranchId = '99999999-9999-4999-8999-999999999998';
+      const fakeProductId = '99999999-9999-4999-8999-999999999997';
+
+      const before = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/stock/${fakeBranchId}/${fakeProductId}`)
+        .set('Authorization', `Bearer ${ctx1.accessToken}`)
+        .expect(404);
+
+      const after = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
+      expect(after.length).toBe(before.length);
+    });
+
+    // ocr.service.ts — confirmScan (aynı desen confirmReturn'de de var, tek
+    // bir örnek yeterli çünkü ikisi de birebir aynı assertTenantOwnership
+    // çağrısını kullanıyor).
+    it('Başka bir tenant\'ın OCR taramasını onaylama denemesi 404 döner VE CROSS_TENANT_ACCESS_ATTEMPT loglanır (ocr.service.ts)', async () => {
+      const authHeader2 = `Bearer ${ctx2.accessToken}`;
+      const scanRes = await request(app.getHttpServer())
+        .post('/api/v1/ocr/scan')
+        .set('Authorization', authHeader2)
+        .send({ branchId: ctx2.branchId })
+        .expect(201);
+      const foreignScanId = scanRes.body.scanId;
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/ocr/scan/${foreignScanId}/confirm`)
+        .set('Authorization', `Bearer ${ctx1.accessToken}`)
+        .send({ supplierId: '11111111-1111-4111-8111-111111111111', lines: [] })
+        .expect(404);
+
+      const events = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
+      const match = events.find((e) => e.context?.resourceId === foreignScanId);
+      expect(match).toBeDefined();
+      expect(match!.context?.resourceType).toBe('OcrScan');
+      expect(match!.tenantId).toBe(ctx1.tenantId);
+      expect(JSON.stringify(match)).not.toContain(ctx2.tenantId);
+    });
+
+    // portal.service.ts (applyPricesToProducts) — TEK istisna: bu, batch
+    // içindeki bir kalemin sessizce ATLANMASI (continue) gerektiği için (bkz.
+    // görev notları — tüm onayı iptal etmemeli), assertTenantOwnership burada
+    // yerel bir try/catch içinde çağrılıyor. Bu test HEM loglamayı HEM DE
+    // batch'in geri kalanının (geçerli kalemin) başarıyla işlendiğini
+    // doğruluyor — partial-success semantiği korunmuş olmalı.
+    it('Toplu fiyat onayında başka tenant\'a ait bir kalem sessizce atlanır + loglanır, GEÇERLİ kalemler yine de uygulanır (portal.service.ts)', async () => {
+      const authHeader2 = `Bearer ${ctx2.accessToken}`;
+
+      // ctx2'de "yabancı" bir ürün — ctx1'in batch'ine karışacak.
+      const category2 = await createCategory(prisma, ctx2.tenantId, 'E2E CrossTenant Portal Kategorisi');
+      const foreignProductRes = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', authHeader2)
+        .send({
+          sku: `E2E-XT-PORTAL-${uniqueSuffix()}`,
+          name: 'E2E CrossTenant Portal Ürünü',
+          unit: 'adet',
+          categoryId: category2.id,
+        })
+        .expect(201);
+      const foreignProductId = foreignProductRes.body.id;
+
+      // ctx1'de GEÇERLİ bir ürün — batch'teki tek "sağlam" kalem.
+      const category1 = await createCategory(prisma, ctx1.tenantId, 'E2E Portal Kategorisi (Geçerli)');
+      const validProductRes = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${ctx1.accessToken}`)
+        .send({
+          sku: `E2E-VALID-PORTAL-${uniqueSuffix()}`,
+          name: 'E2E Geçerli Portal Ürünü',
+          unit: 'adet',
+          categoryId: category1.id,
+        })
+        .expect(201);
+      const validProductId = validProductRes.body.id;
+
+      // ctx1 için portal + OTP + upload akışı (portal.e2e-spec.ts ile aynı desen).
+      const portalRes = await request(app.getHttpServer())
+        .post(`/api/v1/branches/${ctx1.branchId}/portal`)
+        .set('Authorization', `Bearer ${ctx1.accessToken}`)
+        .expect(201);
+      const subdomain = portalRes.body.subdomain;
+
+      const PORTAL_OTP_PHONE = '+905557778899';
+      await request(app.getHttpServer())
+        .post(`/api/v1/portal/${subdomain}/otp/send`)
+        .send({ phone: PORTAL_OTP_PHONE })
+        .expect(200);
+      const verifyRes = await request(app.getHttpServer())
+        .post(`/api/v1/portal/${subdomain}/otp/verify`)
+        .send({ phone: PORTAL_OTP_PHONE, otp: '123456' })
+        .expect(200);
+      const sessionToken = verifyRes.body.sessionToken;
+
+      const uploadRes = await request(app.getHttpServer())
+        .post(`/api/v1/portal/${subdomain}/upload`)
+        .send({ phone: PORTAL_OTP_PHONE, sessionToken })
+        .expect(201);
+      const batchUploadId = uploadRes.body.uploadId;
+
+      // Gerçekten var olmayan (rastgele UUID) bir ürün de batch'e ekleniyor —
+      // yanlış-pozitif kontrolü için (assertTenantOwnership resource null
+      // olduğunda loglamaz).
+      const nonExistentProductId = '22222222-2222-4222-8222-222222222222';
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/portal/uploads/${batchUploadId}/items`)
+        .set('Authorization', `Bearer ${ctx1.accessToken}`)
+        .send({
+          items: [
+            { productId: validProductId, newPrice: 42.5 },
+            { productId: foreignProductId, newPrice: 999 },
+            { productId: nonExistentProductId, newPrice: 1 },
+          ],
+        })
+        .expect(200);
+
+      const beforeCrossTenant = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/portal/uploads/${batchUploadId}/approve`)
+        .set('Authorization', `Bearer ${ctx1.accessToken}`)
+        .expect(200);
+
+      // (1) Geçerli kalem YİNE DE uygulandı — batch'in geri kalanı iptal olmadı.
+      const validProductAfter = await request(app.getHttpServer())
+        .get(`/api/v1/products/${validProductId}`)
+        .set('Authorization', `Bearer ${ctx1.accessToken}`)
+        .expect(200);
+      expect(Number(validProductAfter.body.salePrice)).toBe(42.5);
+
+      // (2) Yabancı ürünün fiyatı HİÇ değişmedi.
+      const foreignProductAfter = await request(app.getHttpServer())
+        .get(`/api/v1/products/${foreignProductId}`)
+        .set('Authorization', authHeader2)
+        .expect(200);
+      expect(foreignProductAfter.body.salePrice).toBeNull();
+
+      // (3) Yabancı kalem için CROSS_TENANT_ACCESS_ATTEMPT loglandı.
+      const afterCrossTenant = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
+      const match = afterCrossTenant.find((e) => e.context?.resourceId === foreignProductId);
+      expect(match).toBeDefined();
+      expect(match!.context?.resourceType).toBe('Product');
+      expect(match!.tenantId).toBe(ctx1.tenantId);
+      expect(JSON.stringify(match)).not.toContain(ctx2.tenantId);
+
+      // (4) Gerçekten var olmayan ürün için HİÇBİR event oluşmadı (yanlış pozitif yok).
+      expect(afterCrossTenant.some((e) => e.context?.resourceId === nonExistentProductId)).toBe(
+        false,
+      );
+      // Toplam sayı da yalnızca 1 arttı (yabancı ürün), var-olmayan için değil.
+      expect(afterCrossTenant.length).toBe(beforeCrossTenant.length + 1);
+    });
   });
 });

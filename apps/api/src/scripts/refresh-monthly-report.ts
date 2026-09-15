@@ -27,13 +27,18 @@ import { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import { withTenantContext } from '../common/utils/tenant-context';
 import { ReportsService } from '../modules/reports/reports.service';
+import { SecurityEventLogger } from '../common/security-event/security-event.service';
 
 async function main() {
   const prisma = new PrismaClient();
   // ReportsService yalnızca PrismaService'in Prisma Client yüzeyini
   // kullanıyor (ConfigService'e ihtiyacı yok) — script'lerde tam DI
   // bootstrap yerine plain PrismaClient'ı bu tipe cast etmek yeterli.
-  const reportsService = new ReportsService(prisma as unknown as PrismaService);
+  // getReport artık assertTenantOwnership için SecurityEventLogger'a da
+  // ihtiyaç duyuyor — bu script generateMonthlyReport dışında bir şey
+  // çağırmadığı için gerçek bir loglama tetiklenmez, yalnızca DI'yı tatmin eder.
+  const securityEvents = new SecurityEventLogger(prisma as unknown as PrismaService);
+  const reportsService = new ReportsService(prisma as unknown as PrismaService, securityEvents);
 
   try {
     const tenant = await withTenantContext(prisma, { isSuperAdmin: true }, async (tx) => {

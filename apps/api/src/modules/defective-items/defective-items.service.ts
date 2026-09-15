@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
@@ -42,9 +42,13 @@ export class DefectiveItemsService {
         select: { id: true, tenantId: true, quantity: true },
       });
 
-      if (!level || level.tenantId !== user.tenantId) {
-        throw new NotFoundException('Stok kaydı bulunamadı');
-      }
+      assertTenantOwnership(level, {
+        resourceType: 'StockLevel',
+        resourceId: level?.id ?? `${dto.productId}:${branchId}`,
+        user,
+        notFoundMessage: 'Stok kaydı bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       // recordWaste ile aynı kontrol: miktar mevcut stoktan fazlaysa reddedilir.
       if (Number(level.quantity) < dto.quantity) {

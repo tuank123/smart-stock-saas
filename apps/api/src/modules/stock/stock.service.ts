@@ -11,6 +11,8 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SmsService } from '../sms/sms.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { withTenantContext } from '../../common/utils/tenant-context';
 import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import {
@@ -45,6 +47,7 @@ export class StockService {
     private prisma: PrismaService,
     private config: ConfigService,
     private sms: SmsService,
+    private securityEvents: SecurityEventLogger,
   ) {}
 
   async initializeStock(dto: InitializeStockDto, user: { tenantId: string }) {
@@ -157,9 +160,13 @@ export class StockService {
         },
       });
 
-      if (!level || level.tenantId !== user.tenantId) {
-        throw new NotFoundException('Stok kaydı bulunamadı');
-      }
+      assertTenantOwnership(level, {
+        resourceType: 'StockLevel',
+        resourceId: level?.id ?? `${productId}:${branchId}`,
+        user,
+        notFoundMessage: 'Stok kaydı bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       return level;
     });
@@ -236,9 +243,13 @@ export class StockService {
         select: { id: true, tenantId: true, quantity: true },
       });
 
-      if (!level || level.tenantId !== user.tenantId) {
-        throw new NotFoundException('Stok kaydı bulunamadı');
-      }
+      assertTenantOwnership(level, {
+        resourceType: 'StockLevel',
+        resourceId: level?.id ?? `${dto.productId}:${branchId}`,
+        user,
+        notFoundMessage: 'Stok kaydı bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       // recordSale ile aynı kontrol: fire miktarı mevcut stoktan fazlaysa
       // reddedilir — stok asla negatife düşürülmez.
@@ -348,9 +359,13 @@ export class StockService {
           where: { id: item.productId },
           select: { id: true, name: true, tenantId: true, salePrice: true },
         });
-        if (!product || product.tenantId !== user.tenantId) {
-          throw new NotFoundException('Ürün bulunamadı');
-        }
+        assertTenantOwnership(product, {
+          resourceType: 'Product',
+          resourceId: item.productId,
+          user,
+          notFoundMessage: 'Ürün bulunamadı',
+          securityEvents: this.securityEvents,
+        });
 
         // b. Satış fiyatı belirlenmemiş
         if (product.salePrice == null) {
@@ -541,9 +556,13 @@ export class StockService {
         where: { id: sessionId },
         select: { id: true, tenantId: true },
       });
-      if (!session || session.tenantId !== user.tenantId) {
-        throw new NotFoundException('Kasa oturumu bulunamadı');
-      }
+      assertTenantOwnership(session, {
+        resourceType: 'CashierSession',
+        resourceId: sessionId,
+        user,
+        notFoundMessage: 'Kasa oturumu bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       await tx.cashierSession.update({
         where: { id: sessionId },
@@ -969,9 +988,13 @@ export class StockService {
         select: { id: true, tenantId: true },
       });
 
-      if (!level || level.tenantId !== user.tenantId) {
-        throw new NotFoundException('Stok kaydı bulunamadı');
-      }
+      assertTenantOwnership(level, {
+        resourceType: 'StockLevel',
+        resourceId: level?.id ?? `${productId}:${branchId}`,
+        user,
+        notFoundMessage: 'Stok kaydı bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       const data: Record<string, unknown> = { thresholdSource: 'MANUAL' };
       if (dto.minThreshold !== undefined) data.minThreshold = dto.minThreshold;

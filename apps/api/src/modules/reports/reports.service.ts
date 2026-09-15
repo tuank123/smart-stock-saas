@@ -1,13 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SecurityEventLogger } from '../../common/security-event/security-event.service';
+import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { withTenantContext } from '../../common/utils/tenant-context';
 
 @Injectable()
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private securityEvents: SecurityEventLogger,
+  ) {}
 
   // ─── HELPERS ─────────────────────────────────────────────────────────────
 
@@ -362,11 +367,17 @@ export class ReportsService {
     });
   }
 
-  async getReport(reportId: string, tenantId: string) {
-    return withTenantContext(this.prisma, { tenantId }, async (tx) => {
+  async getReport(reportId: string, user: { tenantId: string; userId?: string | null }) {
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
 
       const report = await tx.scheduledReport.findUnique({ where: { id: reportId } });
-      if (!report || report.tenantId !== tenantId) return null;
+      assertTenantOwnership(report, {
+        resourceType: 'ScheduledReport',
+        resourceId: reportId,
+        user,
+        notFoundMessage: 'Rapor bulunamadı',
+        securityEvents: this.securityEvents,
+      });
 
       if (!report.isRead) {
         return tx.scheduledReport.update({
