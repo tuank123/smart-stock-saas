@@ -320,6 +320,93 @@ describe('Tedarikçi Portalı / Portal (e2e)', () => {
     expect(payload.newPrice).toBe(NEW_PRICE);
   });
 
+  // ── (f) Bütünlük kontrolü — onay sırasında eşzamanlı fiyat değişikliği ───
+  //
+  // transfers.e2e-spec.ts'teki dispatch yarış testiyle AYNI desen: gerçek
+  // eşzamanlı HTTP istekleriyle bu yarışı güvenilir biçimde tetiklemek
+  // zamanlamaya bağlı (kırılgan) olacağından, Prisma middleware ile TEK
+  // SEFERLİK, deterministik bir "eşzamanlı başka bir işlem bu ürünün fiyatını
+  // zaten değiştirdi" senaryosu simüle ediliyor.
+  it('PATCH /portal/uploads/:uploadId/approve — yarış durumu: onay sırasında ürünün fiyatı eşzamanlı değişmişse 409 döner, DATA_INTEGRITY loglanır, salePrice değişmez', async () => {
+    const category = await createCategory(prisma, ctx.tenantId, 'E2E Portal Yarış Kategorisi');
+    const productRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader)
+      .send({
+        sku: `E2E-PORTAL-RACE-${uniqueSuffix()}`,
+        name: 'E2E Portal Yarış Ürünü',
+        unit: 'adet',
+        categoryId: category.id,
+      })
+      .expect(201);
+    const raceProductId = productRes.body.id;
+
+    const uploadRes = await request(app.getHttpServer())
+      .post(`/api/v1/portal/${subdomain}/upload`)
+      .send({ phone: OTP_PHONE, sessionToken, supplierId })
+      .expect(201);
+    const raceUploadId = uploadRes.body.uploadId;
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/portal/uploads/${raceUploadId}/items`)
+      .set('Authorization', authHeader)
+      .send({ items: [{ productId: raceProductId, newPrice: 199.9 }] })
+      .expect(200);
+
+    const beforeErrorCount = await prisma.errorLog.count({
+      where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+    });
+
+    const RACE_WINNER_PRICE = 55.5;
+    let fired = false;
+    const middleware: Parameters<PrismaService['$use']>[0] = async (params, next) => {
+      if (!fired && params.model === 'Product' && params.action === 'updateMany') {
+        fired = true;
+        // Onay KENDİ fiyat güncellemesini uygulamadan HEMEN önce, başka bir
+        // (hayali) eşzamanlı işlem gibi ürünün fiyatını değiştir.
+        await prisma.$executeRawUnsafe(
+          `UPDATE products SET sale_price = ${RACE_WINNER_PRICE} WHERE id = '${raceProductId}'`,
+        );
+      }
+      return next(params);
+    };
+    prisma.$use(middleware);
+
+    try {
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/portal/uploads/${raceUploadId}/approve`)
+        .set('Authorization', authHeader)
+        .expect(409);
+
+      expect(res.body.message).toContain('tutarsızlık');
+
+      const errorLogs = await prisma.errorLog.findMany({
+        where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(errorLogs.length).toBe(beforeErrorCount + 1);
+      expect(errorLogs[0].message).toContain('eşzamanlı bir fiyat değişikliği');
+      expect((errorLogs[0].context as { productId?: string })?.productId).toBe(raceProductId);
+
+      // Rollback doğrulaması: onay geri alındı (upload hâlâ PENDING_REVIEW),
+      // ürünün fiyatı YARIŞI KAZANAN (enjekte edilen) değerde kaldı — onayın
+      // KENDİ fiyatı hiç yazılmadı.
+      const productAfter = await request(app.getHttpServer())
+        .get(`/api/v1/products/${raceProductId}`)
+        .set('Authorization', authHeader)
+        .expect(200);
+      expect(Number(productAfter.body.salePrice)).toBe(RACE_WINNER_PRICE);
+
+      const detailRes = await request(app.getHttpServer())
+        .get(`/api/v1/portal/uploads/detail/${raceUploadId}`)
+        .set('Authorization', authHeader)
+        .expect(200);
+      expect(detailRes.body.status).toBe('PENDING_REVIEW');
+    } finally {
+      fired = true;
+    }
+  });
+
   // ── (f) Red edilen bir güncelleme salePrice'ı etkilemez ──────────────────
 
   it('PATCH /portal/uploads/:uploadId/reject — reddedilen fiyat Product.salePrice\'ı DEĞİŞTİRMEZ', async () => {

@@ -15,6 +15,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { withTenantContext } from '../../common/utils/tenant-context';
+import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import { Prisma } from '@prisma/client';
 import { SyncService } from '../sync/sync.service';
 import { ListUploadsQueryDto, UpdatePriceItemsDto, UploadDto } from './dto/portal.dto';
@@ -549,10 +550,38 @@ export class PortalService implements OnModuleInit, OnModuleDestroy {
         anomalyFlag = Math.abs(changePct) > PRICE_ANOMALY_PCT;
       }
 
-      await tx.product.update({
-        where: { id: product.id },
+      // İyimser kilit — recordWaste/dispatchTransfer ile AYNI desen: WHERE
+      // koşuluna okuduğumuz eski salePrice'ı da ekleyerek, okuma ile yazma
+      // arasında başka bir eşzamanlı fiyat güncellemesi (ör. aynı ürünü
+      // içeren iki ayrı tedarikçi yüklemesinin aynı anda onaylanması) araya
+      // girmişse 0 satır etkilenmesini sağlıyoruz — bu da "kaybolan
+      // güncelleme"yi sessizce kabul etmek yerine 409 ile reddetmemizi ve
+      // tüm batch'i (transaction) rollback etmemizi sağlıyor.
+      const result = await tx.product.updateMany({
+        where: { id: product.id, salePrice: product.salePrice },
         data: { salePrice: finalPrice },
       });
+
+      if (result.count === 0) {
+        await this.prisma.errorLog
+          .create({
+            data: {
+              source: 'DATA_INTEGRITY',
+              severity: 'ERROR',
+              message: 'Fiyat uygulaması sırasında eşzamanlı bir fiyat değişikliği tespit edildi',
+              tenantId,
+              branchId,
+              context: {
+                productId: product.id,
+                expectedOldPrice: oldPrice,
+                incomingNewPrice: finalPrice,
+              },
+            },
+          })
+          .catch(() => undefined);
+
+        throw new DataIntegrityException('concurrent price update detected while applying prices');
+      }
 
       await tx.priceChangeLog.create({
         data: {
