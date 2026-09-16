@@ -40,6 +40,9 @@ export default function YeniBorcAlacakPage() {
   const [direction, setDirection] = useState<Direction>('PAYABLE');
   const [debtType, setDebtType] = useState<DebtType>('CASH');
   const [amount, setAmount] = useState('');
+  const [hasRebate, setHasRebate] = useState(false);
+  const [rebateAmount, setRebateAmount] = useState('');
+  const [rebateType, setRebateType] = useState<'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI'>('CIRO_PRIMI');
   const [productLines, setProductLines] = useState<BasketLine[]>([]);
   const [itemProductId, setItemProductId] = useState('');
   const [itemQty, setItemQty] = useState('');
@@ -92,6 +95,17 @@ export default function YeniBorcAlacakPage() {
         setError('Geçerli bir tutar girin.');
         return false;
       }
+      if (direction === 'PAYABLE' && hasRebate) {
+        const rebateParsed = Number(rebateAmount.replace(',', '.'));
+        if (!rebateAmount.trim() || !rebateParsed || rebateParsed <= 0) {
+          setError('Geçerli bir ciro primi/geri ödeme tutarı girin.');
+          return false;
+        }
+        if (rebateParsed - parsed > 0.01) {
+          setError('Ciro primi/geri ödeme tutarı, borç tutarından fazla olamaz.');
+          return false;
+        }
+      }
     } else {
       if (productLines.length === 0) {
         setError('En az bir ürün ekleyin.');
@@ -105,6 +119,11 @@ export default function YeniBorcAlacakPage() {
     e.preventDefault();
     if (!validate()) return;
 
+    // Yalnızca PAYABLE/CASH iken (bölümün gerçekten göründüğü durum)
+    // rebateAmount/rebateType gönderilir — direction/debtType değiştirilip
+    // geri alınsa bile eski hasRebate state'i sızmaz (undefined/undefined).
+    const applyRebate = direction === 'PAYABLE' && debtType === 'CASH' && hasRebate;
+
     createDebt.mutate(
       {
         supplierId,
@@ -117,6 +136,8 @@ export default function YeniBorcAlacakPage() {
             : undefined,
         dueDate: dueDate || undefined,
         notes: notes.trim() || undefined,
+        rebateAmount: applyRebate ? Number(rebateAmount.replace(',', '.')) : undefined,
+        rebateType: applyRebate ? rebateType : undefined,
       },
       { onSuccess: () => router.replace('/isletme-app/alacak-verecek') },
     );
@@ -197,6 +218,70 @@ export default function YeniBorcAlacakPage() {
               className="w-full"
             />
           </div>
+        )}
+
+        {/* Ciro primi / firma geri ödemesi — yalnızca işletmenin tedarikçiye
+            olan nakit (PAYABLE/CASH) borcunda anlamlı (bkz. debts.service.ts
+            createDebt'teki AYNI kısıtlama). */}
+        {direction === 'PAYABLE' && debtType === 'CASH' && (
+          <>
+            <div className="space-y-1.5">
+              <Label>Ciro primi / firma geri ödemesi var mı?</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={hasRebate ? 'default' : 'outline'}
+                  onClick={() => setHasRebate(true)}
+                >
+                  Evet
+                </Button>
+                <Button
+                  type="button"
+                  variant={!hasRebate ? 'default' : 'outline'}
+                  onClick={() => setHasRebate(false)}
+                >
+                  Hayır
+                </Button>
+              </div>
+            </div>
+
+            {hasRebate && (
+              <div className="space-y-4 rounded-lg border p-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="rebate-amount">Ciro Primi / Geri Ödeme Tutarı (₺) *</Label>
+                  <Input
+                    id="rebate-amount"
+                    type="text"
+                    inputMode="decimal"
+                    value={rebateAmount}
+                    onChange={(e) => setRebateAmount(e.target.value)}
+                    placeholder="0,00"
+                    className="w-full"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Tür</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={rebateType === 'CIRO_PRIMI' ? 'default' : 'outline'}
+                      onClick={() => setRebateType('CIRO_PRIMI')}
+                    >
+                      Ciro Primi Tahsilatı
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={rebateType === 'FIRMA_GERI_ODEMESI' ? 'default' : 'outline'}
+                      onClick={() => setRebateType('FIRMA_GERI_ODEMESI')}
+                    >
+                      Firma Geri Ödemesi
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Ürün sepeti (yalnız Ürün) */}

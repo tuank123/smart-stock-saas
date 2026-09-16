@@ -73,7 +73,7 @@ export class DebtsService {
         include: {
           supplier: { select: { id: true, name: true } },
           payments: {
-            select: { amount: true, paidAt: true },
+            select: { amount: true, paidAt: true, type: true },
             orderBy: { paidAt: 'asc' },
           },
         },

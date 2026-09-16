@@ -733,6 +733,8 @@ export function useOcrConfirm() {
       supplierId: string;
       invoiceTotal?: number;
       paidAmount?: number;
+      rebateAmount?: number;
+      rebateType?: 'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI';
       allItemsReceived: boolean;
       deliveredLines?: Array<{ productId: string; receivedQty: number }>;
     }) =>
@@ -742,6 +744,8 @@ export function useOcrConfirm() {
           supplierId: vars.supplierId,
           invoiceTotal: vars.invoiceTotal,
           paidAmount: vars.paidAmount,
+          rebateAmount: vars.rebateAmount,
+          rebateType: vars.rebateType,
           allItemsReceived: vars.allItemsReceived,
           deliveredLines: vars.deliveredLines,
         })
@@ -1005,8 +1009,11 @@ export interface Debt {
   status: 'OPEN' | 'PAID';
   notes: string | null;
   createdAt: string;
-  payments: Array<{ amount: string; paidAt: string }>;
+  payments: Array<{ amount: string; paidAt: string; type?: string }>;
   supplier: { id: string; name: string };
+  // Ciro primi / firma geri ödemesi (Faz 1 backend, bkz. debt-rebate.ts).
+  category?: string | null; // null | 'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI'
+  relatedDebtId?: string | null;
 }
 
 export interface DebtReminders {
@@ -1042,6 +1049,8 @@ export function useCreateDebt() {
       productLines?: Array<{ productId: string; quantity: number }>;
       dueDate?: string;
       notes?: string;
+      rebateAmount?: number;
+      rebateType?: 'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI';
     }) => api.post(`/debts/${branchId}`, dto).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['debts'] });

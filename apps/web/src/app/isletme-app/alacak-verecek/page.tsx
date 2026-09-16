@@ -115,6 +115,22 @@ function DebtRow({ debt, onClick }: { debt: Debt; onClick: () => void }) {
               OCR
             </Badge>
           )}
+          {debt.category === 'CIRO_PRIMI' && (
+            <Badge
+              variant="outline"
+              className="border-purple-200 bg-purple-100 text-purple-800 hover:bg-purple-100"
+            >
+              Ciro Primi Tahsilatı
+            </Badge>
+          )}
+          {debt.category === 'FIRMA_GERI_ODEMESI' && (
+            <Badge
+              variant="outline"
+              className="border-teal-200 bg-teal-100 text-teal-800 hover:bg-teal-100"
+            >
+              Firma Geri Ödemesi
+            </Badge>
+          )}
         </div>
       </div>
 
