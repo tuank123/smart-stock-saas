@@ -123,7 +123,13 @@ describe('Debts / Alacak Verecek (e2e)', () => {
 
   // ── (c-bis) Ciro primi / firma geri ödemesi (manuel giriş) ───────────────
 
-  it('POST /debts/:branchId — kısmi ciro primi: remainingAmount doğru düşer, DebtPayment ve bağlı RECEIVABLE oluşur', async () => {
+  it('POST /debts/:branchId — kısmi ciro primi: remainingAmount doğru düşer, DebtPayment oluşur, ikinci bir Debt OLUŞMAZ', async () => {
+    const beforeDebtCount = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200)
+      .then((r) => r.body.length as number);
+
     const res = await request(app.getHttpServer())
       .post(`/api/v1/debts/${ctx.branchId}`)
       .set('Authorization', authHeader)
@@ -146,16 +152,13 @@ describe('Debts / Alacak Verecek (e2e)', () => {
       .get(`/api/v1/debts/${ctx.branchId}`)
       .set('Authorization', authHeader)
       .expect(200);
-    const receivable = debtsRes.body.find(
-      (d: { direction: string; relatedDebtId: string | null }) =>
-        d.direction === 'RECEIVABLE' && d.relatedDebtId === payableId,
-    );
-    expect(receivable).toBeDefined();
-    expect(Number(receivable.amount)).toBe(300);
-    expect(Number(receivable.remainingAmount)).toBe(0);
-    expect(receivable.status).toBe('PAID');
-    expect(receivable.category).toBe('CIRO_PRIMI');
-    expect(receivable.paidAt).not.toBeNull();
+
+    // Yalnızca 1 yeni Debt satırı — ayrı bir RECEIVABLE kaydı ARTIK oluşmaz
+    // (manuel test sonrası karar: görünürlük tamamen PAYABLE tarafında).
+    expect(debtsRes.body.length).toBe(beforeDebtCount + 1);
+    expect(
+      debtsRes.body.some((d: { direction: string }) => d.direction === 'RECEIVABLE'),
+    ).toBe(false);
 
     const payments = await prisma.debtPayment.findMany({ where: { debtId: payableId } });
     expect(payments).toHaveLength(1);
@@ -168,7 +171,13 @@ describe('Debts / Alacak Verecek (e2e)', () => {
     );
   });
 
-  it('POST /debts/:branchId — ciro primi borcun TAMAMINI kapatırsa hemen status:PAID olur', async () => {
+  it('POST /debts/:branchId — ciro primi borcun TAMAMINI kapatırsa hemen status:PAID olur, ikinci bir Debt OLUŞMAZ', async () => {
+    const beforeDebtCount = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200)
+      .then((r) => r.body.length as number);
+
     const res = await request(app.getHttpServer())
       .post(`/api/v1/debts/${ctx.branchId}`)
       .set('Authorization', authHeader)
@@ -186,6 +195,15 @@ describe('Debts / Alacak Verecek (e2e)', () => {
     expect(res.body.status).toBe('PAID');
     expect(res.body.paidAt).not.toBeNull();
     expect(res.body.category).toBe('FIRMA_GERI_ODEMESI');
+
+    const debtsRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(debtsRes.body.length).toBe(beforeDebtCount + 1);
+    expect(
+      debtsRes.body.some((d: { direction: string }) => d.direction === 'RECEIVABLE'),
+    ).toBe(false);
   });
 
   it('POST /debts/:branchId — rebateAmount olmadan (mevcut davranış) HİÇBİR regresyon yok: category null, ekstra kayıt yok', async () => {

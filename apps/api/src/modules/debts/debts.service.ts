@@ -176,21 +176,18 @@ export class DebtsService {
         include: { supplier: { select: { id: true, name: true } } },
       });
 
-      // Ciro primi/firma geri ödemesi: aynı transaction içinde hem bu PAYABLE
-      // borcun ödeme geçmişine bir DebtPayment yazar hem de relatedDebtId ile
-      // buna bağlı, zaten kapanmış (status:'PAID') ayrı bir RECEIVABLE borç
-      // oluşturur — OCR akışıyla (ocr.service.ts confirmScan) AYNI paylaşılan
-      // yardımcı (createRebateRecords).
+      // Ciro primi/firma geri ödemesi: aynı transaction içinde bu PAYABLE
+      // borcun ödeme geçmişine bir DebtPayment yazar (manuel test sonrası
+      // karar: ayrı bir RECEIVABLE borç ARTIK oluşturulmuyor — görünürlük
+      // tamamen bu PAYABLE borcun category alanı + bu ödeme satırında) — OCR
+      // akışıyla (ocr.service.ts confirmScan) AYNI paylaşılan yardımcı
+      // (createRebateRecords).
       if (rebateAmount > 0 && dto.rebateType) {
         await createRebateRecords(tx, {
-          tenantId: user.tenantId,
-          branchId,
-          supplierId: dto.supplierId,
           payableDebtId: debt.id,
           rebateAmount,
           rebateType: dto.rebateType,
           userId: user.userId,
-          source: 'MANUAL',
         });
       }
 

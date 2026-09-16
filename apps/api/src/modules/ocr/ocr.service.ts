@@ -368,22 +368,17 @@ export class OcrService {
             });
           }
 
-          // Ciro primi/firma geri ödemesi: aynı transaction içinde hem bu
-          // PAYABLE borcun ödeme geçmişine bir DebtPayment yazar hem de
-          // relatedDebtId ile buna bağlı, zaten kapanmış (status:'PAID') ayrı
-          // bir RECEIVABLE borç oluşturur.
+          // Ciro primi/firma geri ödemesi: aynı transaction içinde bu PAYABLE
+          // borcun ödeme geçmişine bir DebtPayment yazar (manuel test sonrası
+          // karar: ayrı bir RECEIVABLE borç ARTIK oluşturulmuyor — görünürlük
+          // tamamen bu PAYABLE borcun category alanı + bu ödeme satırında).
           if (rebateAmount > 0 && dto.rebateType) {
-            const { receivableDebtId } = await createRebateRecords(tx, {
-              tenantId: user.tenantId,
-              branchId: scan.branchId,
-              supplierId: dto.supplierId,
+            await createRebateRecords(tx, {
               payableDebtId: cashDebt.id,
               rebateAmount,
               rebateType: dto.rebateType,
               userId: user.userId,
-              source: 'OCR',
             });
-            debtsCreated.push(receivableDebtId);
           }
         }
       }

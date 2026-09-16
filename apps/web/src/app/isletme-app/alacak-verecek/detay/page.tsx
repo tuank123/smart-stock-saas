@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { AlertTriangle, CheckCircle } from 'lucide-react';
 import { StationPageHeader } from '@/components/layout/StationPageHeader';
 import { Button } from '@/components/ui/button';
@@ -31,16 +31,9 @@ function fmtDateTime(dateStr: string) {
   }).format(new Date(dateStr));
 }
 
-// Ciro primi / firma geri ödemesi (Faz 1 backend) — Debt.category ve
-// DebtPayment.type AYNI iki değeri paylaşıyor, ama görünen metinleri
-// bilerek FARKLI (borç rozeti "Tahsilatı", ödeme geçmişi satırı "Düşümü" —
-// bkz. görev notları).
-function categoryLabel(category?: string | null): string | null {
-  if (category === 'CIRO_PRIMI') return 'Ciro Primi Tahsilatı';
-  if (category === 'FIRMA_GERI_ODEMESI') return 'Firma Geri Ödemesi';
-  return null;
-}
-
+// Ciro primi / firma geri ödemesi (Faz 1 backend) — ödeme geçmişi
+// satırındaki etiket için (bkz. CashDetail). Ayrı bir RECEIVABLE kaydı
+// oluşturulmadığı için (manuel test sonrası karar) bu, görünürlüğün TEK yeri.
 function paymentTypeLabel(type?: string): string | null {
   if (type === 'CIRO_PRIMI') return 'Ciro Primi Düşümü';
   if (type === 'FIRMA_GERI_ODEMESI') return 'Firma Geri Ödemesi';
@@ -224,24 +217,11 @@ function ProductDetail({ debt }: { debt: Debt }) {
 // ── Inner (Suspense içinde) ───────────────────────────────────────────────────
 
 function DebtDetailInner() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const debtId = searchParams.get('debtId') ?? '';
   const { data: debts, isPending, isError } = useDebts();
 
   const debt = (debts ?? []).find((d: Debt) => d.id === debtId);
-
-  // Ciro primi / firma geri ödemesi bağlantısı — yeni bir fetch YOK, aynı
-  // useDebts() listesi client-side aranıyor (bu sayfanın kendi debt'ini
-  // bulma yöntemiyle AYNI). İki yön mümkün: bu kayıt BİZZAT rebate kaydıysa
-  // (relatedDebtId dolu) netlendiği PAYABLE'a; değilse başka bir kaydın
-  // relatedDebtId'si bize işaret ediyor mu diye bakılır (biz PAYABLE isek).
-  const relatedDebt = debt
-    ? debt.relatedDebtId
-      ? (debts ?? []).find((d: Debt) => d.id === debt.relatedDebtId)
-      : (debts ?? []).find((d: Debt) => d.relatedDebtId === debt.id)
-    : undefined;
-  const relatedIsParent = !!debt?.relatedDebtId;
 
   const primaryDate = debt?.dueDate ?? debt?.createdAt ?? null;
 
@@ -276,31 +256,6 @@ function DebtDetailInner() {
               <Badge variant="outline">{debt.debtType === 'CASH' ? 'Nakit' : 'Ürün'}</Badge>
             </div>
           </div>
-
-          {/* İlişkili kayıt — ciro primi/firma geri ödemesi bağlantısı
-              (bkz. görev notları: bu codebase'de daha önce hiç örneği
-              olmayan yeni, minimal bir desen). */}
-          {relatedDebt && (
-            <button
-              type="button"
-              onClick={() =>
-                router.push(`/isletme-app/alacak-verecek/detay?debtId=${relatedDebt.id}`)
-              }
-              className="w-full rounded-md border bg-muted/40 px-3 py-2 text-left text-sm transition-colors hover:bg-muted/60"
-            >
-              <p className="text-xs text-muted-foreground">
-                {relatedIsParent
-                  ? 'Netlendiği fatura borcu'
-                  : 'Bu faturadan düşülen ciro primi / geri ödeme'}
-              </p>
-              <p className="font-medium">
-                {relatedDebt.supplier.name}
-                {relatedDebt.amount != null && ` · ${fmtAmount(relatedDebt.amount)}`}
-                {categoryLabel(relatedDebt.category) &&
-                  ` · ${categoryLabel(relatedDebt.category)}`}
-              </p>
-            </button>
-          )}
 
           {debt.debtType === 'CASH' ? (
             <CashDetail debt={debt} />

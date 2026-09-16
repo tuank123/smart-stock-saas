@@ -415,8 +415,14 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     return scan.body.scanId as string;
   }
 
-  it('POST /ocr/scan/:scanId/confirm — kısmi ciro primi: PAYABLE remainingAmount doğru düşer, DebtPayment ve bağlı RECEIVABLE oluşur', async () => {
+  it('POST /ocr/scan/:scanId/confirm — kısmi ciro primi: PAYABLE remainingAmount doğru düşer, DebtPayment oluşur, ikinci bir Debt OLUŞMAZ', async () => {
     const scanId = await newScan();
+
+    const beforeDebtCount = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200)
+      .then((r) => r.body.length as number);
 
     const res = await request(app.getHttpServer())
       .post(`/api/v1/ocr/scan/${scanId}/confirm`)
@@ -437,6 +443,10 @@ describe('OCR / Fatura Tarama (e2e)', () => {
       .set('Authorization', authHeader)
       .expect(200);
 
+    // Yalnızca 1 yeni Debt satırı — ayrı bir RECEIVABLE kaydı ARTIK oluşmaz
+    // (manuel test sonrası karar: görünürlük tamamen PAYABLE tarafında).
+    expect(debtsRes.body.length).toBe(beforeDebtCount + 1);
+
     const payable = debtsRes.body.find(
       (d: { direction: string; amount: string }) =>
         d.direction === 'PAYABLE' && Number(d.amount) === 1000,
@@ -447,16 +457,11 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     expect(payable.category).toBe('CIRO_PRIMI');
     expect(payable.status).toBe('OPEN');
 
-    const receivable = debtsRes.body.find(
-      (d: { direction: string; relatedDebtId: string | null }) =>
-        d.direction === 'RECEIVABLE' && d.relatedDebtId === payable.id,
-    );
-    expect(receivable).toBeDefined();
-    expect(Number(receivable.amount)).toBe(300);
-    expect(Number(receivable.remainingAmount)).toBe(0);
-    expect(receivable.status).toBe('PAID');
-    expect(receivable.category).toBe('CIRO_PRIMI');
-    expect(receivable.paidAt).not.toBeNull();
+    // NOT: "hiçbir RECEIVABLE yok" gibi geniş bir kontrol burada YANLIŞ
+    // olurdu — bu dosyadaki confirm-return testi zaten AYNI branch için
+    // meşru, ilgisiz bir RECEIVABLE borç oluşturuyor. Asıl garanti yukarıdaki
+    // debtsRes.body.length === beforeDebtCount + 1 kontrolü: bu rebate
+    // akışının KENDİSİ ikinci bir Debt satırı oluşturmadı.
 
     // DebtPayment audit izi: hem gerçek nakit ödeme (CASH) hem ciro primi
     // (CIRO_PRIMI) bu PAYABLE borcun ödeme geçmişinde görünmeli.
@@ -475,8 +480,14 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     void res;
   });
 
-  it('POST /ocr/scan/:scanId/confirm — ciro primi faturayı TAMAMEN kapatırsa PAYABLE hemen status:PAID olur', async () => {
+  it('POST /ocr/scan/:scanId/confirm — ciro primi faturayı TAMAMEN kapatırsa PAYABLE hemen status:PAID olur, ikinci bir Debt OLUŞMAZ', async () => {
     const scanId = await newScan();
+
+    const beforeDebtCount = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200)
+      .then((r) => r.body.length as number);
 
     await request(app.getHttpServer())
       .post(`/api/v1/ocr/scan/${scanId}/confirm`)
@@ -496,6 +507,8 @@ describe('OCR / Fatura Tarama (e2e)', () => {
       .set('Authorization', authHeader)
       .expect(200);
 
+    expect(debtsRes.body.length).toBe(beforeDebtCount + 1);
+
     const payable = debtsRes.body.find(
       (d: { direction: string; amount: string; category: string | null }) =>
         d.direction === 'PAYABLE' && Number(d.amount) === 500 && d.category === 'FIRMA_GERI_ODEMESI',
@@ -504,14 +517,10 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     expect(Number(payable.remainingAmount)).toBe(0);
     expect(payable.status).toBe('PAID');
     expect(payable.paidAt).not.toBeNull();
-
-    const receivable = debtsRes.body.find(
-      (d: { direction: string; relatedDebtId: string | null }) =>
-        d.direction === 'RECEIVABLE' && d.relatedDebtId === payable.id,
-    );
-    expect(receivable).toBeDefined();
-    expect(Number(receivable.amount)).toBe(500);
-    expect(receivable.category).toBe('FIRMA_GERI_ODEMESI');
+    // beforeDebtCount + 1 kontrolü (yukarıda) zaten ikinci bir Debt satırı
+    // oluşmadığını kanıtlıyor — bu dosyadaki confirm-return testi AYNI
+    // branch için meşru, ilgisiz bir RECEIVABLE borç bıraktığından, "hiçbir
+    // RECEIVABLE yok" gibi geniş bir kontrol burada YANLIŞ olurdu.
   });
 
   it('POST /ocr/scan/:scanId/confirm — rebateAmount olmadan (mevcut davranış) HİÇBİR regresyon yok: category null, ekstra kayıt yok', async () => {
