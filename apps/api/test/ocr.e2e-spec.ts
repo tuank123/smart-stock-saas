@@ -404,6 +404,218 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     expect((errorLogs[0].context as { scanId?: string })?.scanId).toBe(scan.body.scanId);
   });
 
+  // ── (g-bis) Ciro primi / firma geri ödemesi ──────────────────────────────
+
+  async function newScan() {
+    const scan = await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId })
+      .expect(201);
+    return scan.body.scanId as string;
+  }
+
+  it('POST /ocr/scan/:scanId/confirm — kısmi ciro primi: PAYABLE remainingAmount doğru düşer, DebtPayment ve bağlı RECEIVABLE oluşur', async () => {
+    const scanId = await newScan();
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/ocr/scan/${scanId}/confirm`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        allItemsReceived: true,
+        lines: [{ productId, qty: 1, unit: 'adet' }],
+        invoiceTotal: 1000,
+        paidAmount: 200,
+        rebateAmount: 300,
+        rebateType: 'CIRO_PRIMI',
+      })
+      .expect(200);
+
+    const debtsRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    const payable = debtsRes.body.find(
+      (d: { direction: string; amount: string }) =>
+        d.direction === 'PAYABLE' && Number(d.amount) === 1000,
+    );
+    expect(payable).toBeDefined();
+    // remainingAmount = 1000 - 200 (paidAmount) - 300 (rebate) = 500.
+    expect(Number(payable.remainingAmount)).toBe(500);
+    expect(payable.category).toBe('CIRO_PRIMI');
+    expect(payable.status).toBe('OPEN');
+
+    const receivable = debtsRes.body.find(
+      (d: { direction: string; relatedDebtId: string | null }) =>
+        d.direction === 'RECEIVABLE' && d.relatedDebtId === payable.id,
+    );
+    expect(receivable).toBeDefined();
+    expect(Number(receivable.amount)).toBe(300);
+    expect(Number(receivable.remainingAmount)).toBe(0);
+    expect(receivable.status).toBe('PAID');
+    expect(receivable.category).toBe('CIRO_PRIMI');
+    expect(receivable.paidAt).not.toBeNull();
+
+    // DebtPayment audit izi: hem gerçek nakit ödeme (CASH) hem ciro primi
+    // (CIRO_PRIMI) bu PAYABLE borcun ödeme geçmişinde görünmeli.
+    const payments = await prisma.debtPayment.findMany({
+      where: { debtId: payable.id },
+      orderBy: { paidAt: 'asc' },
+    });
+    expect(payments.map((p) => p.type).sort()).toEqual(['CASH', 'CIRO_PRIMI']);
+    const rebatePayment = payments.find((p) => p.type === 'CIRO_PRIMI');
+    expect(Number(rebatePayment!.amount)).toBe(300);
+
+    // Bütünlük değişmezi: remainingAmount + Σpayments == amount.
+    const paymentsTotal = payments.reduce((s, p) => s + Number(p.amount), 0);
+    expect(Number(payable.remainingAmount) + paymentsTotal).toBe(Number(payable.amount));
+
+    void res;
+  });
+
+  it('POST /ocr/scan/:scanId/confirm — ciro primi faturayı TAMAMEN kapatırsa PAYABLE hemen status:PAID olur', async () => {
+    const scanId = await newScan();
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/ocr/scan/${scanId}/confirm`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        allItemsReceived: true,
+        lines: [{ productId, qty: 1, unit: 'adet' }],
+        invoiceTotal: 500,
+        rebateAmount: 500,
+        rebateType: 'FIRMA_GERI_ODEMESI',
+      })
+      .expect(200);
+
+    const debtsRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    const payable = debtsRes.body.find(
+      (d: { direction: string; amount: string; category: string | null }) =>
+        d.direction === 'PAYABLE' && Number(d.amount) === 500 && d.category === 'FIRMA_GERI_ODEMESI',
+    );
+    expect(payable).toBeDefined();
+    expect(Number(payable.remainingAmount)).toBe(0);
+    expect(payable.status).toBe('PAID');
+    expect(payable.paidAt).not.toBeNull();
+
+    const receivable = debtsRes.body.find(
+      (d: { direction: string; relatedDebtId: string | null }) =>
+        d.direction === 'RECEIVABLE' && d.relatedDebtId === payable.id,
+    );
+    expect(receivable).toBeDefined();
+    expect(Number(receivable.amount)).toBe(500);
+    expect(receivable.category).toBe('FIRMA_GERI_ODEMESI');
+  });
+
+  it('POST /ocr/scan/:scanId/confirm — rebateAmount olmadan (mevcut davranış) HİÇBİR regresyon yok: category null, ekstra kayıt yok', async () => {
+    const scanId = await newScan();
+
+    const beforeDebtCount = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200)
+      .then((r) => r.body.length as number);
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/ocr/scan/${scanId}/confirm`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        allItemsReceived: true,
+        lines: [{ productId, qty: 1, unit: 'adet' }],
+        invoiceTotal: 750,
+      })
+      .expect(200);
+    void res;
+
+    const debtsRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    // Yalnızca 1 yeni (PAYABLE) borç eklendi — rebate'siz akışta hiçbir
+    // RECEIVABLE/ciro primi kaydı oluşmamalı.
+    expect(debtsRes.body.length).toBe(beforeDebtCount + 1);
+
+    const payable = debtsRes.body.find(
+      (d: { direction: string; amount: string }) =>
+        d.direction === 'PAYABLE' && Number(d.amount) === 750,
+    );
+    expect(payable).toBeDefined();
+    expect(Number(payable.remainingAmount)).toBe(750);
+    expect(payable.category).toBeNull();
+    expect(payable.status).toBe('OPEN');
+
+    const paymentsCount = await prisma.debtPayment.count({ where: { debtId: payable.id } });
+    expect(paymentsCount).toBe(0);
+  });
+
+  it('POST /ocr/scan/:scanId/confirm — rebateAmount rebateType olmadan gönderilirse 400 döner', async () => {
+    const scanId = await newScan();
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/ocr/scan/${scanId}/confirm`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        allItemsReceived: true,
+        lines: [{ productId, qty: 1, unit: 'adet' }],
+        invoiceTotal: 1000,
+        rebateAmount: 100,
+      })
+      .expect(400);
+  });
+
+  it('POST /ocr/scan/:scanId/confirm — aşırı mahsup: paidAmount + rebateAmount faturayı aşarsa 409 döner, hiçbir kayıt kalıcı olmaz', async () => {
+    const scanId = await newScan();
+
+    const beforeQty = await queryStockQuantity();
+    const beforeErrorCount = await prisma.errorLog.count({
+      where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+    });
+    const beforeDebtCount = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200)
+      .then((r) => r.body.length as number);
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/ocr/scan/${scanId}/confirm`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        allItemsReceived: true,
+        lines: [{ productId, qty: 1, unit: 'adet' }],
+        invoiceTotal: 1000,
+        paidAmount: 600,
+        rebateAmount: 500, // 600 + 500 = 1100 > 1000
+        rebateType: 'CIRO_PRIMI',
+      })
+      .expect(409);
+
+    expect(res.body.message).toContain('tutarsızlık');
+    expect(await queryStockQuantity()).toBe(beforeQty);
+
+    const debtsRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(debtsRes.body.length).toBe(beforeDebtCount);
+
+    const errorLogs = await prisma.errorLog.findMany({
+      where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(errorLogs.length).toBe(beforeErrorCount + 1);
+    expect(errorLogs[0].message).toContain('ciro primi');
+  });
+
   // ── (h) Tarama listeleme — sayfalama ─────────────────────────────────────
   //
   // admin/tenants, products, stock, orders ile aynı desen: {items,total,page,pageSize}.

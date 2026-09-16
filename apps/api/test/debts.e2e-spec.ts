@@ -121,6 +121,159 @@ describe('Debts / Alacak Verecek (e2e)', () => {
     expect(res.body.paidAt).not.toBeNull();
   });
 
+  // ── (c-bis) Ciro primi / firma geri ödemesi (manuel giriş) ───────────────
+
+  it('POST /debts/:branchId — kısmi ciro primi: remainingAmount doğru düşer, DebtPayment ve bağlı RECEIVABLE oluşur', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        direction: 'PAYABLE',
+        debtType: 'CASH',
+        amount: 1000,
+        rebateAmount: 300,
+        rebateType: 'CIRO_PRIMI',
+      })
+      .expect(201);
+
+    expect(Number(res.body.remainingAmount)).toBe(700);
+    expect(res.body.category).toBe('CIRO_PRIMI');
+    expect(res.body.status).toBe('OPEN');
+    const payableId = res.body.id as string;
+
+    const debtsRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    const receivable = debtsRes.body.find(
+      (d: { direction: string; relatedDebtId: string | null }) =>
+        d.direction === 'RECEIVABLE' && d.relatedDebtId === payableId,
+    );
+    expect(receivable).toBeDefined();
+    expect(Number(receivable.amount)).toBe(300);
+    expect(Number(receivable.remainingAmount)).toBe(0);
+    expect(receivable.status).toBe('PAID');
+    expect(receivable.category).toBe('CIRO_PRIMI');
+    expect(receivable.paidAt).not.toBeNull();
+
+    const payments = await prisma.debtPayment.findMany({ where: { debtId: payableId } });
+    expect(payments).toHaveLength(1);
+    expect(payments[0].type).toBe('CIRO_PRIMI');
+    expect(Number(payments[0].amount)).toBe(300);
+
+    // Bütünlük değişmezi: remainingAmount + Σpayments == amount.
+    expect(Number(res.body.remainingAmount) + Number(payments[0].amount)).toBe(
+      Number(res.body.amount),
+    );
+  });
+
+  it('POST /debts/:branchId — ciro primi borcun TAMAMINI kapatırsa hemen status:PAID olur', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        direction: 'PAYABLE',
+        debtType: 'CASH',
+        amount: 400,
+        rebateAmount: 400,
+        rebateType: 'FIRMA_GERI_ODEMESI',
+      })
+      .expect(201);
+
+    expect(Number(res.body.remainingAmount)).toBe(0);
+    expect(res.body.status).toBe('PAID');
+    expect(res.body.paidAt).not.toBeNull();
+    expect(res.body.category).toBe('FIRMA_GERI_ODEMESI');
+  });
+
+  it('POST /debts/:branchId — rebateAmount olmadan (mevcut davranış) HİÇBİR regresyon yok: category null, ekstra kayıt yok', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .send({ supplierId, direction: 'PAYABLE', debtType: 'CASH', amount: 850 })
+      .expect(201);
+
+    expect(Number(res.body.remainingAmount)).toBe(850);
+    expect(res.body.category).toBeNull();
+    expect(res.body.status).toBe('OPEN');
+
+    const paymentsCount = await prisma.debtPayment.count({ where: { debtId: res.body.id } });
+    expect(paymentsCount).toBe(0);
+  });
+
+  it('POST /debts/:branchId — rebateAmount rebateType olmadan gönderilirse 400 döner', async () => {
+    await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        direction: 'PAYABLE',
+        debtType: 'CASH',
+        amount: 1000,
+        rebateAmount: 200,
+      })
+      .expect(400);
+  });
+
+  it('POST /debts/:branchId — rebateAmount, RECEIVABLE yönünde gönderilirse 400 döner', async () => {
+    await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        direction: 'RECEIVABLE',
+        debtType: 'CASH',
+        amount: 1000,
+        rebateAmount: 200,
+        rebateType: 'CIRO_PRIMI',
+      })
+      .expect(400);
+  });
+
+  it('POST /debts/:branchId — rebateAmount, PRODUCT tipi borçta gönderilirse 400 döner', async () => {
+    await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        direction: 'PAYABLE',
+        debtType: 'PRODUCT',
+        productLines: [{ productId, quantity: 2 }],
+        rebateAmount: 200,
+        rebateType: 'CIRO_PRIMI',
+      })
+      .expect(400);
+  });
+
+  it('POST /debts/:branchId — aşırı mahsup: rebateAmount borç tutarından fazlaysa 400 döner, hiçbir kayıt oluşmaz', async () => {
+    const beforeDebtCount = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200)
+      .then((r) => r.body.length as number);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        direction: 'PAYABLE',
+        debtType: 'CASH',
+        amount: 500,
+        rebateAmount: 600,
+        rebateType: 'CIRO_PRIMI',
+      })
+      .expect(400);
+
+    const debtsRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(debtsRes.body.length).toBe(beforeDebtCount);
+  });
+
   // ── (d) Ürün borcu oluşturma ─────────────────────────────────────────────
 
   let productDebtId: string;

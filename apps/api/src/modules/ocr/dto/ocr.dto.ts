@@ -80,6 +80,20 @@ export class ConfirmScanDto {
   @IsNumber()
   paidAmount?: number;
 
+  // Ciro primi / firma geri ödemesi — tedarikçinin bu fatura borcuna karşılık
+  // hemen mahsup edilen tutar. rebateType ile BİRLİKTE gönderilmeli (serviste
+  // manuel çapraz-alan kontrolü yapılır — bu dosyada/codebase'de custom
+  // class-validator decorator KULLANILMIYOR, debtType/productLines'daki
+  // "zorunlu alan" kontrolleri de aynı şekilde serviste yapılıyor).
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  rebateAmount?: number;
+
+  @IsOptional()
+  @IsIn(['CIRO_PRIMI', 'FIRMA_GERI_ODEMESI'])
+  rebateType?: 'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI';
+
   // Faturadaki tüm ürünler teslim alındı mı?
   @IsBoolean()
   allItemsReceived = true;

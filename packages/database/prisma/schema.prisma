@@ -433,18 +433,23 @@ model Debt {
   status              String    @default("OPEN") // OPEN | PAID
   notes               String?
   lastReminderShownAt DateTime? @map("last_reminder_shown_at")
+  category            String?   @map("category") // null | 'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI'
+  relatedDebtId       String?   @map("related_debt_id") @db.Uuid // ciro primi/geri ödeme RECEIVABLE'ı → netlendiği PAYABLE'a işaret eder
   createdBy           String    @map("created_by") @db.Uuid
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  tenant   Tenant        @relation(fields: [tenantId], references: [id])
-  branch   Branch        @relation(fields: [branchId], references: [id])
-  supplier Supplier      @relation(fields: [supplierId], references: [id])
-  creator  User          @relation(fields: [createdBy], references: [id])
-  payments DebtPayment[]
+  tenant      Tenant        @relation(fields: [tenantId], references: [id])
+  branch      Branch        @relation(fields: [branchId], references: [id])
+  supplier    Supplier      @relation(fields: [supplierId], references: [id])
+  creator     User          @relation(fields: [createdBy], references: [id])
+  payments    DebtPayment[]
+  relatedDebt Debt?         @relation("DebtRebateLink", fields: [relatedDebtId], references: [id])
+  rebateDebts Debt[]        @relation("DebtRebateLink")
 
   @@index([branchId, status])
   @@index([tenantId])
+  @@index([relatedDebtId])
   @@map("debts")
 }
 
@@ -453,6 +458,7 @@ model DebtPayment {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   debtId    String   @map("debt_id") @db.Uuid
   amount    Decimal  @db.Decimal(12, 2)
+  type      String   @default("CASH") // 'CASH' | 'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI'
   paidAt    DateTime @default(now()) @map("paid_at")
   createdBy String   @map("created_by") @db.Uuid
 

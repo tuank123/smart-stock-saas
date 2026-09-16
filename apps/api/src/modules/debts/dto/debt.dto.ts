@@ -52,6 +52,18 @@ export class CreateDebtDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  // Ciro primi / firma geri ödemesi — yalnızca direction='PAYABLE' VE
+  // debtType='CASH' iken anlamlı (serviste kontrol edilir, bkz. createDebt).
+  // rebateType ile BİRLİKTE gönderilmeli.
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  rebateAmount?: number;
+
+  @IsOptional()
+  @IsIn(['CIRO_PRIMI', 'FIRMA_GERI_ODEMESI'])
+  rebateType?: 'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI';
 }
 
 export class UpdateDebtDto {
