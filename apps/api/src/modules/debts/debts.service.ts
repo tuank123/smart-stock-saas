@@ -7,7 +7,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SecurityEventLogger } from '../../common/security-event/security-event.service';
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { withTenantContext } from '../../common/utils/tenant-context';
-import { createRebateRecords } from '../../common/utils/debt-rebate';
 import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import {
   CreateDebtDto,
@@ -91,36 +90,6 @@ export class DebtsService {
       throw new BadRequestException('Ürün kayıtları için en az bir ürün satırı zorunludur');
     }
 
-    // Ciro primi/firma geri ödemesi: rebateAmount/rebateType BİRLİKTE
-    // gönderilmeli, ve yalnızca PAYABLE/CASH borçlarda anlamlı — bu, işletmenin
-    // BİR TEDARİKÇİYE olan nakit borcuna karşılık gelen tek senaryo (aksi halde
-    // "netleme" kavramının hiçbir karşılığı yok: RECEIVABLE bir borca ciro
-    // primi uygulamak, ya da PRODUCT tipi bir borca nakit mahsup uygulamak
-    // anlamsız). Sessizce yok saymak yerine (kullanıcının açıkça girdiği bir
-    // veriyi fark ettirmeden atmak createDebt'in geri kalanındaki "zorunlu
-    // alan" felsefesiyle çelişir) — burada da diğer alan kontrolleriyle AYNI
-    // desende (BadRequestException) reddediyoruz.
-    if ((dto.rebateAmount != null) !== (dto.rebateType != null)) {
-      throw new BadRequestException(
-        'Ciro primi/geri ödeme için hem tutar hem tür birlikte gönderilmelidir',
-      );
-    }
-    if (dto.rebateAmount != null && (dto.direction !== 'PAYABLE' || dto.debtType !== 'CASH')) {
-      throw new BadRequestException(
-        'Ciro primi/geri ödeme yalnızca işletmenin tedarikçiye olan nakit (PAYABLE/CASH) borcunda uygulanabilir',
-      );
-    }
-    // Aşırı mahsup: rebateAmount, borcun toplam tutarını aşamaz (recordCashPayment'
-    // taki "Ödeme tutarı kalan borçtan fazla olamaz" ile AYNI karar — burada da
-    // negatif remainingAmount'a sessizce izin vermek yerine reddediyoruz).
-    if (
-      dto.rebateAmount != null &&
-      dto.amount != null &&
-      dto.rebateAmount - dto.amount > AMOUNT_TOLERANCE
-    ) {
-      throw new BadRequestException('Ciro primi/geri ödeme tutarı, borç tutarından fazla olamaz');
-    }
-
     return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       this.assertAllowed(user);
 
@@ -149,12 +118,7 @@ export class DebtsService {
           .join(', ');
       }
 
-      const rebateAmount = dto.rebateAmount ?? 0;
-      const cashAmount = dto.debtType === 'CASH' ? (dto.amount ?? 0) : null;
-      const remaining = cashAmount != null ? Math.max(0, cashAmount - rebateAmount) : null;
-      const fullyClearedAtCreation = remaining != null && remaining <= AMOUNT_TOLERANCE;
-
-      const debt = await tx.debt.create({
+      return tx.debt.create({
         data: {
           tenantId: user.tenantId,
           branchId,
@@ -163,10 +127,7 @@ export class DebtsService {
           debtType: dto.debtType,
           source: 'MANUAL',
           amount: dto.debtType === 'CASH' ? dto.amount : null,
-          remainingAmount: remaining,
-          category: rebateAmount > 0 ? dto.rebateType : null,
-          status: rebateAmount > 0 && fullyClearedAtCreation ? 'PAID' : 'OPEN',
-          paidAt: rebateAmount > 0 && fullyClearedAtCreation ? new Date() : null,
+          remainingAmount: dto.debtType === 'CASH' ? dto.amount : null,
           productDescription,
           productLines: productLines ?? undefined,
           dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
@@ -175,23 +136,6 @@ export class DebtsService {
         },
         include: { supplier: { select: { id: true, name: true } } },
       });
-
-      // Ciro primi/firma geri ödemesi: aynı transaction içinde bu PAYABLE
-      // borcun ödeme geçmişine bir DebtPayment yazar (manuel test sonrası
-      // karar: ayrı bir RECEIVABLE borç ARTIK oluşturulmuyor — görünürlük
-      // tamamen bu PAYABLE borcun category alanı + bu ödeme satırında) — OCR
-      // akışıyla (ocr.service.ts confirmScan) AYNI paylaşılan yardımcı
-      // (createRebateRecords).
-      if (rebateAmount > 0 && dto.rebateType) {
-        await createRebateRecords(tx, {
-          payableDebtId: debt.id,
-          rebateAmount,
-          rebateType: dto.rebateType,
-          userId: user.userId,
-        });
-      }
-
-      return debt;
     });
   }
 

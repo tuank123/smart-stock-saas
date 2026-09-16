@@ -1049,8 +1049,6 @@ export function useCreateDebt() {
       productLines?: Array<{ productId: string; quantity: number }>;
       dueDate?: string;
       notes?: string;
-      rebateAmount?: number;
-      rebateType?: 'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI';
     }) => api.post(`/debts/${branchId}`, dto).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['debts'] });
