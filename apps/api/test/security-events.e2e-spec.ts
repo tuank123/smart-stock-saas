@@ -75,6 +75,34 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
     return eventType ? items.filter((i) => i.context?.eventType === eventType) : items;
   }
 
+  // SecurityEventLogger.log() BİLEREK fire-and-forget'tir (production
+  // davranışı — bkz. security-event.service.ts doc yorumu: "request akışını
+  // ASLA bloklamaz"). Bu yüzden tetikleyen isteğin yanıtı döndüğü anda
+  // ErrorLog satırının commit edilmiş olacağının garantisi yok — yerelde
+  // (düşük gecikmeli loopback Postgres) bu yarış neredeyse hiç kaybedilmez,
+  // ama CI'nin konteyner ağı üzerindeki daha yüksek/değişken gecikme
+  // altında ara sıra kaybedilir (bkz. 2026-09-16 CI koşusu: aynı dosya bir
+  // önceki koşuda değişikliksiz geçmişti). Düzeltme PRODUCTION kodunu değil,
+  // yalnızca bu testin OKUMA tarafını değiştiriyor: beklenen olayı bulana
+  // kadar kısa aralıklarla birkaç kez tekrar dener. Başarı durumunda (yazım
+  // zaten tamamlanmışsa) ek gecikme ~0'dır — yalnızca en kötü senaryoda
+  // ~600ms'ye kadar çıkar.
+  async function waitForSecurityEvent(
+    eventType: string,
+    predicate: (e: SecurityEventItem) => boolean,
+    { attempts = 5, delayMs = 150 }: { attempts?: number; delayMs?: number } = {},
+  ): Promise<SecurityEventItem[]> {
+    let events: SecurityEventItem[] = [];
+    for (let i = 0; i < attempts; i++) {
+      events = await listSecurityEvents(eventType);
+      if (events.some(predicate)) return events;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+    return events;
+  }
+
   // ── (a) Başarısız login ────────────────────────────────────────────────
 
   it('POST /auth/login — başarısız denemeden sonra SECURITY_EVENT (LOGIN_FAILED) kaydı oluşur', async () => {
@@ -102,7 +130,10 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
       .set('X-Agent-Key', 'uydurma-anahtar-' + uniqueSuffix())
       .expect(401);
 
-    const events = await listSecurityEvents('INVALID_AGENT_KEY');
+    const events = await waitForSecurityEvent(
+      'INVALID_AGENT_KEY',
+      (e) => e.context?.agentId === fakeAgentId,
+    );
     expect(events.some((e) => e.context?.agentId === fakeAgentId)).toBe(true);
   });
 
@@ -223,7 +254,10 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
         .set('Authorization', subeAuthHeader1)
         .expect(404);
 
-      const events = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
+      const events = await waitForSecurityEvent(
+        'CROSS_TENANT_ACCESS_ATTEMPT',
+        (e) => e.context?.resourceId === foreignOrderId,
+      );
       const match = events.find((e) => e.context?.resourceId === foreignOrderId);
       expect(match).toBeDefined();
       expect(match!.context?.resourceType).toBe('PurchaseOrder');
@@ -276,7 +310,10 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
         .send({ notes: 'Ele geçirme denemesi' })
         .expect(404);
 
-      const events = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
+      const events = await waitForSecurityEvent(
+        'CROSS_TENANT_ACCESS_ATTEMPT',
+        (e) => e.context?.resourceId === foreignDebtId,
+      );
       const match = events.find((e) => e.context?.resourceId === foreignDebtId);
       expect(match).toBeDefined();
       expect(match!.context?.resourceType).toBe('Debt');
@@ -315,7 +352,10 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
         .set('Authorization', `Bearer ${ctx1.accessToken}`)
         .expect(404);
 
-      const events = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
+      const events = await waitForSecurityEvent(
+        'CROSS_TENANT_ACCESS_ATTEMPT',
+        (e) => e.context?.resourceId === foreignStockLevelId,
+      );
       const match = events.find((e) => e.context?.resourceId === foreignStockLevelId);
       expect(match).toBeDefined();
       expect(match!.context?.resourceType).toBe('StockLevel');
