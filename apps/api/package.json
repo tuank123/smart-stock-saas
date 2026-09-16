@@ -13,7 +13,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
-    "test:e2e": "jest --config ./jest-e2e.json --runInBand",
+    "test:e2e": "jest --config ./jest-e2e.json --runInBand --detectOpenHandles --forceExit",
     "type-check": "tsc --noEmit",
     "create-super-admin": "ts-node src/scripts/create-super-admin.ts",
     "seed:sample-errors": "ts-node src/scripts/seed-sample-errors.ts",
