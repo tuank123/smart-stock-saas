@@ -504,7 +504,10 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
       expect(foreignProductAfter.body.salePrice).toBeNull();
 
       // (3) Yabancı kalem için CROSS_TENANT_ACCESS_ATTEMPT loglandı.
-      const afterCrossTenant = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
+      const afterCrossTenant = await waitForSecurityEvent(
+        'CROSS_TENANT_ACCESS_ATTEMPT',
+        (e) => e.context?.resourceId === foreignProductId,
+      );
       const match = afterCrossTenant.find((e) => e.context?.resourceId === foreignProductId);
       expect(match).toBeDefined();
       expect(match!.context?.resourceType).toBe('Product');
