@@ -7,11 +7,9 @@ import { StationPageHeader } from '@/components/layout/StationPageHeader';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   useDebts,
-  useRecordCashPayment,
   useRecordProductReceipt,
   type Debt,
 } from '@/hooks/useMudur';
@@ -43,23 +41,11 @@ function paymentTypeLabel(type?: string): string | null {
 // ── CASH detayı ────────────────────────────────────────────────────────────────
 
 function CashDetail({ debt }: { debt: Debt }) {
-  const recordCash = useRecordCashPayment();
-  const [amount, setAmount] = useState('');
-
   const remaining = debt.remainingAmount ?? debt.amount;
-  const remainingNum = remaining != null ? Number(remaining) : 0;
   const showTotal =
     debt.remainingAmount != null &&
     debt.amount != null &&
     debt.remainingAmount !== debt.amount;
-
-  const enteredNum = Number(amount.replace(',', '.'));
-  const overpay = !!amount.trim() && enteredNum > remainingNum;
-
-  function handlePay() {
-    if (!enteredNum || enteredNum <= 0) return;
-    recordCash.mutate({ id: debt.id, amount: enteredNum }, { onSuccess: () => setAmount('') });
-  }
 
   // En yeni en üstte olacak şekilde ödeme geçmişi.
   const paymentsDesc = [...(debt.payments ?? [])].reverse();
@@ -97,35 +83,10 @@ function CashDetail({ debt }: { debt: Debt }) {
         )}
       </div>
 
-      {debt.status === 'PAID' ? (
+      {debt.status === 'PAID' && (
         <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-3 text-sm text-green-800">
           <CheckCircle className="h-4 w-4 shrink-0" />
           Bu borç ödendi.
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <Label htmlFor="pay-amount">Yapılacak Ödeme Tutarı (₺)</Label>
-          <Input
-            id="pay-amount"
-            type="text"
-            inputMode="decimal"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0,00"
-          />
-          {overpay && (
-            <p className="flex items-center gap-1.5 text-xs text-amber-600">
-              <AlertTriangle className="h-3 w-3 shrink-0" />
-              Girilen tutar kalan borçtan fazla — kalan sıfırlanacak.
-            </p>
-          )}
-          <Button
-            className="h-11 w-full"
-            disabled={recordCash.isPending || !amount.trim()}
-            onClick={handlePay}
-          >
-            {recordCash.isPending ? 'Kaydediliyor…' : 'Ödemeyi Kaydet'}
-          </Button>
         </div>
       )}
     </div>

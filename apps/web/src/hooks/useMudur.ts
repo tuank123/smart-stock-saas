@@ -733,8 +733,6 @@ export function useOcrConfirm() {
       supplierId: string;
       invoiceTotal?: number;
       paidAmount?: number;
-      rebateAmount?: number;
-      rebateType?: 'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI';
       allItemsReceived: boolean;
       deliveredLines?: Array<{ productId: string; receivedQty: number }>;
     }) =>
@@ -744,8 +742,6 @@ export function useOcrConfirm() {
           supplierId: vars.supplierId,
           invoiceTotal: vars.invoiceTotal,
           paidAmount: vars.paidAmount,
-          rebateAmount: vars.rebateAmount,
-          rebateType: vars.rebateType,
           allItemsReceived: vars.allItemsReceived,
           deliveredLines: vars.deliveredLines,
         })
@@ -1058,19 +1054,6 @@ export function useCreateDebt() {
   });
 }
 
-export function useRecordCashPayment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { id: string; amount: number }) =>
-      api.patch(`/debts/${vars.id}/cash-payment`, { amount: vars.amount }).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['debts'] });
-      toast.success('Ödeme kaydedildi');
-    },
-    onError: () => toast.error('Ödeme kaydedilemedi'),
-  });
-}
-
 export function useRecordProductReceipt() {
   const { user } = useAuthStore();
   const branchId = user?.branchId ?? '';
@@ -1110,6 +1093,61 @@ export function useDebtReminders() {
       api.get<DebtReminders>(`/debts/${branchId}/reminders`).then((r) => r.data),
     enabled: !!branchId,
     staleTime: 30 * 1000,
+  });
+}
+
+// ── Tedarikçi bakiyesi (Supplier Ledger) ──────────────────────────────────────
+
+export interface SupplierLedgerEntryItem {
+  id: string;
+  type: 'INVOICE' | 'PAYMENT' | 'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI' | 'IADE_FATURASI';
+  amount: string;
+  sourceDebtId: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface SupplierLedgerMonth {
+  year: number;
+  month: number;
+  invoiceTotal: number;
+  paymentTotal: number;
+  rebateTotal: number;
+  returnTotal: number;
+}
+
+export interface SupplierLedger {
+  supplierId: string;
+  supplierName: string;
+  balance: number;
+  recentEntries: SupplierLedgerEntryItem[];
+  recentRebates: SupplierLedgerEntryItem[];
+  recentReturns: SupplierLedgerEntryItem[];
+  monthlyBreakdown: SupplierLedgerMonth[];
+}
+
+export function useSupplierLedger(branchId: string, supplierId: string) {
+  return useQuery<SupplierLedger>({
+    queryKey: ['debts', 'ledger', branchId, supplierId],
+    queryFn: () =>
+      api
+        .get<SupplierLedger>(`/debts/${branchId}/suppliers/${supplierId}/ledger`)
+        .then((r) => r.data),
+    enabled: !!branchId && !!supplierId,
+  });
+}
+
+export function useCreateLedgerEntry(branchId: string, supplierId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: { type: 'PAYMENT' | 'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI'; amount: number }) =>
+      api.post(`/debts/${branchId}/suppliers/${supplierId}/ledger`, dto).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['debts', 'ledger', branchId, supplierId] });
+      qc.invalidateQueries({ queryKey: ['debts'] });
+      toast.success('Hareket eklendi');
+    },
+    onError: () => toast.error('Hareket eklenemedi'),
   });
 }
 

@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useDebts, useMarkDebtsViewed, type Debt } from '@/hooks/useMudur';
+import { useAuthStore } from '@/store/auth.store';
 
 type Tab = 'PAYABLE' | 'RECEIVABLE';
 
@@ -143,7 +144,15 @@ function DebtRow({ debt, onClick }: { debt: Debt; onClick: () => void }) {
 
 // ── Tedarikçi/müşteri başına TEK kart — altında tüm faturaları listeler ────────
 
-function SupplierDebtGroupCard({ group, onOpenDebt }: { group: SupplierDebtGroup; onOpenDebt: (debtId: string) => void }) {
+function SupplierDebtGroupCard({
+  group,
+  onOpenDebt,
+  onOpenLedger,
+}: {
+  group: SupplierDebtGroup;
+  onOpenDebt: (debtId: string) => void;
+  onOpenLedger?: (supplierId: string) => void;
+}) {
   const cashTotal = openCashTotal(group.debts);
   const pendingLines = pendingProductLineCount(group.debts);
 
@@ -153,7 +162,19 @@ function SupplierDebtGroupCard({ group, onOpenDebt }: { group: SupplierDebtGroup
         <div>
           <p className="truncate font-semibold">{group.supplierName}</p>
           <div className="mt-0.5 space-y-0.5">
-            {cashTotal > 0 && <p className="text-lg font-bold">Toplam: {fmtAmount(String(cashTotal))}</p>}
+            {cashTotal > 0 && (
+              onOpenLedger ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenLedger(group.supplierId)}
+                  className="text-lg font-bold underline decoration-dotted underline-offset-4"
+                >
+                  Toplam: {fmtAmount(String(cashTotal))}
+                </button>
+              ) : (
+                <p className="text-lg font-bold">Toplam: {fmtAmount(String(cashTotal))}</p>
+              )
+            )}
             {pendingLines > 0 && (
               <p className="text-sm text-muted-foreground">{pendingLines} ürün kalemi bekliyor</p>
             )}
@@ -176,6 +197,7 @@ function SupplierDebtGroupCard({ group, onOpenDebt }: { group: SupplierDebtGroup
 function AlacakVerecekInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user } = useAuthStore();
   const { data: debts, isPending, isError } = useDebts();
   const markViewed = useMarkDebtsViewed();
 
@@ -290,6 +312,14 @@ function AlacakVerecekInner() {
               group={group}
               onOpenDebt={(debtId) =>
                 router.push(`/isletme-app/alacak-verecek/detay?debtId=${debtId}`)
+              }
+              onOpenLedger={
+                tab === 'PAYABLE'
+                  ? (supplierId) =>
+                      router.push(
+                        `/isletme-app/alacak-verecek/tedarikci?supplierId=${supplierId}&branchId=${user?.branchId ?? ''}`,
+                      )
+                  : undefined
               }
             />
           ))}

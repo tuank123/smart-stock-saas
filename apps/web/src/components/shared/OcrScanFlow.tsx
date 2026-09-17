@@ -114,9 +114,6 @@ export function OcrScanFlow() {
   const [supplierId, setSupplierId] = useState('');
   const [invoiceTotal, setInvoiceTotal] = useState('');
   const [paidAmount, setPaidAmount] = useState('');
-  const [hasRebate, setHasRebate] = useState(false);
-  const [rebateAmount, setRebateAmount] = useState('');
-  const [rebateType, setRebateType] = useState<'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI'>('CIRO_PRIMI');
   const [allItemsReceived, setAllItemsReceived] = useState(true);
   // productId → gerçekten teslim alınan miktar (ham metin).
   const [deliveredQuantities, setDeliveredQuantities] = useState<Record<string, string>>({});
@@ -265,12 +262,6 @@ export function OcrScanFlow() {
     const paidAmountNum = paidAmount.trim()
       ? Number(paidAmount.replace(',', '.'))
       : undefined;
-    // hasRebate false iken rebateAmount/rebateType undefined kalmalı (0/boş
-    // string DEĞİL) — backend'in "ikisi de gönderilmeli ya da hiçbiri"
-    // kontrolüne bu özellik yokmuş gibi (byte-for-byte eski davranış)
-    // uymasının tek yolu bu.
-    const rebateAmountNum =
-      hasRebate && rebateAmount.trim() ? Number(rebateAmount.replace(',', '.')) : undefined;
 
     ocrConfirm.mutate(
       {
@@ -283,8 +274,6 @@ export function OcrScanFlow() {
         supplierId,
         invoiceTotal: invoiceTotalNum,
         paidAmount: paidAmountNum,
-        rebateAmount: rebateAmountNum,
-        rebateType: rebateAmountNum != null ? rebateType : undefined,
         allItemsReceived,
         deliveredLines: allItemsReceived
           ? undefined
@@ -676,82 +665,6 @@ export function OcrScanFlow() {
                   </p>
                 )}
 
-                <div className="space-y-1.5">
-                  <Label>Ciro primi / firma geri ödemesi var mı?</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      type="button"
-                      variant={hasRebate ? 'default' : 'outline'}
-                      onClick={() => setHasRebate(true)}
-                    >
-                      Evet
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={!hasRebate ? 'default' : 'outline'}
-                      onClick={() => setHasRebate(false)}
-                    >
-                      Hayır
-                    </Button>
-                  </div>
-                </div>
-
-                {hasRebate && (
-                  <div className="space-y-4 rounded-lg border p-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="ocr-rebate-amount">Ciro Primi / Geri Ödeme Tutarı (₺)</Label>
-                      <Input
-                        id="ocr-rebate-amount"
-                        type="text"
-                        inputMode="decimal"
-                        value={rebateAmount}
-                        onChange={(e) => setRebateAmount(e.target.value)}
-                        placeholder="0,00"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label>Tür</Label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <Button
-                          type="button"
-                          variant={rebateType === 'CIRO_PRIMI' ? 'default' : 'outline'}
-                          onClick={() => setRebateType('CIRO_PRIMI')}
-                        >
-                          Ciro Primi Tahsilatı
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={rebateType === 'FIRMA_GERI_ODEMESI' ? 'default' : 'outline'}
-                          onClick={() => setRebateType('FIRMA_GERI_ODEMESI')}
-                        >
-                          Firma Geri Ödemesi
-                        </Button>
-                      </div>
-                    </div>
-
-                    {(() => {
-                      const totalNum = invoiceTotal.trim()
-                        ? Number(invoiceTotal.replace(',', '.'))
-                        : 0;
-                      const paidNum = paidAmount.trim() ? Number(paidAmount.replace(',', '.')) : 0;
-                      const rebateNum = rebateAmount.trim()
-                        ? Number(rebateAmount.replace(',', '.'))
-                        : 0;
-                      const remainingBeforeRebate = totalNum - paidNum;
-                      // Yalnızca bilgilendirici bir ön-kontrol — asıl güvence
-                      // backend'deki DataIntegrityException'dır (bkz.
-                      // ocr.service.ts confirmScan). Gönderimi ENGELLEMİYOR.
-                      return rebateNum > 0 && rebateNum > remainingBeforeRebate ? (
-                        <p className="flex items-center gap-1.5 text-xs text-amber-600">
-                          <AlertTriangle className="h-3 w-3 shrink-0" />
-                          Girilen tutar, ödenen tutar düşüldükten sonra kalan fatura bakiyesinden
-                          fazla görünüyor.
-                        </p>
-                      ) : null;
-                    })()}
-                  </div>
-                )}
 
                 <div className="space-y-1.5">
                   <Label>Faturadaki tüm ürünler teslim alındı mı?</Label>
