@@ -276,18 +276,31 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     expect(Number(debt.amount)).toBe(20000);
     expect(Number(debt.remainingAmount)).toBe(15000);
 
-    // Tedarikçi bakiyesine kalan (net borçlanılan) tutar kadar bir INVOICE
-    // hareketi düşmeli — bu Debt'e sourceDebtId ile bağlı.
+    // Tedarikçi bakiyesine İKİ AYRI hareket düşmeli — INVOICE fatura tutarının
+    // TAMAMI (20000, net kalan DEĞİL), PAYMENT ise onay anında yapılan ödeme
+    // (5000). Net etki eskisiyle (tek INVOICE=diff) AYNI (20000-5000=15000)
+    // ama artık ledger'da fatura ve ödeme ayrı ayrı iz bırakıyor.
     const ledgerRes = await request(app.getHttpServer())
       .get(`/api/v1/debts/${ctx.branchId}/suppliers/${supplierId}/ledger`)
       .set('Authorization', authHeader)
       .expect(200);
-    const ledgerEntry = ledgerRes.body.recentEntries.find(
+    const entriesForThisDebt = ledgerRes.body.recentEntries.filter(
       (e: { sourceDebtId: string | null }) => e.sourceDebtId === debt.id,
     );
-    expect(ledgerEntry).toBeDefined();
-    expect(ledgerEntry.type).toBe('INVOICE');
-    expect(Number(ledgerEntry.amount)).toBe(15000);
+    expect(entriesForThisDebt).toHaveLength(2);
+
+    const invoiceEntry = entriesForThisDebt.find(
+      (e: { type: string }) => e.type === 'INVOICE',
+    );
+    const paymentEntry = entriesForThisDebt.find(
+      (e: { type: string }) => e.type === 'PAYMENT',
+    );
+    expect(invoiceEntry).toBeDefined();
+    expect(paymentEntry).toBeDefined();
+    expect(Number(invoiceEntry.amount)).toBe(20000);
+    expect(Number(paymentEntry.amount)).toBe(5000);
+    // Net etki (bu Debt'e ait hareketlerin toplamı) eski `diff` ile aynı olmalı.
+    expect(Number(invoiceEntry.amount) - Number(paymentEntry.amount)).toBe(15000);
 
     // Bu Debt hala CASH — ama artık onaylanan fatura satırlarını
     // (ürün adı/miktar/birim) bilgilendirici metadata olarak taşıyor
@@ -339,6 +352,64 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     expect(Number(debt.amount)).toBe(8000);
     // paidAmount=0 → remainingAmount amount'tan etkilenmemeli, ona eşit kalmalı.
     expect(Number(debt.remainingAmount)).toBe(8000);
+  });
+
+  // ── (f-bis) Onay anında TAMAMEN ödenmiş fatura (paidAmount === invoiceTotal) ─
+  //
+  // Düzeltmeden önce: dış `if (diff > 0)` şartı false olduğu için tam
+  // ödenmiş faturalarda HİÇBİR Debt/ledger kaydı oluşmuyordu (borç yoktu
+  // diye "kaydedilecek bir şey yok" varsayılıyordu). Artık invoiceTotal>0
+  // olduğu sürece Debt (status PAID) + INVOICE + PAYMENT hareketleri HER
+  // ZAMAN oluşuyor — net bakiye etkisi 0 ama geçmişte gerçekte ne olduğu
+  // (tam tutarlı fatura + aynı anda tam ödeme) artık ledger'da görünüyor.
+
+  it('POST /ocr/scan/:scanId/confirm — paidAmount === invoiceTotal (tam ödenmiş): Debt PAID + INVOICE/PAYMENT çifti oluşur, net bakiye etkisi 0', async () => {
+    const scan = await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/ocr/scan/${scan.body.scanId}/confirm`)
+      .set('Authorization', authHeader)
+      .send({
+        supplierId,
+        allItemsReceived: true,
+        lines: [{ productId, qty: 1, unit: 'adet' }],
+        invoiceTotal: 3000,
+        paidAmount: 3000,
+      })
+      .expect(200);
+
+    // Eskiden burada debtsCreated boş olurdu — artık her zaman 1 kayıt.
+    expect(res.body.debtsCreated).toHaveLength(1);
+
+    const debtsRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    const debt = debtsRes.body.find(
+      (d: { id: string }) => d.id === res.body.debtsCreated[0],
+    );
+    expect(debt).toBeDefined();
+    expect(debt.status).toBe('PAID');
+    expect(Number(debt.amount)).toBe(3000);
+    expect(Number(debt.remainingAmount)).toBe(0);
+
+    const ledgerRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/${supplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    const entriesForThisDebt = ledgerRes.body.recentEntries.filter(
+      (e: { sourceDebtId: string | null }) => e.sourceDebtId === debt.id,
+    );
+    expect(entriesForThisDebt).toHaveLength(2);
+    const invoiceEntry = entriesForThisDebt.find((e: { type: string }) => e.type === 'INVOICE');
+    const paymentEntry = entriesForThisDebt.find((e: { type: string }) => e.type === 'PAYMENT');
+    expect(Number(invoiceEntry.amount)).toBe(3000);
+    expect(Number(paymentEntry.amount)).toBe(3000);
+    expect(Number(invoiceEntry.amount) - Number(paymentEntry.amount)).toBe(0);
   });
 
   // ── (f-2) paidAmount HİÇ GÖNDERİLMEZSE (undefined) — sessiz veri kaybı ───

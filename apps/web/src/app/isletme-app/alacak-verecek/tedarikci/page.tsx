@@ -207,18 +207,26 @@ function SupplierLedgerInner() {
             )}
           </div>
 
-          {/* 7. Genel hareket geçmişi */}
+          {/* 7. Genel hareket geçmişi — CIRO_PRIMI/FIRMA_GERI_ODEMESI/
+              IADE_FATURASI hariç (bunların kendi bölümleri yukarıda var,
+              hiçbir tür iki bölümde birden görünmemeli). */}
           <div className="space-y-1.5">
             <p className="text-sm font-medium">Hareketler</p>
-            {ledger.recentEntries.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Henüz hareket yok.</p>
-            ) : (
-              <div className="space-y-1">
-                {ledger.recentEntries.map((entry: SupplierLedgerEntryItem) => (
-                  <EntryRow key={entry.id} entry={entry} />
-                ))}
-              </div>
-            )}
+            {(() => {
+              const generalEntries = ledger.recentEntries.filter(
+                (entry: SupplierLedgerEntryItem) =>
+                  entry.type === 'INVOICE' || entry.type === 'PAYMENT',
+              );
+              return generalEntries.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Henüz hareket yok.</p>
+              ) : (
+                <div className="space-y-1">
+                  {generalEntries.map((entry: SupplierLedgerEntryItem) => (
+                    <EntryRow key={entry.id} entry={entry} />
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

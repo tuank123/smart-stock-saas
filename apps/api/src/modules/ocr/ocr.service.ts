@@ -291,7 +291,14 @@ export class OcrService {
         }
 
         const diff = dto.invoiceTotal - paidAmount;
-        if (diff > 0) {
+        // Fatura tutarı > 0 olduğu sürece HER ZAMAN bir Debt + INVOICE
+        // ledger kaydı oluşur — onay anında TAMAMEN ödenmiş olsa bile
+        // (eskiden `diff > 0` şartı bu durumda TÜM bloğu atlıyordu, yani
+        // hem Debt hem de INVOICE hareketi hiç oluşmuyordu). Tam ödenmiş
+        // senaryoda bakiye yine de doğru (INVOICE + eşit PAYMENT = net 0),
+        // ama artık geçmişte GERÇEKTEN neyin olduğu (tam tutarlı fatura +
+        // aynı anda yapılan ödeme) ledger'da iz bırakıyor.
+        if (dto.invoiceTotal > 0) {
           // Ürün adlarını çekip productLines dizisini kur — bu CASH borcun
           // amount/remainingAmount semantiğini DEĞİŞTİRMEZ, yalnızca fatura
           // detay ekranında "hangi ürün, ne kadar" gösterebilmek için
@@ -323,11 +330,13 @@ export class OcrService {
               source: 'OCR',
               // amount = faturanın TAM/ham tutarı — kısmi ödemeden ASLA etkilenmez.
               amount: dto.invoiceTotal,
-              // remainingAmount = amount - paidAmount (paidAmount 0 ise = amount).
+              // remainingAmount = amount - paidAmount (paidAmount 0 ise = amount;
+              // onay anında tam ödendiyse 0).
               remainingAmount: diff,
               productDescription: confirmedProductDescription,
               productLines: confirmedProductLines,
-              status: 'OPEN',
+              status: diff > 0 ? 'OPEN' : 'PAID',
+              ...(diff > 0 ? {} : { paidAt: new Date() }),
               createdBy: user.userId,
               notes: 'Fatura onayı sırasında otomatik oluşturuldu',
             },
@@ -350,23 +359,38 @@ export class OcrService {
             });
           }
 
-          // Tedarikçi bakiyesine, kalan (net borçlanılan) tutar kadar bir
-          // INVOICE hareketi işlenir — bu bloğa yalnızca diff>0 iken girildiği
-          // için (dıştaki `if (diff > 0)`) burada her zaman pozitif bir kalan
-          // vardır; tamamen ödenmiş (diff<=0) senaryoda bu blok hiç çalışmaz,
-          // dolayısıyla borçlanılacak hiçbir şey olmadığından ledger'a
-          // hiçbir şey yazılmaz.
+          // Tedarikçi bakiyesine fatura tutarının TAMAMI kadar bir INVOICE
+          // hareketi işlenir (net kalan değil — geçmişin doğru olması için
+          // fatura her zaman brüt tutarıyla görünmeli). Onay anında bir
+          // ödeme de yapıldıysa (paidAmount>0), bu AYRI bir PAYMENT hareketi
+          // olarak eklenir — ikisinin net etkisi eskiden tek satırla
+          // yazılan `diff` ile AYNI (invoiceTotal - paidAmount), ama artık
+          // ledger'da fatura ve ödeme ayrı ayrı görünüyor.
           await tx.supplierLedgerEntry.create({
             data: {
               tenantId: user.tenantId,
               branchId: scan.branchId,
               supplierId: dto.supplierId,
               type: 'INVOICE',
-              amount: diff,
+              amount: dto.invoiceTotal,
               sourceDebtId: cashDebt.id,
               createdBy: user.userId,
             },
           });
+
+          if (paidAmount > 0) {
+            await tx.supplierLedgerEntry.create({
+              data: {
+                tenantId: user.tenantId,
+                branchId: scan.branchId,
+                supplierId: dto.supplierId,
+                type: 'PAYMENT',
+                amount: paidAmount,
+                sourceDebtId: cashDebt.id,
+                createdBy: user.userId,
+              },
+            });
+          }
         }
       }
 
