@@ -248,6 +248,72 @@ describe('Debts / Alacak Verecek (e2e)', () => {
     expect(currentMonthEntry.returnTotal).toBe(0);
   });
 
+  it('GET /debts/:branchId/suppliers/ledger-balances — birden çok tedarikçi için toplu bakiyeler, tek tek GET .../ledger ile eşleşir', async () => {
+    // ledgerSupplierId (yukarıdaki testlerden): INVOICE 1000, PAYMENT 400,
+    // CIRO_PRIMI 100 → bakiye 500.
+    const supplierRes = await request(app.getHttpServer())
+      .post('/api/v1/suppliers')
+      .set('Authorization', authHeader)
+      .send({ name: `E2E Toplu Bakiye Tedarikçi ${uniqueSuffix()}`, whatsappNumber: '+905551112266' })
+      .expect(201);
+    const bulkSupplierId = supplierRes.body.id;
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .send({ supplierId: bulkSupplierId, direction: 'PAYABLE', debtType: 'CASH', amount: 2000 })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}/suppliers/${bulkSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .send({ type: 'PAYMENT', amount: 300 })
+      .expect(201);
+
+    const balancesRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/ledger-balances`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    const balanceByLedgerSupplier = balancesRes.body.find(
+      (b: { supplierId: string }) => b.supplierId === ledgerSupplierId,
+    );
+    const balanceByBulkSupplier = balancesRes.body.find(
+      (b: { supplierId: string }) => b.supplierId === bulkSupplierId,
+    );
+    expect(balanceByLedgerSupplier).toBeDefined();
+    expect(balanceByBulkSupplier).toBeDefined();
+    expect(Number(balanceByLedgerSupplier.balance)).toBe(500);
+    expect(Number(balanceByBulkSupplier.balance)).toBe(1700);
+
+    // Tek tek GET .../ledger ile birebir eşleşmeli.
+    const individualLedgerRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/${ledgerSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    const individualBulkRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/${bulkSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(Number(balanceByLedgerSupplier.balance)).toBe(Number(individualLedgerRes.body.balance));
+    expect(Number(balanceByBulkSupplier.balance)).toBe(Number(individualBulkRes.body.balance));
+
+    // Hiç SupplierLedgerEntry'si olmayan bir tedarikçi listede yer almamalı.
+    const noEntrySupplierRes = await request(app.getHttpServer())
+      .post('/api/v1/suppliers')
+      .set('Authorization', authHeader)
+      .send({ name: `E2E Hareketsiz Tedarikçi ${uniqueSuffix()}`, whatsappNumber: '+905551112277' })
+      .expect(201);
+    const noEntrySupplierId = noEntrySupplierRes.body.id;
+    const balancesRes2 = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/ledger-balances`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(
+      balancesRes2.body.some((b: { supplierId: string }) => b.supplierId === noEntrySupplierId),
+    ).toBe(false);
+  });
+
   // ── (d) Ürün borcu oluşturma ─────────────────────────────────────────────
 
   let productDebtId: string;

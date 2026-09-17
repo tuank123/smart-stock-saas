@@ -40,6 +40,16 @@ export class DebtsController {
     return this.service.getReminders(branchId, user);
   }
 
+  // Statik ikinci segmentli route'lar `:supplierId`'den önce tanımlanır.
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
+  @Get(':branchId/suppliers/ledger-balances')
+  getSupplierLedgerBalances(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @CurrentUser() user: DebtUser,
+  ) {
+    return this.service.getSupplierLedgerBalances(branchId, user);
+  }
+
   @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Get(':branchId/suppliers/:supplierId/ledger')
   getSupplierLedger(

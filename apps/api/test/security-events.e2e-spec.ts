@@ -518,8 +518,22 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
       expect(afterCrossTenant.some((e) => e.context?.resourceId === nonExistentProductId)).toBe(
         false,
       );
-      // Toplam sayı da yalnızca 1 arttı (yabancı ürün), var-olmayan için değil.
-      expect(afterCrossTenant.length).toBe(beforeCrossTenant.length + 1);
+      // Toplam sayı da yalnızca 1 arttı — ama beforeCrossTenant.length/
+      // afterCrossTenant.length GLOBAL sayaçlar (listSecurityEvents hiçbir
+      // tenant'a göre filtrelemiyor, bkz. yukarısı), diğer e2e dosyalarının
+      // fire-and-forget SecurityEventLogger.log() yazımları bu sayıyı test
+      // sırasında öngörülemeyen şekilde değiştirebilir (flaky — bkz. görev
+      // notları). Bunun yerine yalnızca BU testin foreignProductId'sine ait
+      // kayıtları sayıyoruz — foreignProductId benzersiz olduğu için başka
+      // hiçbir suite bu ID için event üretemez, dolayısıyla global gürültüden
+      // bağışık.
+      const beforeForeignCount = beforeCrossTenant.filter(
+        (e) => e.context?.resourceId === foreignProductId,
+      ).length;
+      const afterForeignCount = afterCrossTenant.filter(
+        (e) => e.context?.resourceId === foreignProductId,
+      ).length;
+      expect(afterForeignCount).toBe(beforeForeignCount + 1);
     });
   });
 });

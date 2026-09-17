@@ -1126,6 +1126,24 @@ export interface SupplierLedger {
   monthlyBreakdown: SupplierLedgerMonth[];
 }
 
+export interface SupplierLedgerBalance {
+  supplierId: string;
+  balance: number;
+}
+
+// Tüm tedarikçilerin bakiyesini tek çağrıda döner (bkz. Verecekler
+// sekmesindeki tedarikçi kartı başlığı) — N+1 GET .../ledger'dan kaçınır.
+export function useSupplierLedgerBalances(branchId: string) {
+  return useQuery<SupplierLedgerBalance[]>({
+    queryKey: ['debts', 'ledger-balances', branchId],
+    queryFn: () =>
+      api
+        .get<SupplierLedgerBalance[]>(`/debts/${branchId}/suppliers/ledger-balances`)
+        .then((r) => r.data),
+    enabled: !!branchId,
+  });
+}
+
 export function useSupplierLedger(branchId: string, supplierId: string) {
   return useQuery<SupplierLedger>({
     queryKey: ['debts', 'ledger', branchId, supplierId],

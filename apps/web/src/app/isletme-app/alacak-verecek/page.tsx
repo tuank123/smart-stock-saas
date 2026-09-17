@@ -10,7 +10,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useDebts, useMarkDebtsViewed, type Debt } from '@/hooks/useMudur';
+import {
+  useDebts,
+  useMarkDebtsViewed,
+  useSupplierLedgerBalances,
+  type Debt,
+  type SupplierLedgerBalance,
+} from '@/hooks/useMudur';
 import { useAuthStore } from '@/store/auth.store';
 
 type Tab = 'PAYABLE' | 'RECEIVABLE';
@@ -51,11 +57,6 @@ function pendingProductLineCount(debts: Debt[]): number {
 // ── Grup içindeki tek bir fatura/borç satırı ───────────────────────────────────
 
 function DebtRow({ debt, onClick }: { debt: Debt; onClick: () => void }) {
-  // CASH: kalan tutar (varsa), yoksa orijinal amount.
-  const remaining = debt.remainingAmount ?? debt.amount;
-  const showTotal =
-    debt.remainingAmount != null && debt.amount != null && debt.remainingAmount !== debt.amount;
-
   return (
     <div
       role="button"
@@ -67,14 +68,9 @@ function DebtRow({ debt, onClick }: { debt: Debt; onClick: () => void }) {
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{fmtDate(debt.createdAt)}</p>
           {debt.debtType === 'CASH' ? (
-            <>
-              <p className="text-lg font-bold">
-                {remaining != null ? fmtAmount(remaining) : '—'}
-              </p>
-              {showTotal && debt.amount != null && (
-                <p className="text-xs text-muted-foreground">Toplam: {fmtAmount(debt.amount)}</p>
-              )}
-            </>
+            <p className="text-lg font-bold">
+              {debt.amount != null ? fmtAmount(debt.amount) : '—'}
+            </p>
           ) : (
             <>
               <p className="text-sm">{debt.productDescription ?? '—'}</p>
@@ -148,13 +144,28 @@ function SupplierDebtGroupCard({
   group,
   onOpenDebt,
   onOpenLedger,
+  ledgerBalance,
+  ledgerBalanceLoading,
 }: {
   group: SupplierDebtGroup;
   onOpenDebt: (debtId: string) => void;
+  // Yalnızca PAYABLE/Verecekler sekmesinde geçirilir — bu geçirilmişse
+  // başlıktaki tutar artık openCashTotal() değil, gerçek tedarikçi bakiyesi
+  // (ledgerBalance) ile gösterilir. Alacaklar sekmesi bunu HİÇ geçirmez —
+  // orada eski openCashTotal() mantığı DEĞİŞMEDEN kalır.
   onOpenLedger?: (supplierId: string) => void;
+  ledgerBalance?: number;
+  ledgerBalanceLoading?: boolean;
 }) {
   const cashTotal = openCashTotal(group.debts);
   const pendingLines = pendingProductLineCount(group.debts);
+  const useLedgerBalance = !!onOpenLedger;
+  const displayBalance = ledgerBalance ?? 0;
+  // "Açık kaydı yok" ne zaman gösterilir: PAYABLE'da yalnızca bakiye
+  // yüklendikten SONRA ve sıfırsa; Alacaklar'da (openCashTotal) DEĞİŞMEDEN.
+  const noOpenCash = useLedgerBalance
+    ? !ledgerBalanceLoading && displayBalance === 0
+    : cashTotal === 0;
 
   return (
     <Card>
@@ -162,23 +173,32 @@ function SupplierDebtGroupCard({
         <div>
           <p className="truncate font-semibold">{group.supplierName}</p>
           <div className="mt-0.5 space-y-0.5">
-            {cashTotal > 0 && (
-              onOpenLedger ? (
-                <button
-                  type="button"
-                  onClick={() => onOpenLedger(group.supplierId)}
-                  className="text-lg font-bold underline decoration-dotted underline-offset-4"
-                >
-                  Toplam: {fmtAmount(String(cashTotal))}
-                </button>
+            {useLedgerBalance ? (
+              ledgerBalanceLoading ? (
+                <Skeleton className="h-6 w-32" />
               ) : (
+                displayBalance !== 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenLedger!(group.supplierId)}
+                    className={`text-lg font-bold underline decoration-dotted underline-offset-4 ${
+                      displayBalance < 0 ? 'text-red-600' : ''
+                    }`}
+                  >
+                    Toplam: {displayBalance < 0 ? '-' : ''}
+                    {fmtAmount(String(Math.abs(displayBalance)))}
+                  </button>
+                )
+              )
+            ) : (
+              cashTotal > 0 && (
                 <p className="text-lg font-bold">Toplam: {fmtAmount(String(cashTotal))}</p>
               )
             )}
             {pendingLines > 0 && (
               <p className="text-sm text-muted-foreground">{pendingLines} ürün kalemi bekliyor</p>
             )}
-            {cashTotal === 0 && pendingLines === 0 && (
+            {noOpenCash && pendingLines === 0 && (
               <p className="text-sm text-muted-foreground">Açık kaydı yok</p>
             )}
           </div>
@@ -200,6 +220,21 @@ function AlacakVerecekInner() {
   const { user } = useAuthStore();
   const { data: debts, isPending, isError } = useDebts();
   const markViewed = useMarkDebtsViewed();
+  // Yalnızca Verecekler/PAYABLE sekmesindeki kart başlıklarında kullanılır
+  // (bkz. SupplierDebtGroupCard) — Alacaklar sekmesi bunu hiç kullanmaz.
+  const { data: ledgerBalances, isPending: ledgerBalancesPending } = useSupplierLedgerBalances(
+    user?.branchId ?? '',
+  );
+  const ledgerBalanceBySupplier = useMemo(
+    () =>
+      new Map<string, number>(
+        (ledgerBalances ?? []).map((b: SupplierLedgerBalance): [string, number] => [
+          b.supplierId,
+          b.balance,
+        ]),
+      ),
+    [ledgerBalances],
+  );
 
   // Aktif sekme URL query param'ıyla senkron (?tab=PAYABLE | RECEIVABLE).
   const initialTab: Tab = searchParams.get('tab') === 'RECEIVABLE' ? 'RECEIVABLE' : 'PAYABLE';
@@ -321,6 +356,10 @@ function AlacakVerecekInner() {
                       )
                   : undefined
               }
+              ledgerBalance={
+                tab === 'PAYABLE' ? ledgerBalanceBySupplier.get(group.supplierId) : undefined
+              }
+              ledgerBalanceLoading={tab === 'PAYABLE' ? ledgerBalancesPending : undefined}
             />
           ))}
         </div>

@@ -488,6 +488,39 @@ export class DebtsService {
     });
   }
 
+  // Tüm tedarikçilerin bakiyesini TEK sorguda döner (N+1'den kaçınmak için
+  // getSupplierLedger'ı tedarikçi başına çağırmak yerine groupBy kullanır).
+  // Bakiye işareti kuralı getSupplierLedger ile BİREBİR AYNI: INVOICE
+  // bakiyeyi artırır, diğer her şey (PAYMENT/CIRO_PRIMI/FIRMA_GERI_ODEMESI/
+  // IADE_FATURASI) azaltır. Yalnızca en az bir SupplierLedgerEntry'si olan
+  // tedarikçiler döner (hiç hareketi olmayan tedarikçi için satır yok).
+  async getSupplierLedgerBalances(branchId: string, user: DebtUser) {
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
+      this.assertAllowed(user);
+
+      const grouped = await tx.supplierLedgerEntry.groupBy({
+        by: ['supplierId', 'type'],
+        where: { tenantId: user.tenantId, branchId },
+        _sum: { amount: true },
+      });
+
+      const balanceBySupplier = new Map<string, number>();
+      for (const g of grouped) {
+        const sum = Number(g._sum.amount ?? 0);
+        const signed = g.type === 'INVOICE' ? sum : -sum;
+        balanceBySupplier.set(
+          g.supplierId,
+          (balanceBySupplier.get(g.supplierId) ?? 0) + signed,
+        );
+      }
+
+      return Array.from(balanceBySupplier.entries()).map(([supplierId, balance]) => ({
+        supplierId,
+        balance: this.round2(balance),
+      }));
+    });
+  }
+
   // Tedarikçi bakiyesine elle yeni bir hareket ekler (gerçek ödeme, ciro
   // primi ya da firma geri ödemesi). Üst sınır kontrolü BİLEREK yok —
   // negatif bakiye açıkça izin verilen, beklenen bir senaryo (görev
