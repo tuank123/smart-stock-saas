@@ -11,7 +11,6 @@ import { SecurityEventLogger } from '../../common/security-event/security-event.
 import { assertTenantOwnership } from '../../common/utils/assert-tenant-ownership';
 import { withTenantContext } from '../../common/utils/tenant-context';
 import { findBestFuzzyMatch } from '../../common/utils/fuzzyMatch';
-import { createRebateRecords } from '../../common/utils/debt-rebate';
 import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import { ConfirmReturnDto, ConfirmScanDto, ScanDto, ScanQueryDto } from './dto/ocr.dto';
 
@@ -175,22 +174,6 @@ export class OcrService {
         );
       }
 
-      // Ciro primi/firma geri ödemesi: rebateAmount/rebateType BİRLİKTE
-      // gönderilmeli (bu dosyada custom class-validator decorator kullanılmıyor,
-      // debtType/productLines'daki "zorunlu alan" kontrolleri de aynı şekilde
-      // serviste yapılıyor) ve netlenecek bir fatura tutarı olmadan (invoiceTotal
-      // yoksa) anlamsız.
-      if ((dto.rebateAmount != null) !== (dto.rebateType != null)) {
-        throw new BadRequestException(
-          'Ciro primi/geri ödeme için hem tutar hem tür birlikte gönderilmelidir',
-        );
-      }
-      if (dto.rebateAmount != null && dto.invoiceTotal == null) {
-        throw new BadRequestException(
-          'Ciro primi/geri ödeme yalnızca bir fatura tutarı girildiğinde uygulanabilir',
-        );
-      }
-
       const scan = await tx.ocrScan.findUnique({
         where: { id: scanId },
         select: { id: true, tenantId: true, status: true, branchId: true },
@@ -278,52 +261,37 @@ export class OcrService {
       // bile hiçbir borç kaydı oluşmuyordu (sessiz veri kaybı).
       if (dto.invoiceTotal != null) {
         const paidAmount = dto.paidAmount ?? 0;
-        const rebateAmount = dto.rebateAmount ?? 0;
 
-        // ── Bütünlük kontrolü: ödenen tutar + ciro primi/geri ödeme, onaylanan
-        // fatura tutarını aşamaz. Aşarsa `diff < 0` olur ve aşağıdaki
-        // `if (diff > 0)` bloğu sessizce atlanır — yani fazladan ödeme/mahsup
-        // HİÇBİR borç/kayıt oluşturmadan sessizce kaybolurdu. Bu, kullanıcının
-        // paidAmount/rebateAmount'ta yaptığı bir veri girişi hatasının (ör.
-        // rakam kayması) fark edilmeden yutulmasıdır — recordSale/
-        // recordWaste'teki "sessiz tutarsızlık" ile aynı sınıf hata, aynı
-        // desenle ele alınır (bilerek DataIntegrityException — recordCashPayment'
-        // taki gibi ayrı bir BadRequestException DEĞİL, çünkü bu kontrol zaten
-        // var olan paidAmount kontrolünün doğal bir genişletmesi).
-        if (paidAmount + rebateAmount - dto.invoiceTotal > AMOUNT_TOLERANCE) {
+        // ── Bütünlük kontrolü: ödenen tutar, onaylanan fatura tutarını
+        // aşamaz. Aşarsa `diff < 0` olur ve aşağıdaki `if (diff > 0)` bloğu
+        // sessizce atlanır — yani fazladan ödeme HİÇBİR borç/kayıt
+        // oluşturmadan sessizce kaybolurdu. Bu, kullanıcının paidAmount'ta
+        // yaptığı bir veri girişi hatasının (ör. rakam kayması) fark
+        // edilmeden yutulmasıdır — recordSale/recordWaste'teki "sessiz
+        // tutarsızlık" ile aynı sınıf hata, aynı desenle ele alınır.
+        if (paidAmount - dto.invoiceTotal > AMOUNT_TOLERANCE) {
           await this.prisma.errorLog
             .create({
               data: {
                 source: 'DATA_INTEGRITY',
                 severity: 'ERROR',
-                message: 'OCR fatura onayı: ödenen tutar + ciro primi fatura tutarını aşıyor',
+                message: 'OCR fatura onayı: ödenen tutar fatura tutarını aşıyor',
                 tenantId: user.tenantId,
                 branchId: scan.branchId,
                 context: {
                   scanId,
                   invoiceTotal: dto.invoiceTotal,
                   paidAmount,
-                  rebateAmount,
                 },
               },
             })
             .catch(() => undefined);
 
-          throw new DataIntegrityException('paid amount plus rebate exceeds invoice total');
+          throw new DataIntegrityException('paid amount exceeds invoice total');
         }
 
-        const diff = dto.invoiceTotal - paidAmount - rebateAmount;
-        // Normalde yalnızca diff>0 iken bir PAYABLE borç oluşturulur (aksi halde
-        // hiç borç kalmamış demektir). AMA rebateAmount>0 iken diff tam 0'a da
-        // inebilir (ciro primi faturayı TAMAMEN kapatmış olabilir) — bu durumda
-        // da bir PAYABLE debt oluşturmalıyız, çünkü aşağıdaki RECEIVABLE ciro
-        // primi kaydının relatedDebtId ile bağlanacağı bir borç olmak zorunda;
-        // bu debt hemen status:'PAID' ile oluşturulur (recordCashPayment'ın
-        // fullyPaid mantığıyla tutarlı).
-        if (diff > AMOUNT_TOLERANCE || rebateAmount > 0) {
-          const remaining = diff > 0 ? diff : 0;
-          const fullyClearedAtCreation = remaining <= AMOUNT_TOLERANCE;
-
+        const diff = dto.invoiceTotal - paidAmount;
+        if (diff > 0) {
           const cashDebt = await tx.debt.create({
             data: {
               tenantId: user.tenantId,
@@ -332,23 +300,11 @@ export class OcrService {
               direction: 'PAYABLE',
               debtType: 'CASH',
               source: 'OCR',
-              // amount = faturanın TAM/ham tutarı — kısmi ödemeden/mahsuptan ASLA etkilenmez.
-              // (Önceki halde yanlışlıkla `diff` yazılmıştı; diff zaten
-              // invoiceTotal-paidAmount olduğu için paidAmount hem amount'tan
-              // hem remainingAmount'tan düşüyor, iki kez çıkarılmış oluyordu.)
+              // amount = faturanın TAM/ham tutarı — kısmi ödemeden ASLA etkilenmez.
               amount: dto.invoiceTotal,
-              // remainingAmount = amount - paidAmount - rebateAmount.
-              // Aşağıda paidAmount>0/rebateAmount>0 için ayrıca DebtPayment
-              // kayıtları oluşturuluyor — bu ödemeler bu debt'e bağlanınca
-              // remainingAmount'ın da onları düşmesi gerekir, yoksa
-              // recordCashPayment ilk manuel ödemede current'ı hâlâ tam amount
-              // sanıp bu OCR-anı ödemesini/mahsubunu görmezden gelir
-              // (remainingAmount + paymentsTotal artık amount'u aşar —
-              // bkz. DATA_INTEGRITY kontrolü).
-              remainingAmount: remaining,
-              category: rebateAmount > 0 ? dto.rebateType : null,
-              status: fullyClearedAtCreation ? 'PAID' : 'OPEN',
-              paidAt: fullyClearedAtCreation ? new Date() : null,
+              // remainingAmount = amount - paidAmount (paidAmount 0 ise = amount).
+              remainingAmount: diff,
+              status: 'OPEN',
               createdBy: user.userId,
               notes: 'Fatura onayı sırasında otomatik oluşturuldu',
             },
@@ -356,7 +312,10 @@ export class OcrService {
           });
           debtsCreated.push(cashDebt.id);
 
-          // Fatura anında yapılan ilk ödemeyi de geçmişe kaydet.
+          // Fatura anında yapılan ilk ödemeyi de geçmişe kaydet (bu Debt
+          // artık dondurulmuş bir tarihi kayıt — sonraki ödemeler/mahsuplar
+          // SupplierLedgerEntry'ye yazılır, bu debt'in remainingAmount'ı bir
+          // daha DEĞİŞMEZ).
           if (paidAmount > 0) {
             await tx.debtPayment.create({
               data: {
@@ -368,18 +327,23 @@ export class OcrService {
             });
           }
 
-          // Ciro primi/firma geri ödemesi: aynı transaction içinde bu PAYABLE
-          // borcun ödeme geçmişine bir DebtPayment yazar (manuel test sonrası
-          // karar: ayrı bir RECEIVABLE borç ARTIK oluşturulmuyor — görünürlük
-          // tamamen bu PAYABLE borcun category alanı + bu ödeme satırında).
-          if (rebateAmount > 0 && dto.rebateType) {
-            await createRebateRecords(tx, {
-              payableDebtId: cashDebt.id,
-              rebateAmount,
-              rebateType: dto.rebateType,
-              userId: user.userId,
-            });
-          }
+          // Tedarikçi bakiyesine, kalan (net borçlanılan) tutar kadar bir
+          // INVOICE hareketi işlenir — bu bloğa yalnızca diff>0 iken girildiği
+          // için (dıştaki `if (diff > 0)`) burada her zaman pozitif bir kalan
+          // vardır; tamamen ödenmiş (diff<=0) senaryoda bu blok hiç çalışmaz,
+          // dolayısıyla borçlanılacak hiçbir şey olmadığından ledger'a
+          // hiçbir şey yazılmaz.
+          await tx.supplierLedgerEntry.create({
+            data: {
+              tenantId: user.tenantId,
+              branchId: scan.branchId,
+              supplierId: dto.supplierId,
+              type: 'INVOICE',
+              amount: diff,
+              sourceDebtId: cashDebt.id,
+              createdBy: user.userId,
+            },
+          });
         }
       }
 
@@ -543,27 +507,27 @@ export class OcrService {
         receivedQuantity: 0,
       }));
 
-      let debtId: string;
+      let debtId: string | null = null;
+      let ledgerEntryId: string | null = null;
 
       if (dto.settlementType === 'CASH') {
-        const debt = await tx.debt.create({
+        // Nakit iade artık ayrı bir RECEIVABLE Debt kaydı OLUŞTURMUYOR —
+        // doğrudan tedarikçi bakiyesinden (SupplierLedgerEntry) düşülüyor.
+        // Fiziksel stok düşümü (yukarıdaki StockMovement/RETURN_OUT) DEĞİŞMEDİ.
+        const ledgerEntry = await tx.supplierLedgerEntry.create({
           data: {
             tenantId: user.tenantId,
             branchId: scan.branchId,
             supplierId: dto.supplierId,
-            direction: 'RECEIVABLE',
-            debtType: 'CASH',
-            source: 'OCR',
+            type: 'IADE_FATURASI',
             amount: dto.returnTotal,
-            status: 'OPEN',
-            invoiceDate: new Date(dto.invoiceDate),
-            affectsStock: false,
+            sourceDebtId: null,
+            notes: `İade faturası (nakit iade) — tarama #${scan.id}`,
             createdBy: user.userId,
-            notes: 'İade faturası (nakit iade)',
           },
           select: { id: true },
         });
-        debtId = debt.id;
+        ledgerEntryId = ledgerEntry.id;
       } else {
         // Ürünle iade: aynı ürün/miktarlarla ürün alacağı; çözüldüğünde stoka geri eklenir.
         const productDescription = productLines
@@ -600,7 +564,7 @@ export class OcrService {
         },
       });
 
-      return { debtId, message: 'İade faturası kaydedildi' };
+      return { debtId, ledgerEntryId, message: 'İade faturası kaydedildi' };
     });
   }
 

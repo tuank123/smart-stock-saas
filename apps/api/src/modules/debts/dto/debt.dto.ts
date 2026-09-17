@@ -64,12 +64,6 @@ export class UpdateDebtDto {
   notes?: string;
 }
 
-export class RecordCashPaymentDto {
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
-  amount!: number;
-}
-
 export class ProductReceiptLineDto {
   @IsUUID()
   productId!: string;
@@ -84,4 +78,17 @@ export class RecordProductReceiptDto {
   @ValidateNested({ each: true })
   @Type(() => ProductReceiptLineDto)
   lines!: ProductReceiptLineDto[];
+}
+
+// Tedarikçi bakiyesine (SupplierLedgerEntry) elle yeni bir hareket ekler —
+// gerçek ödeme, ciro primi ya da firma geri ödemesi. INVOICE/IADE_FATURASI
+// yalnızca sistem tarafından (confirmScan/confirmReturn/createDebt) yazılır,
+// bu uç noktadan ASLA elle oluşturulamaz.
+export class CreateLedgerEntryDto {
+  @IsIn(['PAYMENT', 'CIRO_PRIMI', 'FIRMA_GERI_ODEMESI'])
+  type!: 'PAYMENT' | 'CIRO_PRIMI' | 'FIRMA_GERI_ODEMESI';
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  amount!: number;
 }

@@ -96,6 +96,7 @@ async function main() {
 
       await tx.debtPayment.deleteMany({ where: { debt: { branchId: { in: toDelete } } } });
       await tx.debt.deleteMany({ where: { branchId: { in: toDelete } } });
+      await tx.supplierLedgerEntry.deleteMany({ where: { branchId: { in: toDelete } } });
 
       await tx.purchaseOrderItem.deleteMany({
         where: { purchaseOrder: { branchId: { in: toDelete } } },

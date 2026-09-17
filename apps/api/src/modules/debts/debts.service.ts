@@ -10,13 +10,10 @@ import { withTenantContext } from '../../common/utils/tenant-context';
 import { DataIntegrityException } from '../../common/exceptions/data-integrity.exception';
 import {
   CreateDebtDto,
-  RecordCashPaymentDto,
   RecordProductReceiptDto,
   UpdateDebtDto,
+  CreateLedgerEntryDto,
 } from './dto/debt.dto';
-
-// Parasal tutarlarda kabul edilen ondalık tolerans (kuruş altı yuvarlama farkları için).
-const AMOUNT_TOLERANCE = 0.01;
 
 type DebtUser = {
   tenantId: string;
@@ -118,7 +115,7 @@ export class DebtsService {
           .join(', ');
       }
 
-      return tx.debt.create({
+      const debt = await tx.debt.create({
         data: {
           tenantId: user.tenantId,
           branchId,
@@ -136,11 +133,34 @@ export class DebtsService {
         },
         include: { supplier: { select: { id: true, name: true } } },
       });
+
+      // Yalnızca PAYABLE/CASH (işletmenin tedarikçiye olan nakit borcu) —
+      // tedarikçi bakiyesini besleyen tek senaryo. RECEIVABLE ve PRODUCT
+      // manuel kayıtlar bu ledger'ın kapsamı DIŞINDA (görev notları).
+      if (dto.direction === 'PAYABLE' && dto.debtType === 'CASH') {
+        const owed = debt.remainingAmount ?? debt.amount;
+        if (owed != null && Number(owed) > 0) {
+          await tx.supplierLedgerEntry.create({
+            data: {
+              tenantId: user.tenantId,
+              branchId,
+              supplierId: dto.supplierId,
+              type: 'INVOICE',
+              amount: owed,
+              sourceDebtId: debt.id,
+              createdBy: user.userId,
+            },
+          });
+        }
+      }
+
+      return debt;
     });
   }
 
-  // Sade alan güncelleyici — durum/ödeme değişiklikleri artık
-  // recordCashPayment / recordProductReceipt üzerinden yapılır.
+  // Sade alan güncelleyici — CASH borçlar artık dondurulmuş tarihi kayıtlar
+  // (bakiye SupplierLedgerEntry'de takip edilir); PRODUCT borçların durum/
+  // teslimat değişiklikleri hâlâ recordProductReceipt üzerinden yapılır.
   async updateDebt(id: string, dto: UpdateDebtDto, user: DebtUser) {
     return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       this.assertAllowed(user);
@@ -164,89 +184,6 @@ export class DebtsService {
         },
         include: { supplier: { select: { id: true, name: true } } },
       });
-    });
-  }
-
-  // Nakit borca kısmi/tam ödeme kaydeder.
-  async recordCashPayment(id: string, dto: RecordCashPaymentDto, user: DebtUser) {
-    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
-      this.assertAllowed(user);
-
-      const existing = await tx.debt.findFirst({ where: { id } });
-      assertTenantOwnership(existing, {
-        resourceType: 'Debt',
-        resourceId: id,
-        user,
-        notFoundMessage: 'Borç kaydı bulunamadı',
-        securityEvents: this.securityEvents,
-      });
-      if (existing.debtType !== 'CASH') {
-        throw new BadRequestException('Bu kayıt nakit türünde değil');
-      }
-
-      const current = existing.remainingAmount ?? existing.amount ?? 0;
-
-      // Ödeme, kalan tutarı aşamaz — aşarsa hem remainingAmount 0'a kilitlenip
-      // fazlalık sessizce kaybolur hem de ödemeler toplamı orijinal tutarı
-      // geçer (bkz. DATA_INTEGRITY kontrolü, birkaç satır aşağıda).
-      if (dto.amount > Number(current)) {
-        throw new BadRequestException('Ödeme tutarı kalan borçtan fazla olamaz');
-      }
-
-      const newRemaining = Math.max(0, Number(current) - dto.amount);
-      const now = new Date();
-      const fullyPaid = newRemaining <= 0;
-
-      // Ödeme hareketini geçmişe kaydet.
-      await tx.debtPayment.create({
-        data: { debtId: id, amount: dto.amount, createdBy: user.userId },
-      });
-
-      const updated = await tx.debt.update({
-        where: { id },
-        data: {
-          remainingAmount: newRemaining,
-          lastPaymentAmount: dto.amount,
-          lastPaymentDate: now,
-          ...(fullyPaid ? { status: 'PAID', paidAt: now } : {}),
-        },
-        include: { supplier: { select: { id: true, name: true } } },
-      });
-
-      // ── Bütünlük kontrolü: kalan + tüm ödemelerin toplamı == orijinal tutar ──
-      const paymentsAgg = await tx.debtPayment.aggregate({
-        where: { debtId: id },
-        _sum: { amount: true },
-      });
-      const paymentsTotal = Number(paymentsAgg._sum.amount ?? 0);
-      const originalAmount = Number(existing.amount ?? 0);
-      const finalRemaining = Number(updated.remainingAmount ?? 0);
-
-      if (Math.abs(finalRemaining + paymentsTotal - originalAmount) > AMOUNT_TOLERANCE) {
-        // ErrorLog, rollback edilecek `tx` DIŞINDA (this.prisma ile) yazılır —
-        // yoksa kayıt da transaction ile birlikte geri alınır ve iz kalmaz.
-        await this.prisma.errorLog
-          .create({
-            data: {
-              source: 'DATA_INTEGRITY',
-              severity: 'ERROR',
-              message: 'Borç ödeme tutarsızlığı',
-              tenantId: user.tenantId,
-              branchId: existing.branchId,
-              context: {
-                debtId: id,
-                amount: originalAmount,
-                remainingAmount: finalRemaining,
-                paymentsTotal,
-              },
-            },
-          })
-          .catch(() => undefined);
-
-        throw new DataIntegrityException('debt payment mismatch');
-      }
-
-      return updated;
     });
   }
 
@@ -448,6 +385,144 @@ export class DebtsService {
       }
 
       return { showVisitReminder, receivableReminders };
+    });
+  }
+
+  private round2(n: number): number {
+    return Math.round(n * 100) / 100;
+  }
+
+  // Tedarikçi bazlı çalışan bakiye + son hareketler. Yalnızca CASH/PAYABLE
+  // tarafı besler (bkz. confirmScan/confirmReturn/createDebt) — PRODUCT
+  // borçlar (recordProductReceipt) bu ledger'ın tamamen dışında.
+  async getSupplierLedger(branchId: string, supplierId: string, user: DebtUser) {
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
+      this.assertAllowed(user);
+
+      const supplier = await tx.supplier.findFirst({
+        where: { id: supplierId },
+        select: { id: true, tenantId: true, name: true },
+      });
+      assertTenantOwnership(supplier, {
+        resourceType: 'Supplier',
+        resourceId: supplierId,
+        user,
+        notFoundMessage: 'Tedarikçi bulunamadı',
+        securityEvents: this.securityEvents,
+      });
+
+      const where = { tenantId: user.tenantId, branchId, supplierId };
+
+      // Bakiye: INVOICE bakiyeyi artırır, diğer her şey (PAYMENT/CIRO_PRIMI/
+      // FIRMA_GERI_ODEMESI/IADE_FATURASI) azaltır. Negatife düşebilir —
+      // bu bir hata durumu DEĞİL (görev notları).
+      const allEntries = await tx.supplierLedgerEntry.findMany({
+        where,
+        select: { type: true, amount: true },
+      });
+      const balance = allEntries.reduce(
+        (sum, e) => sum + (e.type === 'INVOICE' ? Number(e.amount) : -Number(e.amount)),
+        0,
+      );
+
+      const recentEntries = await tx.supplierLedgerEntry.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      });
+
+      const recentRebates = await tx.supplierLedgerEntry.findMany({
+        where: { ...where, type: { in: ['CIRO_PRIMI', 'FIRMA_GERI_ODEMESI'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+
+      const recentReturns = await tx.supplierLedgerEntry.findMany({
+        where: { ...where, type: 'IADE_FATURASI' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+
+      // Son 4 takvim ayı (bu ay dahil), en eskiden en yeniye. UTC ay
+      // sınırları kullanılır — reports.service.ts'teki AYNI yaklaşım.
+      const now = new Date();
+      const monthStarts = Array.from({ length: 4 }, (_, i) =>
+        new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (3 - i), 1)),
+      );
+      const rangeStart = monthStarts[0];
+      const rangeEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+
+      const rangeEntries = await tx.supplierLedgerEntry.findMany({
+        where: { ...where, createdAt: { gte: rangeStart, lt: rangeEnd } },
+        select: { type: true, amount: true, createdAt: true },
+      });
+
+      const monthlyBreakdown = monthStarts.map((start) => {
+        const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+        const inMonth = rangeEntries.filter((e) => e.createdAt >= start && e.createdAt < end);
+        const sumOf = (types: string[]) =>
+          this.round2(
+            inMonth
+              .filter((e) => types.includes(e.type))
+              .reduce((s, e) => s + Number(e.amount), 0),
+          );
+        return {
+          year: start.getUTCFullYear(),
+          month: start.getUTCMonth() + 1,
+          invoiceTotal: sumOf(['INVOICE']),
+          paymentTotal: sumOf(['PAYMENT']),
+          rebateTotal: sumOf(['CIRO_PRIMI', 'FIRMA_GERI_ODEMESI']),
+          returnTotal: sumOf(['IADE_FATURASI']),
+        };
+      });
+
+      return {
+        supplierId,
+        supplierName: supplier.name,
+        balance: this.round2(balance),
+        recentEntries,
+        recentRebates,
+        recentReturns,
+        monthlyBreakdown,
+      };
+    });
+  }
+
+  // Tedarikçi bakiyesine elle yeni bir hareket ekler (gerçek ödeme, ciro
+  // primi ya da firma geri ödemesi). Üst sınır kontrolü BİLEREK yok —
+  // negatif bakiye açıkça izin verilen, beklenen bir senaryo (görev
+  // notları); bir üst sınır koymak bu tasarım kararıyla çelişirdi.
+  async addSupplierLedgerEntry(
+    branchId: string,
+    supplierId: string,
+    dto: CreateLedgerEntryDto,
+    user: DebtUser,
+  ) {
+    return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
+      this.assertAllowed(user);
+
+      const supplier = await tx.supplier.findFirst({
+        where: { id: supplierId },
+        select: { id: true, tenantId: true },
+      });
+      assertTenantOwnership(supplier, {
+        resourceType: 'Supplier',
+        resourceId: supplierId,
+        user,
+        notFoundMessage: 'Tedarikçi bulunamadı',
+        securityEvents: this.securityEvents,
+      });
+
+      return tx.supplierLedgerEntry.create({
+        data: {
+          tenantId: user.tenantId,
+          branchId,
+          supplierId,
+          type: dto.type,
+          amount: dto.amount,
+          createdBy: user.userId,
+        },
+      });
     });
   }
 }

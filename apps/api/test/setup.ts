@@ -212,6 +212,10 @@ export async function deleteTenantByTaxNumber(
     await tx.syncQueue.deleteMany({ where: { tenantId } });
     await tx.priceChangeLog.deleteMany({ where: { tenantId } });
     await tx.branchSupplier.deleteMany({ where: { supplier: { tenantId } } });
+    // supplier_ledger_entries.tenant_id/branch_id/supplier_id RESTRICT —
+    // tenant/branch/supplier silinmeden önce temizlenmeli (debts.e2e-spec.ts,
+    // ocr.e2e-spec.ts — Tedarikçi bazlı ledger).
+    await tx.supplierLedgerEntry.deleteMany({ where: { tenantId } });
     await tx.product.deleteMany({ where: { tenantId } });
     await tx.category.deleteMany({ where: { tenantId } });
     await tx.supplier.deleteMany({ where: { tenantId } });

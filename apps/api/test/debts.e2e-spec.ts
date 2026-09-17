@@ -91,41 +91,162 @@ describe('Debts / Alacak Verecek (e2e)', () => {
     expect(Number(res.body.remainingAmount)).toBe(1000);
   });
 
-  // ── (b) Kısmi nakit ödeme ─────────────────────────────────────────────────
-
-  it('PATCH /debts/:id/cash-payment — kısmi ödeme sonrası remainingAmount doğru düşer', async () => {
-    const res = await request(app.getHttpServer())
-      .patch(`/api/v1/debts/${cashDebtId}/cash-payment`)
-      .set('Authorization', authHeader)
-      .send({ amount: 400 })
-      .expect(200);
-
-    expect(Number(res.body.remainingAmount)).toBe(600);
-    expect(Number(res.body.lastPaymentAmount)).toBe(400);
-    // Kısmi ödeme borcu kapatmaz.
-    expect(res.body.status).toBe('OPEN');
-    expect(res.body.paidAt).toBeNull();
-  });
-
-  // ── (c) Kalanın tamamını ödeme → PAID ────────────────────────────────────
-
-  it('PATCH /debts/:id/cash-payment — kalan tutarın tamamı ödenince status PAID olur', async () => {
-    const res = await request(app.getHttpServer())
-      .patch(`/api/v1/debts/${cashDebtId}/cash-payment`)
-      .set('Authorization', authHeader)
-      .send({ amount: 600 })
-      .expect(200);
-
-    expect(Number(res.body.remainingAmount)).toBe(0);
-    expect(res.body.status).toBe('PAID');
-    expect(res.body.paidAt).not.toBeNull();
-  });
-
   // Ciro primi / firma geri ödemesi manuel giriş ekranından KALDIRILDI —
   // yalnızca OCR fatura onayı akışında (ocr.service.ts confirmScan,
   // ocr.e2e-spec.ts) yaşamaya devam ediyor. CreateDebtDto/createDebt artık
   // bu alanları kabul etmiyor (ValidationPipe forbidNonWhitelisted:true —
   // gönderilirse 400 döner), bu yüzden bu akışa özgü eski testler kaldırıldı.
+
+  // recordCashPayment (PATCH /debts/:id/cash-payment) TAMAMEN KALDIRILDI —
+  // tedarikçi bakiyesi artık SupplierLedgerEntry ile takip ediliyor (bkz.
+  // aşağıdaki "(b-bis) Tedarikçi bakiyesi/ledger" bölümü). Eski "kısmi
+  // ödeme"/"tam ödeme → PAID" testleri bu yüzden kaldırıldı — o davranış
+  // (Debt.remainingAmount/status güncellemesi) artık hiç var olmuyor; Debt
+  // satırları donmuş tarihi kayıtlar, bakiye hesaplaması ledger'da.
+
+  // ── (b-bis) Tedarikçi bakiyesi/ledger ────────────────────────────────────
+
+  let ledgerSupplierId: string;
+
+  it('POST /debts/:branchId — PAYABLE/CASH borç oluşunca tedarikçi bakiyesine INVOICE hareketi eklenir', async () => {
+    const supplierRes = await request(app.getHttpServer())
+      .post('/api/v1/suppliers')
+      .set('Authorization', authHeader)
+      .send({ name: `E2E Ledger Tedarikçi ${uniqueSuffix()}`, whatsappNumber: '+905551112233' })
+      .expect(201);
+    ledgerSupplierId = supplierRes.body.id;
+
+    const debtRes = await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .send({ supplierId: ledgerSupplierId, direction: 'PAYABLE', debtType: 'CASH', amount: 1000 })
+      .expect(201);
+
+    const ledgerRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/${ledgerSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    expect(Number(ledgerRes.body.balance)).toBe(1000);
+    const entry = ledgerRes.body.recentEntries.find(
+      (e: { sourceDebtId: string | null }) => e.sourceDebtId === debtRes.body.id,
+    );
+    expect(entry).toBeDefined();
+    expect(entry.type).toBe('INVOICE');
+    expect(Number(entry.amount)).toBe(1000);
+  });
+
+  it('POST /debts/:branchId — RECEIVABLE/CASH borç oluşunca tedarikçi bakiyesine HİÇBİR hareket eklenmez', async () => {
+    const supplierRes = await request(app.getHttpServer())
+      .post('/api/v1/suppliers')
+      .set('Authorization', authHeader)
+      .send({ name: `E2E Ledger Receivable Tedarikçi ${uniqueSuffix()}`, whatsappNumber: '+905551112244' })
+      .expect(201);
+    const receivableSupplierId = supplierRes.body.id;
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .send({ supplierId: receivableSupplierId, direction: 'RECEIVABLE', debtType: 'CASH', amount: 300 })
+      .expect(201);
+
+    const ledgerRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/${receivableSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    expect(Number(ledgerRes.body.balance)).toBe(0);
+    expect(ledgerRes.body.recentEntries).toHaveLength(0);
+  });
+
+  it('POST .../ledger — PAYMENT bakiyeyi düşürür, GET .../ledger balance/recentEntries doğru yansıtır', async () => {
+    const payRes = await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}/suppliers/${ledgerSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .send({ type: 'PAYMENT', amount: 400 })
+      .expect(201);
+    expect(payRes.body.type).toBe('PAYMENT');
+    expect(Number(payRes.body.amount)).toBe(400);
+
+    const ledgerRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/${ledgerSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    // Önceki testten INVOICE 1000 vardı → 1000 - 400 = 600.
+    expect(Number(ledgerRes.body.balance)).toBe(600);
+    expect(
+      ledgerRes.body.recentEntries.some((e: { type: string }) => e.type === 'PAYMENT'),
+    ).toBe(true);
+  });
+
+  it('POST .../ledger — CIRO_PRIMI/FIRMA_GERI_ODEMESI bakiyeyi düşürür ve recentRebates\'te görünür, IADE_FATURASI recentReturns\'te görünür', async () => {
+    await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}/suppliers/${ledgerSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .send({ type: 'CIRO_PRIMI', amount: 100 })
+      .expect(201);
+
+    const ledgerRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/${ledgerSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    // 600 (önceki testten) - 100 = 500.
+    expect(Number(ledgerRes.body.balance)).toBe(500);
+    expect(ledgerRes.body.recentRebates).toHaveLength(1);
+    expect(ledgerRes.body.recentRebates[0].type).toBe('CIRO_PRIMI');
+    expect(Number(ledgerRes.body.recentRebates[0].amount)).toBe(100);
+    // IADE_FATURASI türünde hiçbir kayıt yok — recentReturns boş kalmalı.
+    expect(ledgerRes.body.recentReturns).toHaveLength(0);
+  });
+
+  it('POST .../ledger — bakiye negatife düşebilir (hata değil, izin verilen senaryo)', async () => {
+    const supplierRes = await request(app.getHttpServer())
+      .post('/api/v1/suppliers')
+      .set('Authorization', authHeader)
+      .send({ name: `E2E Ledger Negatif Tedarikçi ${uniqueSuffix()}`, whatsappNumber: '+905551112255' })
+      .expect(201);
+    const negSupplierId = supplierRes.body.id;
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}/suppliers/${negSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .send({ type: 'PAYMENT', amount: 250 })
+      .expect(201);
+
+    const ledgerRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/${negSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(Number(ledgerRes.body.balance)).toBe(-250);
+  });
+
+  it('POST .../ledger — amount <= 0 gönderilirse 400 döner', async () => {
+    await request(app.getHttpServer())
+      .post(`/api/v1/debts/${ctx.branchId}/suppliers/${ledgerSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .send({ type: 'PAYMENT', amount: 0 })
+      .expect(400);
+  });
+
+  it('GET .../ledger — monthlyBreakdown son 4 takvim ayını, bu ayın INVOICE toplamını doğru yansıtır', async () => {
+    const ledgerRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/${ledgerSupplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .expect(200);
+
+    expect(ledgerRes.body.monthlyBreakdown).toHaveLength(4);
+    const now = new Date();
+    const currentMonthEntry = ledgerRes.body.monthlyBreakdown[3];
+    expect(currentMonthEntry.year).toBe(now.getUTCFullYear());
+    expect(currentMonthEntry.month).toBe(now.getUTCMonth() + 1);
+    // Bu ay içinde oluşturulan: 1000 INVOICE, 400 PAYMENT, 100 CIRO_PRIMI.
+    expect(currentMonthEntry.invoiceTotal).toBe(1000);
+    expect(currentMonthEntry.paymentTotal).toBe(400);
+    expect(currentMonthEntry.rebateTotal).toBe(100);
+    expect(currentMonthEntry.returnTotal).toBe(0);
+  });
 
   // ── (d) Ürün borcu oluşturma ─────────────────────────────────────────────
 
@@ -220,6 +341,7 @@ describe('Debts / Alacak Verecek (e2e)', () => {
     let foreignCashDebtId: string;
     let foreignProductDebtId: string;
     let foreignProductId: string;
+    let supplier2Id: string;
 
     beforeAll(async () => {
       ctx2 = await signupAndGetContext(app);
@@ -231,7 +353,7 @@ describe('Debts / Alacak Verecek (e2e)', () => {
         .set('Authorization', authHeader2)
         .send({ name: `E2E Tenant2 Tedarikçi ${uniqueSuffix()}`, whatsappNumber: '+905559998877' })
         .expect(201);
-      const supplier2Id = supplier2Res.body.id;
+      supplier2Id = supplier2Res.body.id;
 
       const category2 = await createCategory(prisma, ctx2.tenantId, 'E2E Tenant2 Borç Kategorisi');
       const product2Res = await request(app.getHttpServer())
@@ -289,22 +411,24 @@ describe('Debts / Alacak Verecek (e2e)', () => {
       expect(debt?.notes).not.toBe('Ele geçirme denemesi');
     });
 
-    it('PATCH /debts/:id/cash-payment — başka tenant\'ın borcuna ödeme kaydetme denemesi 404 döner, remainingAmount/ödeme sayısı DEĞİŞMEZ', async () => {
-      const before = await readDebtGlobal(foreignCashDebtId);
-      const paymentsBefore = await prisma.debtPayment.count({ where: { debtId: foreignCashDebtId } });
+    it('GET .../suppliers/:supplierId/ledger — başka tenant\'ın tedarikçisi için 404 döner', async () => {
+      await request(app.getHttpServer())
+        .get(`/api/v1/debts/${ctx.branchId}/suppliers/${supplier2Id}/ledger`)
+        .set('Authorization', authHeader)
+        .expect(404);
+    });
+
+    it('POST .../suppliers/:supplierId/ledger — başka tenant\'ın tedarikçisine hareket eklenemez (404), HİÇBİR SupplierLedgerEntry OLUŞMAZ', async () => {
+      const before = await prisma.supplierLedgerEntry.count({ where: { supplierId: supplier2Id } });
 
       await request(app.getHttpServer())
-        .patch(`/api/v1/debts/${foreignCashDebtId}/cash-payment`)
+        .post(`/api/v1/debts/${ctx.branchId}/suppliers/${supplier2Id}/ledger`)
         .set('Authorization', authHeader)
-        .send({ amount: 100 })
+        .send({ type: 'PAYMENT', amount: 100 })
         .expect(404);
 
-      const after = await readDebtGlobal(foreignCashDebtId);
-      expect(Number(after?.remainingAmount)).toBe(Number(before?.remainingAmount));
-      expect(after?.status).toBe(before?.status);
-      const paymentsAfter = await prisma.debtPayment.count({ where: { debtId: foreignCashDebtId } });
-      // Reddedilen deneme bir DebtPayment satırı OLUŞTURMAMALI.
-      expect(paymentsAfter).toBe(paymentsBefore);
+      const after = await prisma.supplierLedgerEntry.count({ where: { supplierId: supplier2Id } });
+      expect(after).toBe(before);
     });
 
     it('PATCH /debts/:id/product-receipt — başka tenant\'ın ürün borcuna teslimat kaydetme denemesi 404 döner, receivedQuantity DEĞİŞMEZ', async () => {

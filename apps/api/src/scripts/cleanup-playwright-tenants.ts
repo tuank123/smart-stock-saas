@@ -74,6 +74,7 @@ async function main() {
 
       await tx.debtPayment.deleteMany({ where: { debt: { tenantId: { in: ids } } } });
       await tx.debt.deleteMany({ where: { tenantId: { in: ids } } });
+      await tx.supplierLedgerEntry.deleteMany({ where: { tenantId: { in: ids } } });
 
       await tx.userFeedback.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.scheduledReport.deleteMany({ where: { tenantId: { in: ids } } });

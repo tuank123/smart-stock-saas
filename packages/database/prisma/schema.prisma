@@ -76,6 +76,7 @@ model Tenant {
   priceChangeLogs         PriceChangeLog[]
   cashierSessions         CashierSession[]
   debts                   Debt[]
+  supplierLedgerEntries   SupplierLedgerEntry[]
   feedback                UserFeedback[]
   defectiveItemReports    DefectiveItemReport[]
 
@@ -121,6 +122,7 @@ model User {
   openedCashierSessions  CashierSession[]
   createdDebts           Debt[]
   debtPayments           DebtPayment[]
+  createdLedgerEntries   SupplierLedgerEntry[]
   feedback               UserFeedback[]
   createdDefectiveItems  DefectiveItemReport[]  @relation("DefectiveItemCreator")
   resolvedDefectiveItems DefectiveItemReport[]  @relation("DefectiveItemResolver")
@@ -172,6 +174,7 @@ model Branch {
   priceChangeLogs         PriceChangeLog[]
   cashierSessions         CashierSession[]
   debts                   Debt[]
+  supplierLedgerEntries   SupplierLedgerEntry[]
   defectiveItemReports    DefectiveItemReport[]
 
   // Timestamps
@@ -469,6 +472,34 @@ model DebtPayment {
   @@map("debt_payments")
 }
 
+/// Tedarikçi bazlı çalışan bakiye (running ledger) — nakit fatura/ödeme/ciro
+/// primi/geri ödeme/iade faturası tek bir kronolojik akışta. type=INVOICE
+/// bakiyeyi artırır; PAYMENT/CIRO_PRIMI/FIRMA_GERI_ODEMESI/IADE_FATURASI
+/// azaltır. amount HER ZAMAN pozitif büyüklüktür (yön type'tan gelir).
+/// Bakiye negatife düşebilir (ör. fatura tutarını aşan iade/ödeme) — bu
+/// bir hata durumu DEĞİL, beklenen bir senaryodur.
+model SupplierLedgerEntry {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  branchId     String   @map("branch_id") @db.Uuid
+  supplierId   String   @map("supplier_id") @db.Uuid
+  type         String // INVOICE | PAYMENT | CIRO_PRIMI | FIRMA_GERI_ODEMESI | IADE_FATURASI
+  amount       Decimal  @db.Decimal(12, 2) // her zaman pozitif büyüklük
+  sourceDebtId String?  @map("source_debt_id") @db.Uuid // INVOICE ise oluşturulduğu Debt kaydı; diğer type'larda null
+  notes        String?
+  createdBy    String   @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  branch   Branch   @relation(fields: [branchId], references: [id])
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  creator  User     @relation(fields: [createdBy], references: [id])
+
+  @@index([tenantId, branchId, supplierId, createdAt])
+  @@index([tenantId, branchId, supplierId, type, createdAt])
+  @@map("supplier_ledger_entries")
+}
+
 /// Ürün Zayiatları (isletme-app, yalnızca tek şubeli/STARTER PATRON) — defolu/
 /// kullanılamaz bir ürün fotoğraflanıp stoktan hemen düşülür (PENDING), sonra
 /// kullanıcı "Ziyan Oldu" (kalıcı zayiat) ya da "Değişim Gerçekleşti" (stoğa
@@ -525,6 +556,7 @@ model Supplier {
   whatsappMessageLogs WhatsappMessageLog[]
   portalUploads       SupplierPortalUpload[]
   debts               Debt[]
+  ledgerEntries       SupplierLedgerEntry[]
 
   @@index([tenantId])
   @@map("suppliers")

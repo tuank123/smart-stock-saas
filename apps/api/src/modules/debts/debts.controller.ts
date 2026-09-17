@@ -13,7 +13,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import {
   CreateDebtDto,
-  RecordCashPaymentDto,
+  CreateLedgerEntryDto,
   RecordProductReceiptDto,
   UpdateDebtDto,
 } from './dto/debt.dto';
@@ -38,6 +38,28 @@ export class DebtsController {
     @CurrentUser() user: DebtUser,
   ) {
     return this.service.getReminders(branchId, user);
+  }
+
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
+  @Get(':branchId/suppliers/:supplierId/ledger')
+  getSupplierLedger(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Param('supplierId', ParseUUIDPipe) supplierId: string,
+    @CurrentUser() user: DebtUser,
+  ) {
+    return this.service.getSupplierLedger(branchId, supplierId, user);
+  }
+
+  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
+  @Post(':branchId/suppliers/:supplierId/ledger')
+  @HttpCode(201)
+  addSupplierLedgerEntry(
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Param('supplierId', ParseUUIDPipe) supplierId: string,
+    @Body() dto: CreateLedgerEntryDto,
+    @CurrentUser() user: DebtUser,
+  ) {
+    return this.service.addSupplierLedgerEntry(branchId, supplierId, dto, user);
   }
 
   @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
@@ -71,16 +93,6 @@ export class DebtsController {
   }
 
   // Statik ikinci segmentli route'lar `:id`'den önce tanımlanır.
-  @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
-  @Patch(':id/cash-payment')
-  recordCashPayment(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: RecordCashPaymentDto,
-    @CurrentUser() user: DebtUser,
-  ) {
-    return this.service.recordCashPayment(id, dto, user);
-  }
-
   @Roles(UserRole.SUBE_MUDURU, UserRole.PATRON)
   @Patch(':id/product-receipt')
   recordProductReceipt(

@@ -181,7 +181,7 @@ describe('OCR / Fatura Tarama (e2e)', () => {
 
   // ── (d) İade faturası — nakit iade → stok azalır ─────────────────────────
 
-  it('POST /ocr/scan/:scanId/confirm-return — CASH iade stoğu azaltır ve RECEIVABLE/CASH borç oluşturur', async () => {
+  it('POST /ocr/scan/:scanId/confirm-return — CASH iade stoğu azaltır ve tedarikçi bakiyesine IADE_FATURASI hareketi ekler (Debt OLUŞTURMAZ)', async () => {
     const scan = await request(app.getHttpServer())
       .post('/api/v1/ocr/scan')
       .set('Authorization', authHeader)
@@ -189,6 +189,11 @@ describe('OCR / Fatura Tarama (e2e)', () => {
       .expect(201);
 
     const beforeQty = await queryStockQuantity();
+    const beforeDebtCount = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}`)
+      .set('Authorization', authHeader)
+      .expect(200)
+      .then((r) => r.body.length as number);
 
     const res = await request(app.getHttpServer())
       .post(`/api/v1/ocr/scan/${scan.body.scanId}/confirm-return`)
@@ -202,20 +207,30 @@ describe('OCR / Fatura Tarama (e2e)', () => {
       })
       .expect(200);
 
-    expect(typeof res.body.debtId).toBe('string');
+    // Artık bu dalda Debt OLUŞTURULMUYOR — debtId null, ledgerEntryId dolu.
+    expect(res.body.debtId).toBeNull();
+    expect(typeof res.body.ledgerEntryId).toBe('string');
     expect(await queryStockQuantity()).toBe(beforeQty - 5);
 
+    // Hiçbir yeni Debt satırı eklenmedi.
     const debtsRes = await request(app.getHttpServer())
       .get(`/api/v1/debts/${ctx.branchId}`)
       .set('Authorization', authHeader)
       .expect(200);
+    expect(debtsRes.body.length).toBe(beforeDebtCount);
 
-    const debt = debtsRes.body.find((d: { id: string }) => d.id === res.body.debtId);
-    expect(debt).toBeDefined();
-    expect(debt.direction).toBe('RECEIVABLE');
-    expect(debt.debtType).toBe('CASH');
-    expect(Number(debt.amount)).toBe(50);
-    expect(debt.source).toBe('OCR');
+    // Bunun yerine tedarikçi bakiyesine bir IADE_FATURASI hareketi düştü.
+    const ledgerRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/${supplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    const entry = ledgerRes.body.recentEntries.find(
+      (e: { id: string }) => e.id === res.body.ledgerEntryId,
+    );
+    expect(entry).toBeDefined();
+    expect(entry.type).toBe('IADE_FATURASI');
+    expect(Number(entry.amount)).toBe(50);
+    expect(entry.sourceDebtId).toBeNull();
   });
 
   // ── (e) Otomatik CASH borç — kısmi ödemeyle ──────────────────────────────
@@ -260,6 +275,19 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     expect(debt.status).toBe('OPEN');
     expect(Number(debt.amount)).toBe(20000);
     expect(Number(debt.remainingAmount)).toBe(15000);
+
+    // Tedarikçi bakiyesine kalan (net borçlanılan) tutar kadar bir INVOICE
+    // hareketi düşmeli — bu Debt'e sourceDebtId ile bağlı.
+    const ledgerRes = await request(app.getHttpServer())
+      .get(`/api/v1/debts/${ctx.branchId}/suppliers/${supplierId}/ledger`)
+      .set('Authorization', authHeader)
+      .expect(200);
+    const ledgerEntry = ledgerRes.body.recentEntries.find(
+      (e: { sourceDebtId: string | null }) => e.sourceDebtId === debt.id,
+    );
+    expect(ledgerEntry).toBeDefined();
+    expect(ledgerEntry.type).toBe('INVOICE');
+    expect(Number(ledgerEntry.amount)).toBe(15000);
   });
 
   // ── (f) Otomatik CASH borç — hiç ödeme yapılmadan (paidAmount=0) ─────────
@@ -404,172 +432,21 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     expect((errorLogs[0].context as { scanId?: string })?.scanId).toBe(scan.body.scanId);
   });
 
-  // ── (g-bis) Ciro primi / firma geri ödemesi ──────────────────────────────
+  // ── (g-bis) Ciro primi / firma geri ödemesi — OCR akışından KALDIRILDI ───
+  //
+  // Ciro primi/geri ödeme kavramı artık ConfirmScanDto'da hiç yok (Supplier
+  // Ledger tasarımı — bkz. görev notları). ValidationPipe
+  // (forbidNonWhitelisted:true) bu alanları göndermeyi tamamen reddeder.
 
-  async function newScan() {
+  it('POST /ocr/scan/:scanId/confirm — rebateAmount/rebateType artık tanınmayan alanlar, gönderilirse 400 döner', async () => {
     const scan = await request(app.getHttpServer())
       .post('/api/v1/ocr/scan')
       .set('Authorization', authHeader)
       .send({ branchId: ctx.branchId })
       .expect(201);
-    return scan.body.scanId as string;
-  }
-
-  it('POST /ocr/scan/:scanId/confirm — kısmi ciro primi: PAYABLE remainingAmount doğru düşer, DebtPayment oluşur, ikinci bir Debt OLUŞMAZ', async () => {
-    const scanId = await newScan();
-
-    const beforeDebtCount = await request(app.getHttpServer())
-      .get(`/api/v1/debts/${ctx.branchId}`)
-      .set('Authorization', authHeader)
-      .expect(200)
-      .then((r) => r.body.length as number);
-
-    const res = await request(app.getHttpServer())
-      .post(`/api/v1/ocr/scan/${scanId}/confirm`)
-      .set('Authorization', authHeader)
-      .send({
-        supplierId,
-        allItemsReceived: true,
-        lines: [{ productId, qty: 1, unit: 'adet' }],
-        invoiceTotal: 1000,
-        paidAmount: 200,
-        rebateAmount: 300,
-        rebateType: 'CIRO_PRIMI',
-      })
-      .expect(200);
-
-    const debtsRes = await request(app.getHttpServer())
-      .get(`/api/v1/debts/${ctx.branchId}`)
-      .set('Authorization', authHeader)
-      .expect(200);
-
-    // Yalnızca 1 yeni Debt satırı — ayrı bir RECEIVABLE kaydı ARTIK oluşmaz
-    // (manuel test sonrası karar: görünürlük tamamen PAYABLE tarafında).
-    expect(debtsRes.body.length).toBe(beforeDebtCount + 1);
-
-    const payable = debtsRes.body.find(
-      (d: { direction: string; amount: string }) =>
-        d.direction === 'PAYABLE' && Number(d.amount) === 1000,
-    );
-    expect(payable).toBeDefined();
-    // remainingAmount = 1000 - 200 (paidAmount) - 300 (rebate) = 500.
-    expect(Number(payable.remainingAmount)).toBe(500);
-    expect(payable.category).toBe('CIRO_PRIMI');
-    expect(payable.status).toBe('OPEN');
-
-    // NOT: "hiçbir RECEIVABLE yok" gibi geniş bir kontrol burada YANLIŞ
-    // olurdu — bu dosyadaki confirm-return testi zaten AYNI branch için
-    // meşru, ilgisiz bir RECEIVABLE borç oluşturuyor. Asıl garanti yukarıdaki
-    // debtsRes.body.length === beforeDebtCount + 1 kontrolü: bu rebate
-    // akışının KENDİSİ ikinci bir Debt satırı oluşturmadı.
-
-    // DebtPayment audit izi: hem gerçek nakit ödeme (CASH) hem ciro primi
-    // (CIRO_PRIMI) bu PAYABLE borcun ödeme geçmişinde görünmeli.
-    const payments = await prisma.debtPayment.findMany({
-      where: { debtId: payable.id },
-      orderBy: { paidAt: 'asc' },
-    });
-    expect(payments.map((p) => p.type).sort()).toEqual(['CASH', 'CIRO_PRIMI']);
-    const rebatePayment = payments.find((p) => p.type === 'CIRO_PRIMI');
-    expect(Number(rebatePayment!.amount)).toBe(300);
-
-    // Bütünlük değişmezi: remainingAmount + Σpayments == amount.
-    const paymentsTotal = payments.reduce((s, p) => s + Number(p.amount), 0);
-    expect(Number(payable.remainingAmount) + paymentsTotal).toBe(Number(payable.amount));
-
-    void res;
-  });
-
-  it('POST /ocr/scan/:scanId/confirm — ciro primi faturayı TAMAMEN kapatırsa PAYABLE hemen status:PAID olur, ikinci bir Debt OLUŞMAZ', async () => {
-    const scanId = await newScan();
-
-    const beforeDebtCount = await request(app.getHttpServer())
-      .get(`/api/v1/debts/${ctx.branchId}`)
-      .set('Authorization', authHeader)
-      .expect(200)
-      .then((r) => r.body.length as number);
 
     await request(app.getHttpServer())
-      .post(`/api/v1/ocr/scan/${scanId}/confirm`)
-      .set('Authorization', authHeader)
-      .send({
-        supplierId,
-        allItemsReceived: true,
-        lines: [{ productId, qty: 1, unit: 'adet' }],
-        invoiceTotal: 500,
-        rebateAmount: 500,
-        rebateType: 'FIRMA_GERI_ODEMESI',
-      })
-      .expect(200);
-
-    const debtsRes = await request(app.getHttpServer())
-      .get(`/api/v1/debts/${ctx.branchId}`)
-      .set('Authorization', authHeader)
-      .expect(200);
-
-    expect(debtsRes.body.length).toBe(beforeDebtCount + 1);
-
-    const payable = debtsRes.body.find(
-      (d: { direction: string; amount: string; category: string | null }) =>
-        d.direction === 'PAYABLE' && Number(d.amount) === 500 && d.category === 'FIRMA_GERI_ODEMESI',
-    );
-    expect(payable).toBeDefined();
-    expect(Number(payable.remainingAmount)).toBe(0);
-    expect(payable.status).toBe('PAID');
-    expect(payable.paidAt).not.toBeNull();
-    // beforeDebtCount + 1 kontrolü (yukarıda) zaten ikinci bir Debt satırı
-    // oluşmadığını kanıtlıyor — bu dosyadaki confirm-return testi AYNI
-    // branch için meşru, ilgisiz bir RECEIVABLE borç bıraktığından, "hiçbir
-    // RECEIVABLE yok" gibi geniş bir kontrol burada YANLIŞ olurdu.
-  });
-
-  it('POST /ocr/scan/:scanId/confirm — rebateAmount olmadan (mevcut davranış) HİÇBİR regresyon yok: category null, ekstra kayıt yok', async () => {
-    const scanId = await newScan();
-
-    const beforeDebtCount = await request(app.getHttpServer())
-      .get(`/api/v1/debts/${ctx.branchId}`)
-      .set('Authorization', authHeader)
-      .expect(200)
-      .then((r) => r.body.length as number);
-
-    const res = await request(app.getHttpServer())
-      .post(`/api/v1/ocr/scan/${scanId}/confirm`)
-      .set('Authorization', authHeader)
-      .send({
-        supplierId,
-        allItemsReceived: true,
-        lines: [{ productId, qty: 1, unit: 'adet' }],
-        invoiceTotal: 750,
-      })
-      .expect(200);
-    void res;
-
-    const debtsRes = await request(app.getHttpServer())
-      .get(`/api/v1/debts/${ctx.branchId}`)
-      .set('Authorization', authHeader)
-      .expect(200);
-    // Yalnızca 1 yeni (PAYABLE) borç eklendi — rebate'siz akışta hiçbir
-    // RECEIVABLE/ciro primi kaydı oluşmamalı.
-    expect(debtsRes.body.length).toBe(beforeDebtCount + 1);
-
-    const payable = debtsRes.body.find(
-      (d: { direction: string; amount: string }) =>
-        d.direction === 'PAYABLE' && Number(d.amount) === 750,
-    );
-    expect(payable).toBeDefined();
-    expect(Number(payable.remainingAmount)).toBe(750);
-    expect(payable.category).toBeNull();
-    expect(payable.status).toBe('OPEN');
-
-    const paymentsCount = await prisma.debtPayment.count({ where: { debtId: payable.id } });
-    expect(paymentsCount).toBe(0);
-  });
-
-  it('POST /ocr/scan/:scanId/confirm — rebateAmount rebateType olmadan gönderilirse 400 döner', async () => {
-    const scanId = await newScan();
-
-    await request(app.getHttpServer())
-      .post(`/api/v1/ocr/scan/${scanId}/confirm`)
+      .post(`/api/v1/ocr/scan/${scan.body.scanId}/confirm`)
       .set('Authorization', authHeader)
       .send({
         supplierId,
@@ -577,52 +454,9 @@ describe('OCR / Fatura Tarama (e2e)', () => {
         lines: [{ productId, qty: 1, unit: 'adet' }],
         invoiceTotal: 1000,
         rebateAmount: 100,
-      })
-      .expect(400);
-  });
-
-  it('POST /ocr/scan/:scanId/confirm — aşırı mahsup: paidAmount + rebateAmount faturayı aşarsa 409 döner, hiçbir kayıt kalıcı olmaz', async () => {
-    const scanId = await newScan();
-
-    const beforeQty = await queryStockQuantity();
-    const beforeErrorCount = await prisma.errorLog.count({
-      where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
-    });
-    const beforeDebtCount = await request(app.getHttpServer())
-      .get(`/api/v1/debts/${ctx.branchId}`)
-      .set('Authorization', authHeader)
-      .expect(200)
-      .then((r) => r.body.length as number);
-
-    const res = await request(app.getHttpServer())
-      .post(`/api/v1/ocr/scan/${scanId}/confirm`)
-      .set('Authorization', authHeader)
-      .send({
-        supplierId,
-        allItemsReceived: true,
-        lines: [{ productId, qty: 1, unit: 'adet' }],
-        invoiceTotal: 1000,
-        paidAmount: 600,
-        rebateAmount: 500, // 600 + 500 = 1100 > 1000
         rebateType: 'CIRO_PRIMI',
       })
-      .expect(409);
-
-    expect(res.body.message).toContain('tutarsızlık');
-    expect(await queryStockQuantity()).toBe(beforeQty);
-
-    const debtsRes = await request(app.getHttpServer())
-      .get(`/api/v1/debts/${ctx.branchId}`)
-      .set('Authorization', authHeader)
-      .expect(200);
-    expect(debtsRes.body.length).toBe(beforeDebtCount);
-
-    const errorLogs = await prisma.errorLog.findMany({
-      where: { source: 'DATA_INTEGRITY', tenantId: ctx.tenantId },
-      orderBy: { createdAt: 'desc' },
-    });
-    expect(errorLogs.length).toBe(beforeErrorCount + 1);
-    expect(errorLogs[0].message).toContain('ciro primi');
+      .expect(400);
   });
 
   // ── (h) Tarama listeleme — sayfalama ─────────────────────────────────────

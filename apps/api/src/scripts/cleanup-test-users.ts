@@ -53,6 +53,7 @@ function userReferenceOps(tx: any, userId: string) {
     ['CashierSession.openedBy', () => tx.cashierSession.count({ where: { openedBy: userId } }), () => tx.cashierSession.deleteMany({ where: { openedBy: userId } })],
     ['Debt.createdBy', () => tx.debt.count({ where: { createdBy: userId } }), () => tx.debt.deleteMany({ where: { createdBy: userId } })],
     ['DebtPayment.createdBy', () => tx.debtPayment.count({ where: { createdBy: userId } }), () => tx.debtPayment.deleteMany({ where: { createdBy: userId } })],
+    ['SupplierLedgerEntry.createdBy', () => tx.supplierLedgerEntry.count({ where: { createdBy: userId } }), () => tx.supplierLedgerEntry.deleteMany({ where: { createdBy: userId } })],
     ['DefectiveItemReport.createdBy', () => tx.defectiveItemReport.count({ where: { createdBy: userId } }), () => tx.defectiveItemReport.deleteMany({ where: { createdBy: userId } })],
     ['DefectiveItemReport.resolvedBy', () => tx.defectiveItemReport.count({ where: { resolvedBy: userId } }), () => tx.defectiveItemReport.updateMany({ where: { resolvedBy: userId }, data: { resolvedBy: null } })],
     ['PurchaseOrder.approvedBy', () => tx.purchaseOrder.count({ where: { approvedBy: userId } }), () => tx.purchaseOrder.updateMany({ where: { approvedBy: userId }, data: { approvedBy: null } })],
