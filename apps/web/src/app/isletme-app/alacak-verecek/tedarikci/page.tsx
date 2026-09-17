@@ -13,7 +13,6 @@ import {
   useSupplierLedger,
   useCreateLedgerEntry,
   type SupplierLedgerEntryItem,
-  type SupplierLedgerMonth,
 } from '@/hooks/useMudur';
 
 function fmtAmount(amount: string | number) {
@@ -26,11 +25,6 @@ function fmtDateTime(dateStr: string) {
     timeStyle: 'short',
   }).format(new Date(dateStr));
 }
-
-const MONTH_LABELS = [
-  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
-  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
-];
 
 function entryTypeLabel(type: string): string {
   if (type === 'INVOICE') return 'Fatura';
@@ -208,30 +202,6 @@ function SupplierLedgerInner() {
               <div className="space-y-1">
                 {ledger.recentReturns.map((entry: SupplierLedgerEntryItem) => (
                   <EntryRow key={entry.id} entry={entry} showLabel={false} />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* 6. Son 4 ay özeti */}
-          <div className="space-y-1.5">
-            <p className="text-sm font-medium">Son 4 Ay</p>
-            {ledger.monthlyBreakdown.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Veri yok.</p>
-            ) : (
-              <div className="space-y-2">
-                {ledger.monthlyBreakdown.map((m: SupplierLedgerMonth) => (
-                  <div key={`${m.year}-${m.month}`} className="rounded-md border px-3 py-2 text-sm">
-                    <p className="mb-1 font-medium">
-                      {MONTH_LABELS[m.month - 1]} {m.year}
-                    </p>
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                      <span>Fatura: {fmtAmount(m.invoiceTotal)}</span>
-                      <span>Ödeme: {fmtAmount(m.paymentTotal)}</span>
-                      <span>Ciro Primi/Geri Ödeme: {fmtAmount(m.rebateTotal)}</span>
-                      <span>İade: {fmtAmount(m.returnTotal)}</span>
-                    </div>
-                  </div>
                 ))}
               </div>
             )}

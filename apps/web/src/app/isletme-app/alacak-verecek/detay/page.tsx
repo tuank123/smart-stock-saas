@@ -22,73 +22,38 @@ function fmtDate(dateStr: string) {
   return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'long' }).format(new Date(dateStr));
 }
 
-function fmtDateTime(dateStr: string) {
-  return new Intl.DateTimeFormat('tr-TR', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(dateStr));
-}
-
-// Ciro primi / firma geri ödemesi (Faz 1 backend) — ödeme geçmişi
-// satırındaki etiket için (bkz. CashDetail). Ayrı bir RECEIVABLE kaydı
-// oluşturulmadığı için (manuel test sonrası karar) bu, görünürlüğün TEK yeri.
-function paymentTypeLabel(type?: string): string | null {
-  if (type === 'CIRO_PRIMI') return 'Ciro Primi Düşümü';
-  if (type === 'FIRMA_GERI_ODEMESI') return 'Firma Geri Ödemesi';
-  return null;
-}
-
 // ── CASH detayı ────────────────────────────────────────────────────────────────
 
 function CashDetail({ debt }: { debt: Debt }) {
-  const remaining = debt.remainingAmount ?? debt.amount;
-  const showTotal =
-    debt.remainingAmount != null &&
-    debt.amount != null &&
-    debt.remainingAmount !== debt.amount;
-
-  // En yeni en üstte olacak şekilde ödeme geçmişi.
-  const paymentsDesc = [...(debt.payments ?? [])].reverse();
+  const lines = debt.productLines ?? [];
 
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-sm text-muted-foreground">Kalan Tutar</p>
-        <p className="text-2xl font-bold">{remaining != null ? fmtAmount(remaining) : '—'}</p>
-        {showTotal && debt.amount != null && (
-          <p className="text-sm text-muted-foreground">Toplam: {fmtAmount(debt.amount)}</p>
-        )}
+        <p className="text-sm text-muted-foreground">Toplam</p>
+        <p className="text-2xl font-bold">{debt.amount != null ? fmtAmount(debt.amount) : '—'}</p>
       </div>
 
-      {/* Ödeme Geçmişi */}
+      {/* Fatura Kalemleri */}
       <div className="space-y-1.5">
-        <p className="text-sm font-medium">Ödeme Geçmişi</p>
-        {paymentsDesc.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Henüz ödeme yapılmadı.</p>
+        <p className="text-sm font-medium">Fatura Kalemleri</p>
+        {lines.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Bu fatura için ürün detayı bulunmuyor.</p>
         ) : (
           <div className="space-y-1">
-            {paymentsDesc.map((p, i) => {
-              const label = p.type && p.type !== 'CASH' ? paymentTypeLabel(p.type) : null;
-              return (
-                <div key={i} className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
-                  {label && <p className="text-xs text-muted-foreground">{label}</p>}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">{fmtDateTime(p.paidAt)}</span>
-                    <span className="font-medium">{fmtAmount(p.amount)}</span>
-                  </div>
+            {lines.map((l) => (
+              <div key={l.productId} className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span>{l.productName}</span>
+                  <span className="font-medium">
+                    {l.quantity} {l.unit}
+                  </span>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         )}
       </div>
-
-      {debt.status === 'PAID' && (
-        <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-3 text-sm text-green-800">
-          <CheckCircle className="h-4 w-4 shrink-0" />
-          Bu borç ödendi.
-        </div>
-      )}
     </div>
   );
 }

@@ -288,6 +288,20 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     expect(ledgerEntry).toBeDefined();
     expect(ledgerEntry.type).toBe('INVOICE');
     expect(Number(ledgerEntry.amount)).toBe(15000);
+
+    // Bu Debt hala CASH — ama artık onaylanan fatura satırlarını
+    // (ürün adı/miktar/birim) bilgilendirici metadata olarak taşıyor
+    // (ödeme takibi tedarikçi bakiyesine taşındığı için detay ekranı
+    // artık "hangi ürün, ne kadar" gösterecek).
+    expect(debt.productLines).toHaveLength(1);
+    expect(debt.productLines[0]).toMatchObject({
+      productId,
+      productName: 'Coca-Cola 33cl',
+      quantity: 1,
+      unit: 'adet',
+      receivedQuantity: 0,
+    });
+    expect(debt.productDescription).toBe('Coca-Cola 33cl x1');
   });
 
   // ── (f) Otomatik CASH borç — hiç ödeme yapılmadan (paidAmount=0) ─────────

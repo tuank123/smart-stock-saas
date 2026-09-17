@@ -292,6 +292,27 @@ export class OcrService {
 
         const diff = dto.invoiceTotal - paidAmount;
         if (diff > 0) {
+          // Ürün adlarını çekip productLines dizisini kur — bu CASH borcun
+          // amount/remainingAmount semantiğini DEĞİŞTİRMEZ, yalnızca fatura
+          // detay ekranında "hangi ürün, ne kadar" gösterebilmek için
+          // bilgilendirici metadata (eksik teslimat ürün borcundaki
+          // productLines kurulumuyla aynı desen — bkz. aşağıda).
+          const confirmedProducts = await tx.product.findMany({
+            where: { id: { in: dto.lines.map((l) => l.productId) } },
+            select: { id: true, name: true },
+          });
+          const confirmedNameById = new Map(confirmedProducts.map((p) => [p.id, p.name]));
+          const confirmedProductLines = dto.lines.map((line) => ({
+            productId: line.productId,
+            productName: confirmedNameById.get(line.productId) ?? line.productId,
+            quantity: line.qty,
+            unit: line.unit,
+            receivedQuantity: 0,
+          }));
+          const confirmedProductDescription = confirmedProductLines
+            .map((pl) => `${pl.productName} x${pl.quantity}`)
+            .join(', ');
+
           const cashDebt = await tx.debt.create({
             data: {
               tenantId: user.tenantId,
@@ -304,6 +325,8 @@ export class OcrService {
               amount: dto.invoiceTotal,
               // remainingAmount = amount - paidAmount (paidAmount 0 ise = amount).
               remainingAmount: diff,
+              productDescription: confirmedProductDescription,
+              productLines: confirmedProductLines,
               status: 'OPEN',
               createdBy: user.userId,
               notes: 'Fatura onayı sırasında otomatik oluşturuldu',
