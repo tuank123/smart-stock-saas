@@ -376,6 +376,20 @@ export function OcrScanFlow() {
     setSettlementType('PRODUCT');
   }
 
+  // Satış ⇄ İade sekmesi değişince akış SIFIRDAN başlar: iki mod
+  // birbirinden tamamen farklı veri topluyor (satışta ödenen tutar/eksik
+  // teslimat, iadede iade tutarı/mahsup şekli), bu yüzden yarım kalmış
+  // durum taşınmaz. Tamamlanmış ekranda kalıp yalnızca başarı mesajının
+  // değişmesi de bu yüzden hatalıydı. Sıfırlama mantığı tek yerde
+  // (reset) — "Yeni Fatura Tara" butonuyla AYNI fonksiyon.
+  function selectInvoiceMode(mode: 'SALE' | 'RETURN') {
+    // Zaten açık olan sekmeye tekrar basmak "geçiş" değil — yarım kalmış
+    // çalışmayı silmemek için no-op.
+    if (mode === invoiceMode) return;
+    setInvoiceMode(mode);
+    reset();
+  }
+
   // ── Render ────────────────────────────────────────────────────────────
 
   return (
@@ -384,13 +398,13 @@ export function OcrScanFlow() {
       <div className="mb-4 grid grid-cols-2 gap-2">
         <Button
           variant={invoiceMode === 'SALE' ? 'default' : 'outline'}
-          onClick={() => setInvoiceMode('SALE')}
+          onClick={() => selectInvoiceMode('SALE')}
         >
           Satış Faturası
         </Button>
         <Button
           variant={invoiceMode === 'RETURN' ? 'default' : 'outline'}
-          onClick={() => setInvoiceMode('RETURN')}
+          onClick={() => selectInvoiceMode('RETURN')}
         >
           İade Faturası
         </Button>
