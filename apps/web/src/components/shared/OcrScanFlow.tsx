@@ -497,95 +497,110 @@ export function OcrScanFlow() {
                       </button>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      {/* Match status + product selector */}
-                      {isAutoMatched ? (
-                        <div className="flex min-w-0 flex-auto items-center gap-2">
-                          <Badge
-                            variant="outline"
-                            className="shrink-0 border-green-200 bg-green-100 text-xs text-green-700"
-                          >
-                            <CheckCircle className="mr-1 h-3 w-3" />
-                            Otomatik Eşleşti
-                          </Badge>
-                          <span className="truncate text-sm font-medium">
-                            {matched?.name ?? row.productId}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="flex min-w-0 flex-auto items-center gap-2">
-                          <Badge
-                            variant="outline"
-                            className={`shrink-0 text-xs ${
-                              row.productId
-                                ? 'border-amber-200 bg-amber-100 text-amber-700'
-                                : 'border-red-200 bg-red-100 text-red-700'
-                            }`}
-                          >
-                            {row.productId ? 'Manuel Seç' : 'Eşleşmedi'}
-                          </Badge>
-                          <Select
-                            value={row.productId ?? ''}
-                            onValueChange={(v) => updateRow(i, { productId: v || null })}
-                          >
-                            <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
-                              <SelectValue placeholder="Ürün seçin…" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {stock.map((s: StockLevel) => (
-                                <SelectItem key={s.productId} value={s.productId}>
-                                  {s.product.name}
-                                  <span className="ml-1 text-muted-foreground">
-                                    ({s.product.sku})
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-
-                      {/* Unit mode toggle */}
-                      <div className="flex shrink-0 overflow-hidden rounded-md border">
-                        {(['ADET', 'KOLI'] as const).map((m) => (
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => updateRow(i, { mode: m })}
-                            className={cn(
-                              'px-2 py-1 text-xs font-medium transition-colors',
-                              row.mode === m
-                                ? 'bg-foreground text-background'
-                                : 'bg-background text-muted-foreground hover:bg-muted/50',
-                            )}
-                          >
-                            {m === 'ADET' ? 'Adet' : 'Koli'}
-                          </button>
-                        ))}
+                    {/* HER ZAMAN İKİ SATIR — ürün adının uzunluğundan bağımsız,
+                        bütün kartlar aynı yükseklikte/hizada görünür. 1. satır:
+                        rozet + ürün adı (sığmazsa üç noktayla kısalır).
+                        2. satır: Adet/Koli + miktar, her kartta aynı yerde.
+                        İki grup aynı satırda yer için yarışmadığı için ne
+                        flex-wrap'e ne de yatay kaydırmaya gerek var. */}
+                    <div className="space-y-2">
+                      {/* 1. satır — eşleşme durumu + ürün adı/seçici.
+                          min-h-8: otomatik eşleşen satırda yalnızca metin var
+                          (22px), Manuel Seç'te ise h-8'lik Select var (32px);
+                          bu alt sınır olmadan iki kart türü 10px farklı
+                          yükseklikte görünüyordu. */}
+                      <div className="flex min-h-8 items-center gap-2">
+                        {isAutoMatched ? (
+                          <>
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 border-green-200 bg-green-100 text-xs text-green-700"
+                            >
+                              <CheckCircle className="mr-1 h-3 w-3" />
+                              Otomatik Eşleşti
+                            </Badge>
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                              {matched?.name ?? row.productId}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <Badge
+                              variant="outline"
+                              className={`shrink-0 text-xs ${
+                                row.productId
+                                  ? 'border-amber-200 bg-amber-100 text-amber-700'
+                                  : 'border-red-200 bg-red-100 text-red-700'
+                              }`}
+                            >
+                              {row.productId ? 'Manuel Seç' : 'Eşleşmedi'}
+                            </Badge>
+                            <Select
+                              value={row.productId ?? ''}
+                              onValueChange={(v) => updateRow(i, { productId: v || null })}
+                            >
+                              <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
+                                <SelectValue placeholder="Ürün seçin…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {stock.map((s: StockLevel) => (
+                                  <SelectItem key={s.productId} value={s.productId}>
+                                    {s.product.name}
+                                    <span className="ml-1 text-muted-foreground">
+                                      ({s.product.sku})
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </>
+                        )}
                       </div>
 
-                      {/* Quantity */}
-                      <div className="flex shrink-0 items-center gap-1">
-                        <Input
-                          type="text"
-                          inputMode="decimal"
-                          value={row.qtyText}
-                          onChange={(e) => {
-                            const text = e.target.value;
-                            const v = Number(text.replace(',', '.'));
-                            // Geçerli pozitif sayı ise qty'yi de güncelle; değilse
-                            // yalnız ham metni değiştir (son geçerli qty korunur).
-                            if (!isNaN(v) && v > 0) {
-                              updateRow(i, { qtyText: text, qty: v });
-                            } else {
-                              updateRow(i, { qtyText: text });
-                            }
-                          }}
-                          className="h-8 w-20 text-right text-sm"
-                        />
-                        <span className="text-xs text-muted-foreground">
-                          {row.mode === 'KOLI' ? 'koli' : row.unit}
-                        </span>
+                      {/* 2. satır — birim seçimi + miktar */}
+                      <div className="flex items-center gap-2">
+                        {/* Unit mode toggle */}
+                        <div className="flex shrink-0 overflow-hidden rounded-md border">
+                          {(['ADET', 'KOLI'] as const).map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => updateRow(i, { mode: m })}
+                              className={cn(
+                                'px-2 py-1 text-xs font-medium transition-colors',
+                                row.mode === m
+                                  ? 'bg-foreground text-background'
+                                  : 'bg-background text-muted-foreground hover:bg-muted/50',
+                              )}
+                            >
+                              {m === 'ADET' ? 'Adet' : 'Koli'}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Quantity */}
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Input
+                            type="text"
+                            inputMode="decimal"
+                            value={row.qtyText}
+                            onChange={(e) => {
+                              const text = e.target.value;
+                              const v = Number(text.replace(',', '.'));
+                              // Geçerli pozitif sayı ise qty'yi de güncelle; değilse
+                              // yalnız ham metni değiştir (son geçerli qty korunur).
+                              if (!isNaN(v) && v > 0) {
+                                updateRow(i, { qtyText: text, qty: v });
+                              } else {
+                                updateRow(i, { qtyText: text });
+                              }
+                            }}
+                            className="h-8 w-20 text-right text-sm"
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {row.mode === 'KOLI' ? 'koli' : row.unit}
+                          </span>
+                        </div>
                       </div>
                     </div>
 
