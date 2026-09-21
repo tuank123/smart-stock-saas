@@ -117,6 +117,10 @@ export function OcrScanFlow() {
   const [allItemsReceived, setAllItemsReceived] = useState(true);
   // productId → gerçekten teslim alınan miktar (ham metin).
   const [deliveredQuantities, setDeliveredQuantities] = useState<Record<string, string>>({});
+  // Teslim alınan miktarın birimi (productId → Adet/Koli). Kullanıcı bu kartta
+  // değiştirmediyse satırın 2. adımda seçtiği mod geçerlidir — fatura "koli"
+  // olarak girildiyse teslim alınan da koli olarak girilir.
+  const [deliveredModes, setDeliveredModes] = useState<Record<string, QtyMode>>({});
 
   // İade faturası bilgileri.
   const [invoiceDate, setInvoiceDate] = useState('');
@@ -145,6 +149,31 @@ export function OcrScanFlow() {
     const unitsPerCase = resolveUnitsPerCase(row);
     if (!unitsPerCase) return null;
     return row.qty * unitsPerCase;
+  }
+
+  // ── Teslim alınan miktar (eksik teslimat kartları) ────────────────────
+  // Backend `lines[].qty - deliveredLines[].receivedQty` çıkarmasını doğrudan
+  // yapıyor (bkz. ocr.service.ts confirmScan), yani İKİSİ DE adet cinsinden
+  // olmak ZORUNDA. Bu yüzden koli→adet çevrimi 2. adımdaki resolveTotalQty
+  // ile birebir aynı şekilde burada da uygulanır.
+
+  function deliveredModeFor(row: ReviewRow): QtyMode {
+    return (row.productId ? deliveredModes[row.productId] : undefined) ?? row.mode;
+  }
+
+  // Kartta görünen ham metin — kullanıcı dokunmadıysa faturadaki miktar
+  // (satırın kendi modundaki değeri) ön-dolu gelir.
+  function deliveredQtyText(row: ReviewRow): string {
+    return (row.productId ? deliveredQuantities[row.productId] : undefined) ?? String(row.qty);
+  }
+
+  function resolveDeliveredTotalQty(row: ReviewRow): number | null {
+    const value = Number(deliveredQtyText(row).replace(',', '.'));
+    if (!isFinite(value) || value < 0) return null;
+    if (deliveredModeFor(row) === 'ADET') return value;
+    const unitsPerCase = resolveUnitsPerCase(row);
+    if (!unitsPerCase) return null;
+    return value * unitsPerCase;
   }
 
   // ── Step 1 helpers ────────────────────────────────────────────────────
@@ -251,6 +280,10 @@ export function OcrScanFlow() {
       toast.error('Koli/adet bilgisi eksik olan ürünler var');
       return;
     }
+    if (!allItemsReceived && reviewRows.some((r) => resolveDeliveredTotalQty(r) == null)) {
+      toast.error('Teslim alınan miktarlarda koli/adet bilgisi eksik');
+      return;
+    }
     if (!supplierId) {
       toast.error('Tedarikçi seçin');
       return;
@@ -279,9 +312,8 @@ export function OcrScanFlow() {
           ? undefined
           : reviewRows.map((r) => ({
               productId: r.productId!,
-              receivedQty: Number(
-                (deliveredQuantities[r.productId!] ?? String(r.qty)).replace(',', '.'),
-              ),
+              // lines[].qty gibi ADET cinsinden — koli modundaysa çevrilir.
+              receivedQty: resolveDeliveredTotalQty(r)!,
             })),
       },
       { onSuccess: () => setStep(3) },
@@ -338,6 +370,7 @@ export function OcrScanFlow() {
     setPaidAmount('');
     setAllItemsReceived(true);
     setDeliveredQuantities({});
+    setDeliveredModes({});
     setInvoiceDate('');
     setReturnTotal('');
     setSettlementType('PRODUCT');
@@ -689,32 +722,105 @@ export function OcrScanFlow() {
                 {!allItemsReceived && (
                   <div className="space-y-2">
                     <Label>Her ürün için gerçekten teslim alınan miktarı girin</Label>
-                    {reviewRows.map((r, i) => (
-                      <div key={r.productId ?? i} className="space-y-1.5 rounded-lg border p-3">
-                        <p className="text-sm font-medium">
-                          {r.productId ? productMap.get(r.productId)?.name ?? r.ocrName : r.ocrName}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Faturadaki Miktar: {r.qty} {r.unit}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="text"
-                            inputMode="decimal"
-                            value={deliveredQuantities[r.productId!] ?? String(r.qty)}
-                            onChange={(e) =>
-                              setDeliveredQuantities((prev) => ({
-                                ...prev,
-                                [r.productId!]: e.target.value,
-                              }))
-                            }
-                            placeholder="Teslim alınan"
-                            className="h-9 flex-1"
-                          />
-                          <span className="text-xs text-muted-foreground">{r.unit}</span>
+                    {reviewRows.map((r, i) => {
+                      const deliveredMode = deliveredModeFor(r);
+                      const unitsPerCase = resolveUnitsPerCase(r);
+                      const invoiceQty = resolveTotalQty(r);
+                      const deliveredText = deliveredQtyText(r);
+                      const deliveredNum = Number(deliveredText.replace(',', '.'));
+                      return (
+                        <div key={r.productId ?? i} className="space-y-1.5 rounded-lg border p-3">
+                          <p className="text-sm font-medium">
+                            {r.productId
+                              ? productMap.get(r.productId)?.name ?? r.ocrName
+                              : r.ocrName}
+                          </p>
+                          {/* Faturadaki miktar HER ZAMAN adet cinsinden gösterilir
+                              (2. adımda koli girildiyse çevrilmiş hâli) — teslim
+                              alınanla kıyaslanabilir olması için. */}
+                          <p className="text-xs text-muted-foreground">
+                            Faturadaki Miktar: {invoiceQty ?? r.qty} {r.unit}
+                            {r.mode === 'KOLI' && unitsPerCase ? ` (${r.qty} koli)` : ''}
+                          </p>
+                          <div className="flex items-center gap-2">
+                            {/* Birim seçimi — 2. adımdaki satır toggle'ıyla aynı desen */}
+                            <div className="flex shrink-0 overflow-hidden rounded-md border">
+                              {(['ADET', 'KOLI'] as const).map((m) => (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() =>
+                                    r.productId &&
+                                    setDeliveredModes((prev) => ({ ...prev, [r.productId!]: m }))
+                                  }
+                                  className={cn(
+                                    'px-2 py-1 text-xs font-medium transition-colors',
+                                    deliveredMode === m
+                                      ? 'bg-foreground text-background'
+                                      : 'bg-background text-muted-foreground hover:bg-muted/50',
+                                  )}
+                                >
+                                  {m === 'ADET' ? 'Adet' : 'Koli'}
+                                </button>
+                              ))}
+                            </div>
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              value={deliveredText}
+                              onChange={(e) =>
+                                setDeliveredQuantities((prev) => ({
+                                  ...prev,
+                                  [r.productId!]: e.target.value,
+                                }))
+                              }
+                              placeholder="Teslim alınan"
+                              className="h-9 min-w-0 flex-1"
+                            />
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              {deliveredMode === 'KOLI' ? 'koli' : r.unit}
+                            </span>
+                          </div>
+
+                          {/* Koli → adet çevrimi (2. adımdaki ile aynı) */}
+                          {deliveredMode === 'KOLI' &&
+                            (unitsPerCase ? (
+                              <p className="text-xs text-muted-foreground">
+                                ({isFinite(deliveredNum) ? deliveredNum : 0} koli × {unitsPerCase}{' '}
+                                adet/koli ={' '}
+                                {(isFinite(deliveredNum) ? deliveredNum : 0) * unitsPerCase} adet)
+                              </p>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">
+                                  Bu ürün için koli/adet bilgisi giriniz
+                                </span>
+                                <Input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={r.manualUnitsPerCaseText}
+                                  onChange={(e) => {
+                                    const text = e.target.value;
+                                    const v = parseInt(text, 10);
+                                    if (!isNaN(v) && v >= 1) {
+                                      updateRow(i, {
+                                        manualUnitsPerCaseText: text,
+                                        manualUnitsPerCase: v,
+                                      });
+                                    } else {
+                                      updateRow(i, {
+                                        manualUnitsPerCaseText: text,
+                                        manualUnitsPerCase: null,
+                                      });
+                                    }
+                                  }}
+                                  className="h-8 w-20 text-right text-sm"
+                                />
+                              </div>
+                            ))}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
