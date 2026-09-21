@@ -453,7 +453,7 @@ export function OcrScanFlow() {
                     <div className="flex flex-wrap items-center gap-2">
                       {/* Match status + product selector */}
                       {isAutoMatched ? (
-                        <div className="flex flex-1 items-center gap-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
                           <Badge
                             variant="outline"
                             className="shrink-0 border-green-200 bg-green-100 text-xs text-green-700"
@@ -466,7 +466,7 @@ export function OcrScanFlow() {
                           </span>
                         </div>
                       ) : (
-                        <div className="flex flex-1 items-center gap-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
                           <Badge
                             variant="outline"
                             className={`shrink-0 text-xs ${

@@ -20,14 +20,17 @@ const SelectTrigger = React.forwardRef<
       'bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background',
       'placeholder:text-muted-foreground',
       'focus:outline-none focus:ring-1 focus:ring-ring',
-      'disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
+      // Seçili değer uzun olduğunda tetikleyiciyi taşırmasın: span flex
+      // çocuğu olduğu için min-w-0 OLMADAN kısalmaz (truncate tek başına
+      // yetmez), ok ikonu da shrink-0 olmadan sıfıra ezilip kaybolur.
+      'disabled:cursor-not-allowed disabled:opacity-50 [&>span]:min-w-0 [&>span]:truncate',
       className,
     )}
     {...props}
   >
     {children}
     <SelectPrimitive.Icon asChild>
-      <ChevronDown className="h-4 w-4 opacity-50" />
+      <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 ));
@@ -70,6 +73,10 @@ const SelectContent = React.forwardRef<
       ref={ref}
       className={cn(
         'relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md',
+        // Uzun seçenek metinleri paneli ekran dışına taşırmasın (mobilde
+        // kritik) — Radix'in popper konumlandırmasıyla gelen kullanılabilir
+        // genişlik değişkeni üst sınır olarak uygulanır.
+        position === 'popper' && 'max-w-[var(--radix-select-content-available-width)]',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
