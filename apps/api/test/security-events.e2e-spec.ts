@@ -111,7 +111,10 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
       .send({ email: ctx1.payload.email, password: SECRET_PASSWORD })
       .expect(401);
 
-    const events = await listSecurityEvents('LOGIN_FAILED');
+    const events = await waitForSecurityEvent(
+      'LOGIN_FAILED',
+      (e) => e.context?.email === ctx1.payload.email,
+    );
     const match = events.find((e) => e.context?.email === ctx1.payload.email);
     expect(match).toBeDefined();
     expect(match!.severity).toBe('WARNING');
@@ -161,9 +164,15 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
       await floodApp.close();
     }
 
-    const events = await listSecurityEvents('RATE_LIMITED');
-    expect(events.length).toBeGreaterThan(0);
-    expect(events[0].context?.path).toContain('/branches/agent-connect');
+    // events[0] (en yeni kayıt) yerine BU testin yolunu taşıyan kaydı arıyoruz:
+    // başka bir suite'in RATE_LIMITED kaydı araya girerse events[0] başka bir
+    // path olabilirdi.
+    const isAgentConnect = (e: SecurityEventItem) =>
+      typeof e.context?.path === 'string' && e.context.path.includes('/branches/agent-connect');
+
+    const events = await waitForSecurityEvent('RATE_LIMITED', isAgentConnect);
+    const match = events.find(isAgentConnect);
+    expect(match).toBeDefined();
   });
 
   // ── (d) Regresyon: şifre HİÇBİR SECURITY_EVENT kaydında yer almaz ────────
@@ -281,8 +290,19 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
 
       const after = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
       expect(after.some((e) => e.context?.resourceId === fakeOrderId)).toBe(false);
-      // Toplam CROSS_TENANT_ACCESS_ATTEMPT sayısı da artmamalı.
-      expect(after.length).toBe(before.length);
+      // Sayı da artmamalı — ama GLOBAL uzunluk karşılaştırması kullanılamaz:
+      // listSecurityEvents tenant'a göre filtrelemiyor ve diğer e2e
+      // dosyalarının fire-and-forget SecurityEventLogger.log() yazımları iki
+      // okuma arasında bu sayıyı değiştirebilir (flaky). Bunun yerine YALNIZCA
+      // bu testin fakeOrderId'sine ait kayıtlar sayılır — bu ID benzersiz
+      // olduğu için başka hiçbir suite onun için event üretemez.
+      const beforeFakeCount = before.filter(
+        (e) => e.context?.resourceId === fakeOrderId,
+      ).length;
+      const afterFakeCount = after.filter(
+        (e) => e.context?.resourceId === fakeOrderId,
+      ).length;
+      expect(afterFakeCount).toBe(beforeFakeCount);
     });
 
     // debts.service.ts — daha önce (Faz 2'nin bir sonraki adımına kadar) BU
@@ -375,7 +395,14 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
         .expect(404);
 
       const after = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
-      expect(after.length).toBe(before.length);
+      // GLOBAL uzunluk yerine yalnızca bu testin sahte ID'lerine ait kayıtlar
+      // sayılır (bkz. yukarıdaki fakeOrderId testindeki aynı gerekçe) — global
+      // sayaç diğer suite'lerin yazımlarıyla değişebildiği için flaky'di.
+      const isFakeCombo = (e: SecurityEventItem) =>
+        e.context?.resourceId === fakeBranchId || e.context?.resourceId === fakeProductId;
+
+      expect(after.some(isFakeCombo)).toBe(false);
+      expect(after.filter(isFakeCombo).length).toBe(before.filter(isFakeCombo).length);
     });
 
     // ocr.service.ts — confirmScan (aynı desen confirmReturn'de de var, tek
@@ -396,7 +423,10 @@ describe('Güvenlik Olayları / Security Events (e2e)', () => {
         .send({ supplierId: '11111111-1111-4111-8111-111111111111', lines: [] })
         .expect(404);
 
-      const events = await listSecurityEvents('CROSS_TENANT_ACCESS_ATTEMPT');
+      const events = await waitForSecurityEvent(
+        'CROSS_TENANT_ACCESS_ATTEMPT',
+        (e) => e.context?.resourceId === foreignScanId,
+      );
       const match = events.find((e) => e.context?.resourceId === foreignScanId);
       expect(match).toBeDefined();
       expect(match!.context?.resourceType).toBe('OcrScan');
