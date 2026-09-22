@@ -258,6 +258,63 @@ export function useStockDetail(productId: string) {
   });
 }
 
+// ── Ürün önerileri (fuzzy) ────────────────────────────────────────────────────
+// GET /products/suggest — /products?search='in aksine HER ZAMAN fuzzy skorlar
+// (oradaki fuzzy yalnızca substring sıfır sonuç verince devreye girer). OCR'da
+// eşleşmeyen fatura satırına ürün seçtirmek için kullanılır.
+
+export interface SuggestedProduct {
+  id: string;
+  sku: string;
+  name: string;
+  unit: string;
+  barcode?: string | null;
+  // Koli→adet çevrimi için kritik (bkz. OcrScanFlow resolveUnitsPerCase).
+  unitsPerCase?: number | null;
+  category?: { id: string; name: string } | null;
+}
+
+export interface ProductSuggestResponse {
+  items: SuggestedProduct[];
+  total: number;
+  matchType: 'fuzzy' | 'alphabetical';
+}
+
+export function useProductSuggestions(query: string, limit: number, enabled = true) {
+  return useQuery<ProductSuggestResponse>({
+    queryKey: ['products', 'suggest', query, limit],
+    queryFn: () =>
+      api
+        .get<ProductSuggestResponse>('/products/suggest', {
+          // query boşsa backend alfabetik ilk N ürünü döner.
+          params: { ...(query ? { query } : {}), limit },
+        })
+        .then((r) => r.data),
+    enabled,
+    staleTime: 1000 * 30,
+  });
+}
+
+// Belirli productId'ler için tam ürün kaydı. Stok listesi sayfalı olduğu için
+// (pageSize varsayılanı 50) otomatik eşleşen bir ürün o listede OLMAYABİLİR;
+// unitsPerCase/ad gibi alanlar buradan tamamlanır. Backend'de toplu
+// "id listesiyle getir" uç noktası yok, bu yüzden tek sorgu anahtarı altında
+// paralel istekler yapılır (istek sayısı = eksik ürün sayısı, normalde 0).
+export function useProductsByIds(ids: string[]) {
+  const sorted = [...ids].sort();
+  return useQuery<SuggestedProduct[]>({
+    queryKey: ['products', 'byIds', sorted],
+    queryFn: () =>
+      Promise.all(
+        sorted.map((id) =>
+          api.get<SuggestedProduct>(`/products/${id}`).then((r) => r.data),
+        ),
+      ),
+    enabled: sorted.length > 0,
+    staleTime: 1000 * 60,
+  });
+}
+
 // Product-name lookup for the KASIYER station screen — sends `search`, which
 // the backend matches against product.name (case-insensitive contains).
 // Returns [] when nothing matches. Short staleTime so results stay fresh.

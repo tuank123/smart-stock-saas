@@ -1,7 +1,7 @@
 'use client';
 
-import { Fragment, useState } from 'react';
-import { AlertTriangle, Camera as CameraIcon, CheckCircle, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
+import { Fragment, useEffect, useState } from 'react';
+import { AlertTriangle, Camera as CameraIcon, CheckCircle, RefreshCw, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import toast from 'react-hot-toast';
 import { Badge } from '@/components/ui/badge';
@@ -21,10 +21,12 @@ import {
   useOcrConfirm,
   useOcrConfirmReturn,
   useOcrScan,
+  useProductSuggestions,
+  useProductsByIds,
   useStockList,
   useSuppliers,
 } from '@/hooks/useMudur';
-import type { OcrParsedLine } from '@/hooks/useMudur';
+import type { OcrParsedLine, SuggestedProduct } from '@/hooks/useMudur';
 import type { StockLevel, Supplier } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -87,6 +89,108 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
   );
 }
 
+// ── Ürün seçici (fuzzy öneri paneli) ──────────────────────────────────────────
+// Eşleşmeyen fatura satırına ürün seçtirir. Yeni bir UI kütüphanesi (cmdk/
+// Combobox) EKLEMEDEN, uygulamanın mevcut deseniyle: düz Input + dokunulabilir
+// sonuç listesi (bkz. stok-sorgu ekranları).
+
+const SUGGEST_DEBOUNCE_MS = 300;
+const SUGGEST_INITIAL_LIMIT = 3; // panel ilk açıldığında: OCR metnine en yakın 3
+const SUGGEST_SEARCH_LIMIT = 10; // kullanıcı yazmaya başlayınca daha geniş liste
+
+function ProductPicker({
+  selectedName,
+  ocrName,
+  onSelect,
+}: {
+  selectedName: string | null;
+  ocrName: string;
+  onSelect: (product: SuggestedProduct) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const [debounced, setDebounced] = useState('');
+
+  // stok-sorgu ile aynı debounce deseni.
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(input.trim()), SUGGEST_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [input]);
+
+  // Kullanıcı bir şey yazmadıysa OCR'ın okuduğu ham metinle öneri getirilir.
+  const isSearching = debounced.length > 0;
+  const query = isSearching ? debounced : ocrName;
+  const limit = isSearching ? SUGGEST_SEARCH_LIMIT : SUGGEST_INITIAL_LIMIT;
+  const { data, isPending, isError } = useProductSuggestions(query, limit, open);
+  const items = data?.items ?? [];
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 text-xs shadow-sm transition-colors hover:bg-muted/50"
+      >
+        <span className={cn('truncate', !selectedName && 'text-muted-foreground')}>
+          {selectedName ?? 'Ürün seçin…'}
+        </span>
+        <Search className="h-3.5 w-3.5 shrink-0 opacity-50" />
+      </button>
+    );
+  }
+
+  return (
+    <div className="w-full space-y-2 rounded-md border bg-card p-2">
+      <div className="flex items-center gap-2">
+        <Input
+          autoFocus
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Ürün ara…"
+          className="h-8 min-w-0 flex-1 text-xs"
+        />
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setInput('');
+          }}
+          className="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted"
+        >
+          Kapat
+        </button>
+      </div>
+
+      {isPending ? (
+        <p className="px-1 py-2 text-xs text-muted-foreground">Aranıyor…</p>
+      ) : isError ? (
+        <p className="px-1 py-2 text-xs text-destructive">Öneriler yüklenemedi.</p>
+      ) : items.length === 0 ? (
+        <p className="px-1 py-2 text-xs text-muted-foreground">Eşleşen ürün bulunamadı.</p>
+      ) : (
+        <div className="space-y-1">
+          {items.map((p: SuggestedProduct) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                onSelect(p);
+                setOpen(false);
+                setInput('');
+              }}
+              className="flex w-full items-center justify-between gap-2 rounded-md border bg-background px-2 py-1.5 text-left transition-colors hover:bg-muted active:bg-muted"
+            >
+              <span className="min-w-0 truncate text-xs font-medium">{p.name}</span>
+              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{p.sku}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Shared OCR invoice-scan flow (foto çek → tara → onayla) ────────────────────
 // branchId, ürün listesi ve OCR hook'ları role'den bağımsız olduğu için hem
 // SUBE_MUDURU (mudur/ocr) hem KASIYER (gorevli/fatura-tarama) bunu kullanır.
@@ -127,13 +231,41 @@ export function OcrScanFlow() {
   const [returnTotal, setReturnTotal] = useState('');
   const [settlementType, setSettlementType] = useState<'PRODUCT' | 'CASH'>('PRODUCT');
 
-  // Map productId → { name, unit, unitsPerCase } from stock list for display
+  // Öneri panelinden seçilen ürünler — seçim anında tam kayıt zaten elimizde
+  // olduğu için (suggest uç noktası unitsPerCase dahil tam satır döner) ek
+  // istek yapmadan doğrudan productMap'i besler.
+  const [pickedProducts, setPickedProducts] = useState<Record<string, SuggestedProduct>>({});
+
+  // Satırlarda GERÇEKTEN kullanılan ama sayfalı stok listesinde (pageSize=50)
+  // bulunmayan ürünler. Otomatik eşleşme backend'de TÜM tenant ürünleri
+  // üzerinden yapıldığı için 50'lik sayfanın dışındaki bir ürüne işaret
+  // edebilir; o durumda unitsPerCase bulunamadığından Koli modu çalışmaz ve
+  // onay "Koli/adet bilgisi eksik" ile bloke olurdu.
+  const stockProductIds = new Set(stock.map((s: StockLevel) => s.productId));
+  const missingProductIds = Array.from(
+    new Set(
+      reviewRows
+        .map((r) => r.productId)
+        .filter((id): id is string => !!id && !stockProductIds.has(id) && !pickedProducts[id]),
+    ),
+  );
+  const { data: fetchedProducts } = useProductsByIds(missingProductIds);
+
+  // Map productId → { name, unit, unitsPerCase }. Kaynak sırası: sayfalı stok
+  // listesi → panelden seçilenler → eksik kalanlar için tekil ürün çağrıları.
   const productMap = new Map<string, { name: string; unit: string; unitsPerCase: number | null }>(
     stock.map((s: StockLevel) => [
       s.productId,
       { name: s.product.name, unit: s.product.unit, unitsPerCase: s.product.unitsPerCase ?? null },
     ]),
   );
+  for (const p of [...Object.values(pickedProducts), ...(fetchedProducts ?? [])]) {
+    productMap.set(p.id, {
+      name: p.name,
+      unit: p.unit,
+      unitsPerCase: p.unitsPerCase ?? null,
+    });
+  }
 
   // Total adet for a row, accounting for koli mode (qty × unitsPerCase)
   function resolveUnitsPerCase(row: ReviewRow): number | null {
@@ -371,6 +503,7 @@ export function OcrScanFlow() {
     setAllItemsReceived(true);
     setDeliveredQuantities({});
     setDeliveredModes({});
+    setPickedProducts({});
     setInvoiceDate('');
     setReturnTotal('');
     setSettlementType('PRODUCT');
@@ -532,24 +665,21 @@ export function OcrScanFlow() {
                             {matched?.name ?? row.productId}
                           </span>
                         ) : (
-                          <Select
-                            value={row.productId ?? ''}
-                            onValueChange={(v) => updateRow(i, { productId: v || null })}
-                          >
-                            <SelectTrigger className="h-8 w-full text-xs">
-                              <SelectValue placeholder="Ürün seçin…" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {stock.map((s: StockLevel) => (
-                                <SelectItem key={s.productId} value={s.productId}>
-                                  {s.product.name}
-                                  <span className="ml-1 text-muted-foreground">
-                                    ({s.product.sku})
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <ProductPicker
+                            selectedName={
+                              row.productId
+                                ? productMap.get(row.productId)?.name ?? null
+                                : null
+                            }
+                            ocrName={row.ocrName}
+                            onSelect={(p) => {
+                              // Tam ürün kaydını sakla — productMap bundan
+                              // beslendiği için unitsPerCase/ad için ek istek
+                              // gerekmez (stok listesi sayfalı olsa bile).
+                              setPickedProducts((prev) => ({ ...prev, [p.id]: p }));
+                              updateRow(i, { productId: p.id });
+                            }}
+                          />
                         )}
                       </div>
 
