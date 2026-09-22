@@ -265,14 +265,37 @@ describe('Ürün Yönetimi / Products (e2e)', () => {
       .expect(400);
   });
 
-  it('GET /products/suggest — hiçbir şeye benzemeyen sorgu boş dizi döner (hata DEĞİL)', async () => {
+  // Skor eşiği YOK: hiçbir ürüne benzemeyen bir sorguda bile en yakın `limit`
+  // tahmin döner. Eskiden burada eşik 70 olduğu için boş dizi dönüyordu — ama
+  // bu panel tam olarak "hiçbir şeye benzemeyen" OCR satırlarında açıldığı
+  // için kullanıcıya hiç seçenek kalmıyordu (bkz. products.service.ts
+  // SUGGEST_THRESHOLD yorumu).
+  it('GET /products/suggest — hiçbir şeye benzemeyen sorguda bile en yakın `limit` öneri döner', async () => {
     const res = await request(app.getHttpServer())
       .get('/api/v1/products/suggest')
-      .query({ query: 'zzzqqqxxxyyy-hicbir-urune-benzemeyen-sorgu' })
+      .query({ query: 'zzzqqqxxxyyy-hicbir-urune-benzemeyen-sorgu', limit: 3 })
       .set('Authorization', authHeader1)
       .expect(200);
 
     expect(res.body.matchType).toBe('fuzzy');
+    // Tenant'ta 3'ten fazla ürün var (önceki testler ekledi) — düşük skorlu da
+    // olsalar 3 öneri gelmeli, boş dizi DEĞİL.
+    expect(res.body.items).toHaveLength(3);
+    expect(res.body.total).toBe(3);
+    expect(res.body.items.every((p: { id: string }) => typeof p.id === 'string')).toBe(true);
+  });
+
+  it('GET /products/suggest — hiç aday ürün yoksa boş dizi döner (gerçek boş sonuç)', async () => {
+    // Bu tenant'ta HİÇ ürün yok — "skor düşük" değil, "hiç aday yok" hâli.
+    const emptyCtx = await signupAndGetContext(app);
+    createdTaxNumbers.push(emptyCtx.payload.taxNumber);
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/products/suggest')
+      .query({ query: 'Coca-Cola' })
+      .set('Authorization', `Bearer ${emptyCtx.accessToken}`)
+      .expect(200);
+
     expect(res.body.items).toEqual([]);
     expect(res.body.total).toBe(0);
   });

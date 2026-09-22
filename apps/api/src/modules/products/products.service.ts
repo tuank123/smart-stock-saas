@@ -13,9 +13,19 @@ import { findFuzzyMatches } from '../../common/utils/fuzzyMatch';
 // Substring araması sonuç bulamazsa fuzzy fallback için taranacak aday üst sınırı.
 const FUZZY_CANDIDATE_LIMIT = 500;
 const FUZZY_RESULT_LIMIT = 10;
-// findFuzzyMatches'in kendi varsayılanıyla aynı eşik — OCR (ocr.service.ts),
-// WhatsApp (whatsapp.service.ts) ve yukarıdaki fuzzy fallback de 70 kullanıyor.
-const SUGGEST_THRESHOLD = 70;
+// Skor EŞİĞİ YOK (0) — bu uç nokta diğer fuzzy çağrılarından (OCR/WhatsApp/
+// yukarıdaki fallback: 70) BİLEREK ayrılıyor.
+//
+// Neden: bu öneri listesi YALNIZCA otomatik eşleşmeyen fatura satırlarında
+// gösteriliyor. Bir satır ya OCR güveni <0.85 olduğu ya da hiçbir ürün 70
+// eşiğini geçemediği için eşleşmemiştir (bkz. ocr.service.ts fuzzyMatch) —
+// yani 70 eşiği, tam da yardıma ihtiyaç duyulan satırlarda listeyi BOŞ
+// bırakıyordu. Ölçüm: "Bilinmeyen Ürün XYZ" için katalogdaki en yüksek skor
+// 39; 11 üründen 0'ı 70'i geçiyordu, kullanıcıya hiç seçenek çıkmıyordu.
+//
+// Bu uç noktanın işi "en yakın N tahmin"i sıralamak; "yeterince emin
+// eşleşmeler" değil. Sonuç sayısını zaten `limit` sınırlıyor.
+const SUGGEST_THRESHOLD = 0;
 // "İlk açılışta en iyi 3 öneri" gereksinimi.
 const SUGGEST_DEFAULT_LIMIT = 3;
 import {
