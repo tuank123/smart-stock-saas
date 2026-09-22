@@ -69,3 +69,21 @@ export class ProductQueryDto {
   @Type(() => Number)
   pageSize?: number;
 }
+
+// GET /products/suggest — her zaman fuzzy çalışan öneri listesi.
+export class ProductSuggestQueryDto {
+  // Boş/eksik bırakılabilir: o durumda alfabetik ilk `limit` ürün döner
+  // (dropdown daha hiçbir şey yazılmadan açıldığında gösterilecek liste).
+  @IsOptional()
+  @IsString()
+  query?: string;
+
+  // Varsayılan 3 ("ilk açılışta en iyi 3 öneri"); kullanıcı yazmaya
+  // başlayınca ön yüz daha fazlasını isteyebilsin diye 20'ye kadar açık.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  @Type(() => Number)
+  limit?: number;
+}

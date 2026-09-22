@@ -186,6 +186,124 @@ describe('Ürün Yönetimi / Products (e2e)', () => {
     expect(res.body.items.some((p: { id: string }) => p.id === cocaColaId)).toBe(true);
   });
 
+  // ── (b-bis) GET /products/suggest — HER ZAMAN fuzzy öneri listesi ────────
+  //
+  // /products?search='ten farkı: orada fuzzy YALNIZCA substring sıfır sonuç
+  // verdiğinde çalışır; burada her zaman skorlanıp sıralanır (OCR'da eşleşmeyen
+  // fatura satırına ürün seçtirmek için gereken davranış).
+
+  it('GET /products/suggest — query boşken alfabetik ilk N ürünü döner (matchType=alphabetical)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/products/suggest')
+      .set('Authorization', authHeader1)
+      .expect(200);
+
+    expect(res.body.matchType).toBe('alphabetical');
+    // Varsayılan limit 3.
+    expect(res.body.items.length).toBeLessThanOrEqual(3);
+    expect(res.body.total).toBe(res.body.items.length);
+
+    const names = res.body.items.map((p: { name: string }) => p.name);
+    expect([...names].sort((a: string, b: string) => a.localeCompare(b))).toEqual(names);
+  });
+
+  it('GET /products/suggest — query verilince skora göre sıralı fuzzy sonuç döner (matchType=fuzzy)', async () => {
+    const targetRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', authHeader1)
+      .send({
+        sku: `E2E-SUGGEST-${uniqueSuffix()}`,
+        name: 'Suggest Fanta Portakal 1 Litre',
+        unit: 'adet',
+        categoryId: categoryId1,
+      })
+      .expect(201);
+    const targetId = targetRes.body.id;
+
+    // Substring olarak birebir geçmiyor (kelime sırası/eksik kelime) — yine de
+    // fuzzy skorla en üstte gelmeli.
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/products/suggest')
+      .query({ query: 'Fanta Portakal Litre', limit: 5 })
+      .set('Authorization', authHeader1)
+      .expect(200);
+
+    expect(res.body.matchType).toBe('fuzzy');
+    expect(res.body.items.length).toBeGreaterThan(0);
+    expect(res.body.items[0].id).toBe(targetId);
+  });
+
+  it('GET /products/suggest — limit parametresi sonuç sayısını sınırlar', async () => {
+    // Aynı öneki paylaşan 4 ürün — hepsi aynı sorguya yüksek skor verir.
+    for (let n = 0; n < 4; n++) {
+      await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', authHeader1)
+        .send({
+          sku: `E2E-LIMIT-${n}-${uniqueSuffix()}`,
+          name: `Limit Test Urunu ${n}`,
+          unit: 'adet',
+          categoryId: categoryId1,
+        })
+        .expect(201);
+    }
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/products/suggest')
+      .query({ query: 'Limit Test Urunu', limit: 2 })
+      .set('Authorization', authHeader1)
+      .expect(200);
+
+    expect(res.body.items).toHaveLength(2);
+    expect(res.body.total).toBe(2);
+
+    // limit üst sınırı (20) aşılırsa 400.
+    await request(app.getHttpServer())
+      .get('/api/v1/products/suggest')
+      .query({ query: 'Limit Test Urunu', limit: 21 })
+      .set('Authorization', authHeader1)
+      .expect(400);
+  });
+
+  it('GET /products/suggest — hiçbir şeye benzemeyen sorgu boş dizi döner (hata DEĞİL)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/products/suggest')
+      .query({ query: 'zzzqqqxxxyyy-hicbir-urune-benzemeyen-sorgu' })
+      .set('Authorization', authHeader1)
+      .expect(200);
+
+    expect(res.body.matchType).toBe('fuzzy');
+    expect(res.body.items).toEqual([]);
+    expect(res.body.total).toBe(0);
+  });
+
+  it('GET /products/suggest — tenant kapsamı: başka tenant\'ın ürünü önerilerde YER ALMAZ', async () => {
+    // product2Id tenant2'ye ait (bkz. beforeAll). Adıyla aranınca bile
+    // tenant1'in önerilerinde görünmemeli.
+    const product2Res = await request(app.getHttpServer())
+      .get(`/api/v1/products/${product2Id}`)
+      .set('Authorization', authHeader2)
+      .expect(200);
+    const foreignName = product2Res.body.name;
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/products/suggest')
+      .query({ query: foreignName, limit: 20 })
+      .set('Authorization', authHeader1)
+      .expect(200);
+
+    expect(res.body.items.some((p: { id: string }) => p.id === product2Id)).toBe(false);
+
+    // Aynı sorgu, sahibi olan tenant'ta ürünü BULMALI — yani sorgu değil,
+    // kapsam filtreliyor.
+    const ownRes = await request(app.getHttpServer())
+      .get('/api/v1/products/suggest')
+      .query({ query: foreignName, limit: 20 })
+      .set('Authorization', authHeader2)
+      .expect(200);
+    expect(ownRes.body.items.some((p: { id: string }) => p.id === product2Id)).toBe(true);
+  });
+
   // ── (c) Tekil erişim — tenant izolasyonu ─────────────────────────────────
 
   it('GET /products/:id — kendi ürününü görebilir', async () => {

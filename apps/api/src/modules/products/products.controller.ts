@@ -12,7 +12,12 @@ import {
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { CreateProductDto, PatchUnitsPerCaseDto, ProductQueryDto } from './dto/product.dto';
+import {
+  CreateProductDto,
+  PatchUnitsPerCaseDto,
+  ProductQueryDto,
+  ProductSuggestQueryDto,
+} from './dto/product.dto';
 import { ProductsService } from './products.service';
 
 @Controller('products')
@@ -36,6 +41,17 @@ export class ProductsController {
     @CurrentUser() user: { tenantId: string },
   ) {
     return this.service.listProducts(query, user);
+  }
+
+  // Statik route `:id`'den ÖNCE tanımlanır — aksi hâlde 'suggest' segmenti
+  // `:id`'ye düşer ve ParseUUIDPipe 400 verir.
+  @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU, UserRole.KASIYER, UserRole.DEPO)
+  @Get('suggest')
+  suggest(
+    @Query() query: ProductSuggestQueryDto,
+    @CurrentUser() user: { tenantId: string },
+  ) {
+    return this.service.suggestProducts(query, user);
   }
 
   @Get(':id')
