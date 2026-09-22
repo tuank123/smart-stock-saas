@@ -484,8 +484,32 @@ export function OcrScanFlow() {
 
                 return (
                   <div key={i} className="rounded-lg border p-3">
+                    {/* 1. satır — solda eşleşme rozeti, sağda Sil. Ürün adı
+                        burada tekrarlanmıyor; kendi tam genişlikli satırına
+                        taşındı (2. satır). */}
                     <div className="mb-2 flex items-start justify-between gap-2">
-                      <p className="text-xs text-muted-foreground">{row.ocrName}</p>
+                      <div className="flex min-w-0 items-center gap-2">
+                        {isAutoMatched ? (
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 border-green-200 bg-green-100 text-xs text-green-700"
+                          >
+                            <CheckCircle className="mr-1 h-3 w-3" />
+                            Otomatik Eşleşti
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className={`shrink-0 text-xs ${
+                              row.productId
+                                ? 'border-amber-200 bg-amber-100 text-amber-700'
+                                : 'border-red-200 bg-red-100 text-red-700'
+                            }`}
+                          >
+                            {row.productId ? 'Manuel Seç' : 'Eşleşmedi'}
+                          </Badge>
+                        )}
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleDeleteRow(i)}
@@ -497,67 +521,39 @@ export function OcrScanFlow() {
                       </button>
                     </div>
 
-                    {/* HER ZAMAN İKİ SATIR — ürün adının uzunluğundan bağımsız,
-                        bütün kartlar aynı yükseklikte/hizada görünür. 1. satır:
-                        rozet + ürün adı (sığmazsa üç noktayla kısalır).
-                        2. satır: Adet/Koli + miktar, her kartta aynı yerde.
-                        İki grup aynı satırda yer için yarışmadığı için ne
-                        flex-wrap'e ne de yatay kaydırmaya gerek var. */}
+                    {/* 2. satır: ürün adı/seçici (kartın TAM genişliği),
+                        3. satır: Adet/Koli + miktar. min-h-8, metin satırı
+                        (~20px) ile h-8'lik Select'i aynı yükseklikte tutar —
+                        iki kart türü de aynı toplam yükseklikte görünür. */}
                     <div className="space-y-2">
-                      {/* 1. satır — eşleşme durumu + ürün adı/seçici.
-                          min-h-8: otomatik eşleşen satırda yalnızca metin var
-                          (22px), Manuel Seç'te ise h-8'lik Select var (32px);
-                          bu alt sınır olmadan iki kart türü 10px farklı
-                          yükseklikte görünüyordu. */}
-                      <div className="flex min-h-8 items-center gap-2">
+                      <div className="flex min-h-8 items-center">
                         {isAutoMatched ? (
-                          <>
-                            <Badge
-                              variant="outline"
-                              className="shrink-0 border-green-200 bg-green-100 text-xs text-green-700"
-                            >
-                              <CheckCircle className="mr-1 h-3 w-3" />
-                              Otomatik Eşleşti
-                            </Badge>
-                            <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                              {matched?.name ?? row.productId}
-                            </span>
-                          </>
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                            {matched?.name ?? row.productId}
+                          </span>
                         ) : (
-                          <>
-                            <Badge
-                              variant="outline"
-                              className={`shrink-0 text-xs ${
-                                row.productId
-                                  ? 'border-amber-200 bg-amber-100 text-amber-700'
-                                  : 'border-red-200 bg-red-100 text-red-700'
-                              }`}
-                            >
-                              {row.productId ? 'Manuel Seç' : 'Eşleşmedi'}
-                            </Badge>
-                            <Select
-                              value={row.productId ?? ''}
-                              onValueChange={(v) => updateRow(i, { productId: v || null })}
-                            >
-                              <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
-                                <SelectValue placeholder="Ürün seçin…" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {stock.map((s: StockLevel) => (
-                                  <SelectItem key={s.productId} value={s.productId}>
-                                    {s.product.name}
-                                    <span className="ml-1 text-muted-foreground">
-                                      ({s.product.sku})
-                                    </span>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </>
+                          <Select
+                            value={row.productId ?? ''}
+                            onValueChange={(v) => updateRow(i, { productId: v || null })}
+                          >
+                            <SelectTrigger className="h-8 w-full text-xs">
+                              <SelectValue placeholder="Ürün seçin…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {stock.map((s: StockLevel) => (
+                                <SelectItem key={s.productId} value={s.productId}>
+                                  {s.product.name}
+                                  <span className="ml-1 text-muted-foreground">
+                                    ({s.product.sku})
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         )}
                       </div>
 
-                      {/* 2. satır — birim seçimi + miktar */}
+                      {/* 3. satır — birim seçimi + miktar */}
                       <div className="flex items-center gap-2">
                         {/* Unit mode toggle */}
                         <div className="flex shrink-0 overflow-hidden rounded-md border">
