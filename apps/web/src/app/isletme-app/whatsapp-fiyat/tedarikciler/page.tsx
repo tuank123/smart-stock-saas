@@ -52,7 +52,11 @@ export default function WhatsappTedarikcilerPage() {
       <StationPageHeader title="Tedarikçi Bilgileri" />
 
       {/* Yeni tedarikçi */}
-      <Button asChild size="sm" className="mb-4 w-full gap-1.5">
+      <Button
+        asChild
+        size="sm"
+        className="mb-4 w-full gap-1.5 bg-[#1B7A2A] text-white hover:bg-[#176824]"
+      >
         <Link href="/isletme-app/whatsapp-fiyat/tedarikciler/yeni">
           <Plus className="h-4 w-4" />
           Yeni Tedarikçi
