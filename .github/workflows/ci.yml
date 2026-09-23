@@ -373,15 +373,36 @@ jobs:
       # --prod: devDependencies hariç. Üretime çıkan kodu etkilemeyen build/test
       #   araçlarındaki açıklar bu kapıyı kapatmamalı.
       #
-      # --audit-level=critical: yalnızca kritik seviye job'ı düşürür. `pnpm audit`
-      #   lockfile'ın TAMAMINI tarar (workspace bazında filtrelenemez), dolayısıyla
-      #   CI'ın hiç build etmediği apps/mobile ve apps/supplier-portal'daki
-      #   bulgular da sayılıyor — daha geniş bir eşik (high/moderate), düzeltmesi
-      #   bu repoda mümkün olmayan yüzlerce bulguyla kapıyı sürekli kırmızı
-      #   tutardı. Kritik seviye, gerçekten harekete geçilmesi gereken minimum
-      #   sinyal.
+      # Yalnızca KRİTİK ve yalnızca CI'ın gerçekten build ettiği workspace'ler
+      #   (apps/api, apps/web). `pnpm audit` workspace bazında FİLTRELENEMEZ
+      #   (pnpm 8'de `--filter` audit'e `--recursive` geçirdiği için hata verir,
+      #   `--dir` gibi bir seçenek de yok), bu yüzden tüm lockfile taranıp sonuç
+      #   JSON üzerinden daraltılıyor. Aksi hâlde CI'ın hiç build etmediği
+      #   apps/mobile'ın tar açığı (expo@50 → @expo/cli; yamalı 6.x sürümü YOK,
+      #   ancak majör Expo yükseltmesiyle kapanır) bu kapıyı kalıcı olarak
+      #   kırmızı tutardı.
       - name: Bağımlılık açığı taraması (kritik)
-        # GEÇİCİ: bilinen 3 kritik bulgu (tar DoS + iki Next 15.x RCE) açıkken
-        # job'ı düşürmesin — tar ve Next 15 kapandığında bu satır KALDIRILMALI.
+        # GEÇİCİ: iki Next 15.x RCE'si açıkken job'ı düşürmesin — Next 15
+        # yükseltmesi yapıldığında bu satır KALDIRILMALI.
         continue-on-error: true
-        run: pnpm audit --prod --audit-level=critical
+        run: |
+          # --json ile de bulgu varsa çıkış kodu != 0 olur; değerlendirmeyi
+          # aşağıdaki script yapacağı için burada yutuluyor.
+          pnpm audit --prod --json > audit.json || true
+          node -e '
+            const fs = require("fs");
+            const SCOPE = ["apps/api", "apps/web"];
+            const advisories = JSON.parse(fs.readFileSync("audit.json", "utf8")).advisories || {};
+            const hits = Object.values(advisories).filter(
+              (a) =>
+                a.severity === "critical" &&
+                (a.findings || []).some((f) =>
+                  (f.paths || []).some((p) => SCOPE.includes(p.split(" > ")[0])),
+                ),
+            );
+            for (const a of hits) {
+              console.error(`KRİTİK: ${a.module_name} — ${a.title} (düzeltme: ${a.patched_versions})`);
+            }
+            console.log(`Kapsam ${SCOPE.join(", ")} — kritik bulgu: ${hits.length}`);
+            if (hits.length > 0) process.exit(1);
+          '
