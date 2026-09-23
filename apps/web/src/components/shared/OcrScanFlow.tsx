@@ -335,7 +335,7 @@ export function OcrScanFlow() {
 
   // Verilen data URL'i canvas üzerinde küçültüp base64 (prefix'siz) döndürür.
   function resizeAndEncode(src: string): Promise<string> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
         const MAX = 1200;
@@ -349,6 +349,10 @@ export function OcrScanFlow() {
         canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
         resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]);
       };
+      // Görsel olarak çözülemeyen dosya (web'deki dosya seçici fallback'i her
+      // türü kabul ediyor): onload HİÇ tetiklenmez. onerror olmadan promise
+      // sonsuza kadar askıda kalıyor ve akış sessizce donuyordu.
+      img.onerror = () => reject(new Error('IMAGE_DECODE_FAILED'));
       img.src = src;
     });
   }
@@ -356,7 +360,13 @@ export function OcrScanFlow() {
   async function handleScan() {
     if (!preview || !user?.branchId) return;
 
-    const base64 = await resizeAndEncode(preview);
+    let base64: string;
+    try {
+      base64 = await resizeAndEncode(preview);
+    } catch {
+      toast.error('Seçilen dosya geçerli bir görsel değil. Lütfen JPEG/PNG bir fatura fotoğrafı seçin.');
+      return;
+    }
 
     ocrScan.mutate(
       { branchId: user.branchId, imageBase64: base64 },

@@ -53,6 +53,39 @@ const MOCK_HEADER = {
 
 const AUTO_MATCH_THRESHOLD = 0.85;
 
+// Kabul edilen görsel imzaları (sihirli baytlar). Yalnızca JPEG ve PNG —
+// frontend canvas.toDataURL('image/jpeg', …) ile JPEG üretiyor (bkz.
+// OcrScanFlow resizeAndEncode), PNG ise elle yüklemeler için tolere ediliyor.
+// Yeni bağımlılık (file-type/sharp) eklemeye gerek yok: yalnızca iki format
+// kabul edildiği için imza kontrolü birkaç bayt karşılaştırmasından ibaret.
+const IMAGE_SIGNATURES: { name: string; bytes: number[] }[] = [
+  { name: 'JPEG', bytes: [0xff, 0xd8, 0xff] },
+  { name: 'PNG', bytes: [0x89, 0x50, 0x4e, 0x47] },
+];
+
+/**
+ * imageBase64 verilmişse içeriğinin desteklenen bir görsel olduğunu doğrular.
+ * Verilmemişse (opsiyonel alan) hiçbir şey yapmaz.
+ *
+ * Yalnızca baştaki birkaç bayt çözülür — 12 base64 karakteri 9 bayta karşılık
+ * gelir, bu da en uzun imzayı (PNG, 4 bayt) kapsamak için fazlasıyla yeterli;
+ * böylece megabaytlarca veriyi belleğe açmadan kontrol yapılır.
+ */
+function assertSupportedImage(imageBase64?: string): void {
+  if (!imageBase64) return;
+
+  const head = Buffer.from(imageBase64.slice(0, 12), 'base64');
+  const matched = IMAGE_SIGNATURES.some((sig) =>
+    sig.bytes.every((b, i) => head[i] === b),
+  );
+
+  if (!matched) {
+    throw new BadRequestException(
+      'Yüklenen dosya desteklenen bir görsel değil (yalnızca JPEG ve PNG kabul edilir)',
+    );
+  }
+}
+
 @Injectable()
 export class OcrService {
   private readonly logger = new Logger(OcrService.name);
@@ -69,6 +102,16 @@ export class OcrService {
     user: { tenantId: string; userId: string; role?: string | null; planId?: string | null },
   ) {
     const enabled = this.config.get<string>('OCR_ENABLED') === 'true';
+
+    // Görsel İÇERİĞİNİN doğrulaması. DTO (ScanDto) yalnızca "geçerli base64 ve
+    // boyut sınırı içinde" olduğunu garanti ediyor; dosyanın GERÇEKTEN bir
+    // görsel olduğu class-validator ile ifade edilemediği için imza (sihirli
+    // bayt) kontrolü burada, DB'ye hiçbir şey yazılmadan ÖNCE yapılıyor.
+    //
+    // Bugün görsel zaten hiçbir yere gitmiyor (callTextract bir stub, baytları
+    // `void` ile atıyor) — bu kontrol, Textract gerçekten bağlandığında
+    // ayrıştırıcıya rastgele dosya ulaşmasın diye şimdiden konuluyor.
+    assertSupportedImage(dto.imageBase64);
 
     return withTenantContext(this.prisma, { tenantId: user.tenantId }, async (tx) => {
       if (user.role === 'PATRON' && user.planId !== 'STARTER') {

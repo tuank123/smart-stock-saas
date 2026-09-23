@@ -113,6 +113,84 @@ describe('OCR / Fatura Tarama (e2e)', () => {
     expect(unknownLine.matchStatus).toBe('UNMATCHED');
   });
 
+  // ── (a-bis) imageBase64 sunucu tarafı doğrulaması ────────────────────────
+  //
+  // DTO (ScanDto): @IsBase64 + @MaxLength — "geçerli base64 ve boyut sınırında".
+  // ocr.service.ts: sihirli bayt (magic byte) kontrolü — "gerçekten JPEG/PNG".
+  // Görsel bugün zaten kullanılmıyor (callTextract stub) — bu doğrulama
+  // Textract bağlandığında ayrıştırıcıya rastgele dosya gitmesin diye var.
+
+  // Yalnızca imza baytları okunduğu için tam/geçerli bir görsel dosyası
+  // gerekmiyor; baştaki baytlar doğru olmalı.
+  const jpegBase64 = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]).toString('base64');
+  const pngBase64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64');
+
+  it('POST /ocr/scan — geçerli JPEG base64 kabul edilir', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId, imageBase64: jpegBase64 })
+      .expect(201);
+    expect(typeof res.body.scanId).toBe('string');
+  });
+
+  it('POST /ocr/scan — geçerli PNG base64 kabul edilir', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId, imageBase64: pngBase64 })
+      .expect(201);
+    expect(typeof res.body.scanId).toBe('string');
+  });
+
+  it('POST /ocr/scan — imageBase64 hiç gönderilmezse kabul edilir (alan opsiyonel)', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId })
+      .expect(201);
+    expect(typeof res.body.scanId).toBe('string');
+  });
+
+  it('POST /ocr/scan — base64 olmayan metin 400 döner (@IsBase64)', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId, imageBase64: 'bu kesinlikle base64 değil!!!' })
+      .expect(400);
+  });
+
+  it('POST /ocr/scan — geçerli base64 ama PDF içeriği 400 döner (sihirli bayt)', async () => {
+    // '%PDF-1.4' — geçerli base64'e kodlanır, ama JPEG/PNG imzası taşımaz.
+    const pdfBase64 = Buffer.from('%PDF-1.4\n%âãÏÓ').toString('base64');
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId, imageBase64: pdfBase64 })
+      .expect(400);
+    expect(String(res.body.message)).toContain('görsel');
+  });
+
+  it('POST /ocr/scan — geçerli base64 ama düz metin içeriği 400 döner (sihirli bayt)', async () => {
+    const textBase64 = Buffer.from('merhaba dunya, bu bir gorsel degil').toString('base64');
+    await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId, imageBase64: textBase64 })
+      .expect(400);
+  });
+
+  it('POST /ocr/scan — boyut sınırını aşan base64 400 döner (@MaxLength)', async () => {
+    // Sınır 10.000.000 karakter; gövde limiti (10 MiB) parser'da 413'e
+    // takılmasın diye hemen üstünde bir değer seçildi.
+    const tooLong = 'A'.repeat(10_000_004);
+    await request(app.getHttpServer())
+      .post('/api/v1/ocr/scan')
+      .set('Authorization', authHeader)
+      .send({ branchId: ctx.branchId, imageBase64: tooLong })
+      .expect(400);
+  });
+
   // ── (b) Onay — tam teslimat → stok artışı ────────────────────────────────
 
   it('POST /ocr/scan/:scanId/confirm — allItemsReceived:true stok seviyesini doğru artırır', async () => {
