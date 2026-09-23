@@ -1,0 +1,50 @@
+# gitleaks yapılandırması — sır taraması (bkz. .github/workflows/ci.yml
+# "sir-taramasi" job'ı, .github/workflows/secret-scan-monthly.yml ve
+# .husky/pre-commit).
+#
+# Varsayılan kural seti KORUNUR (useDefault = true); aşağıdaki allowlist
+# yalnızca 2026-09-23 tarihli tam geçmiş taramasında çıkan 6 YANLIŞ POZİTİFİ
+# susturur. Bilerek dar tutuldu — geniş bir yol/desen istisnası, gerçek bir
+# sızıntıyı da gizleyebilirdi.
+#
+# O taramada tüm geçmişte (175 commit) GERÇEK sır bulunmadı; 6 bulgunun
+# tamamı test verisi, CI sahte değeri ya da .env.example yer tutucusuydu.
+
+[extend]
+useDefault = true
+
+# gitleaks'in yerleşik "private-key" kuralı, BEGIN başlığı ile kapanış
+# arasındaki gövdeyi de eşleştirmeye çalışıyor
+# (`…-----[\s\S-]{64,}?KEY…`). 8.28.0 ile yapılan testlerde gerçek bir PEM
+# bloğu bu kuralla YAKALANMADI — ne `dir`, ne tek dosya, ne de `stdin`
+# taramasında (aynı dosyaya eklenen bir GitHub PAT yakalandığı için dosyanın
+# taranmadığı senaryosu elendi). Büyük olasılıkla çok satırlı eşleşme
+# gitleaks'in içerik parçalama biçiminde kayboluyor.
+#
+# Bu kural yalnızca BAŞLIK SATIRINI eşler: gövde uzunluğu aramaz, satır
+# sınırına takılmaz. Kaynak kodda bir PEM başlığı zaten tek başına
+# incelenmeye değer bir sinyal; 175 commit'lik tam geçmiş taramasında bu
+# kural HİÇ yanlış pozitif üretmedi.
+[[rules]]
+id = "private-key-header"
+description = "PEM özel anahtar başlığı"
+regex = '''-----BEGIN[ A-Za-z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----'''
+keywords = ["-----begin"]
+
+[allowlist]
+description = "Bilinen yanlış pozitifler (2026-09-23 tam geçmiş taraması)"
+
+paths = [
+  # CI'daki sahte ENCRYPTION_KEY (0123456789abcdef… tekrarlı hex) ve diğer
+  # `ci-dummy-…` / `test_…_do_not_use_in_prod` değerleri. Bu dosyaya gerçek
+  # sır ZATEN yazılmamalı; sırlar GitHub Secrets üzerinden geçer.
+  '''^\.github/workflows/ci\.yml$''',
+
+  # e2e test fixture'ları — sahte parolalar (ör. 'YanlisSifre123').
+  '''^apps/api/test/.*\.e2e-spec\.ts$''',
+
+  # Örnek ortam dosyaları: tanım gereği yer tutucu değerler içerir
+  # (change_me_…, your-super-secret-…, boş AGENT_API_KEY=, ve AWS'nin kendi
+  # dokümantasyon örneği AKIAIOSFODNN7EXAMPLE).
+  '''(^|/)\.env\.example$''',
+]

@@ -406,3 +406,63 @@ jobs:
             console.log(`Kapsam ${SCOPE.join(", ")} — kritik bulgu: ${hits.length}`);
             if (hits.length > 0) process.exit(1);
           '
+
+  # Sır (secret) taraması — yalnızca bu push/PR'ın GETİRDİĞİ commit'ler.
+  # Tam geçmiş taraması ayrı bir aylık workflow'da (secret-scan-monthly.yml):
+  # her koşuda 175+ commit'i yeniden taramak hem yavaşlar hem de aynı
+  # bulguları tekrar tekrar raporlayıp gürültüye dönüşürdü.
+  #
+  # BLOKLAYICI (continue-on-error YOK): 2026-09-23 tam geçmiş taraması temiz
+  # çıktı, yani bu kapı ilk günden yeşil — kırmızıya dönerse gerçekten yeni
+  # bir sır eklenmiş demektir.
+  sir-taramasi:
+    name: Sır taraması (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      # Aksiyon yerine binary: gitleaks-action v2, organizasyon hesaplarında
+      # GITLEAKS_LICENSE istiyor. Binary'de böyle bir kısıt yok.
+      GITLEAKS_VERSION: 8.28.0
+
+    steps:
+      - name: Checkout
+        # fetch-depth: 0 — diff aralığı (before..sha) için geçmiş gerekli.
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: gitleaks kurulumu
+        run: |
+          curl -sSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          sudo tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Yeni commit'lerde sır taraması
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}..${{ github.sha }}"
+          else
+            BEFORE="${{ github.event.before }}"
+            # Yeni dal ya da force-push'ta `before` ya sıfırlardan oluşur ya da
+            # artık erişilemez. Böyle durumlarda aralık hesaplanamaz; tüm
+            # geçmiş taranır (temiz olduğu için hızlı ve güvenli bir geri
+            # düşüş — sessizce ATLAMAK yerine).
+            if [ -z "$BEFORE" ] \
+              || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+              || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+              RANGE=""
+            else
+              RANGE="${BEFORE}..${{ github.sha }}"
+            fi
+          fi
+
+          if [ -z "$RANGE" ]; then
+            echo "Diff aralığı belirlenemedi — TÜM geçmiş taranıyor."
+            gitleaks git . --redact --no-banner --config .gitleaks.toml
+          else
+            echo "Taranan aralık: $RANGE"
+            gitleaks git . --redact --no-banner --config .gitleaks.toml \
+              --log-opts="$RANGE"
+          fi
