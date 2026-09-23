@@ -86,17 +86,16 @@ function OrderItemRow({
 
   return (
     <div className="rounded-md border p-3">
-      {/* Başlık: ürün adı + SKU, sağ üstte sil */}
+      {/* Başlık: ürün adı, sağ üstte sil */}
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{item.productName}</p>
-          <p className="text-xs text-muted-foreground">{item.productSku}</p>
+          <p className="truncate text-base font-semibold">{item.productName}</p>
         </div>
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+          className="h-8 w-8 shrink-0 text-red-700 hover:bg-red-50"
           onClick={() => onRemove(item.productId)}
         >
           <Trash2 className="h-4 w-4" />
@@ -104,7 +103,7 @@ function OrderItemRow({
       </div>
 
       {/* Mevcut stok — salt okunur, aynı useStockDetail yanıtından (quantity). */}
-      <p className="mb-1.5 text-xs text-muted-foreground">
+      <p className="mb-1.5 text-xs text-green-700">
         {stockDetail.data ? `Stokta: ${Number(stockDetail.data.quantity)} ${item.productUnit}` : ''}
       </p>
 
@@ -120,7 +119,7 @@ function OrderItemRow({
           onChange={(e) => onQuantityChange(item.productId, e.target.value)}
           className="w-full text-sm"
         />
-        <p className="text-xs text-muted-foreground">{koli ?? '–'}</p>
+        <p className="text-xs text-muted-foreground/75">({koli ?? '–'})</p>
       </div>
 
       {/* Koli (adet/koli) — onBlur akışı (AlertDialog onayı) korunur */}
@@ -140,10 +139,12 @@ function OrderItemRow({
               : ''
           }`}
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground/75">
+          (
           {item.unitsPerCase != null
             ? `1 kolide ${item.unitsPerCase} adet`
             : 'Koli başına adet sayısını girin'}
+          )
         </p>
       </div>
 
@@ -160,10 +161,12 @@ function OrderItemRow({
           onChange={(e) => onThresholdChange(item.productId, e.target.value)}
           className="w-full text-sm"
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground/75">
+          (
           {thresholdLoaded
             ? 'Stok bu değerin altına düşünce otomatik sipariş önerisi tetiklenir.'
             : 'Yükleniyor…'}
+          )
         </p>
       </div>
     </div>
