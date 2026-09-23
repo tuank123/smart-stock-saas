@@ -43,6 +43,7 @@ web-build
 .env
 .env.local
 .env.*.local
+.env.production
 .env.production.local
 # e2e testlerinin ortamı — sır içerir, her geliştirici kendi kopyasını
 # oluşturur (bkz. apps/api/test/README.md).

@@ -63,7 +63,7 @@ class EnvironmentVariables {
 
   @IsArray()
   @IsOptional()
-  CORS_ORIGINS: any = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002'];
+  ALLOWED_ORIGINS: any = ['http://localhost:3001', 'capacitor://localhost', 'http://localhost'];
 
   @IsString()
   @IsOptional()
@@ -87,9 +87,9 @@ export function validateEnv(config: Record<string, unknown>) {
     enableImplicitConversion: true,
   });
 
-  // Parse CORS_ORIGINS as string to array if needed
-  if (typeof validatedConfig.CORS_ORIGINS === 'string') {
-    validatedConfig.CORS_ORIGINS = validatedConfig.CORS_ORIGINS
+  // Parse ALLOWED_ORIGINS as string to array if needed
+  if (typeof validatedConfig.ALLOWED_ORIGINS === 'string') {
+    validatedConfig.ALLOWED_ORIGINS = validatedConfig.ALLOWED_ORIGINS
       .split(',')
       .map((origin) => origin.trim());
   }

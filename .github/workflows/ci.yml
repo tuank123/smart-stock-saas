@@ -71,7 +71,6 @@ jobs:
 
       # CORS testleri bu listenin ilk girdisini "izin verilen origin" sayar.
       ALLOWED_ORIGINS: http://localhost:3001,capacitor://localhost,http://localhost
-      CORS_ORIGINS: http://localhost:3001
       APP_URL: http://localhost:3001
 
       # Testler bcrypt'i çok kez çağırıyor; düşük tur sayısı koşuyu hızlandırır.
@@ -233,7 +232,6 @@ jobs:
       ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
       ALLOWED_ORIGINS: http://localhost:3001,capacitor://localhost,http://localhost
-      CORS_ORIGINS: http://localhost:3001
       APP_URL: http://localhost:3001
 
       BCRYPT_ROUNDS: 4
