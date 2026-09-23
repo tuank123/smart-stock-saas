@@ -54,6 +54,11 @@ export class ProductsController {
     return this.service.suggestProducts(query, user);
   }
 
+  // Kardeş route `@Get()` ile AYNI rol kısıtı — ikisi de aynı ürün verisini
+  // döndürdüğü için yetkilendirmeleri de aynı olmalı (eskiden bu route'ta
+  // hiç @Roles yoktu; RolesGuard @Roles yoksa kontrolü ATLIYOR, yani rolü
+  // ne olursa olsun her kimliği doğrulanmış kullanıcı erişebiliyordu).
+  @Roles(UserRole.PATRON, UserRole.SUBE_MUDURU, UserRole.KASIYER, UserRole.DEPO)
   @Get(':id')
   getOne(
     @Param('id', ParseUUIDPipe) id: string,

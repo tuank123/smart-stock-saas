@@ -1,5 +1,14 @@
 import { plainToInstance } from 'class-transformer';
-import { IsEnum, IsNumber, IsString, IsOptional, validateSync, IsArray } from 'class-validator';
+import {
+  IsEnum,
+  IsNumber,
+  IsString,
+  IsOptional,
+  validateSync,
+  IsArray,
+  IsNotEmpty,
+  MinLength,
+} from 'class-validator';
 
 enum Environment {
   Development = 'development',
@@ -15,14 +24,34 @@ class EnvironmentVariables {
   @IsOptional()
   PORT: number = 3000;
 
+  // Varsayılan YOK: boş string varsayılanı @IsString()'i geçtiği için,
+  // DATABASE_URL hiç tanımlanmasa bile uygulama açılıyor ve hata ancak çok
+  // sonra, bağlantı anında kafa karıştırıcı bir mesajla ortaya çıkıyordu.
+  // Sırlardaki gibi bir MinLength anlamlı değil (bağlantı dizgisi) — burada
+  // yalnızca "zorunlu ve boş olmayan" yeterli.
   @IsString()
-  DATABASE_URL: string = '';
+  @IsNotEmpty()
+  DATABASE_URL!: string;
+
+  // Varsayılan YOK ve en az 32 karakter: eksik ya da zayıf bir imza anahtarıyla
+  // uygulama sessizce açılmamalı. Boş string varsayılanı (`= ''`) @IsString()
+  // kontrolünü geçtiği için, JWT_SECRET hiç tanımlanmasa bile uygulama boş
+  // anahtarla ayağa kalkıyordu. `!` ile tanımsızsa validateSync
+  // (skipMissingProperties:false) boot sırasında hata fırlatır.
+  @IsString()
+  @MinLength(32)
+  JWT_SECRET!: string;
 
   @IsString()
-  JWT_SECRET: string = '';
+  @MinLength(32)
+  JWT_REFRESH_SECRET!: string;
 
+  // Tedarikçi portalı oturum token'ını imzalar (portal.service.ts:196,205).
+  // Uygulamada KULLANILIYORDU ama burada hiç tanımlı değildi — yani hiçbir
+  // doğrulamadan geçmiyordu. Diğer iki imza anahtarıyla aynı kural.
   @IsString()
-  JWT_REFRESH_SECRET: string = '';
+  @MinLength(32)
+  PORTAL_JWT_SECRET!: string;
 
   @IsNumber()
   @IsOptional()

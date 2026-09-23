@@ -13,8 +13,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
+    const GENERIC_MESSAGE = 'Internal server error';
+
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
-    let message = 'Internal server error';
+    // İSTEMCİYE dönen mesaj.
+    let message: unknown = GENERIC_MESSAGE;
+    // Yalnızca log/ErrorLog için tutulan AYRINTILI mesaj — istemciye ASLA
+    // gönderilmez.
+    let logMessage = GENERIC_MESSAGE;
     let errors = null;
 
     if (exception instanceof HttpException) {
@@ -29,8 +35,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
           errors = res.error;
         }
       }
+      logMessage = typeof message === 'string' ? message : JSON.stringify(message);
     } else if (exception instanceof Error) {
-      message = exception.message;
+      // HttpException OLMAYAN hatalar (Prisma/sürücü/programlama hataları):
+      // exception.message iç ayrıntı sızdırabilir (tablo/kolon adları, bağlantı
+      // dizgisi parçaları vb.), bu yüzden istemciye GENEL mesaj döner. Gerçek
+      // mesaj aşağıda hem logger'a hem ErrorLog'a yazılmaya devam eder.
+      logMessage = exception.message;
     }
 
     const errorResponse = {
@@ -56,8 +67,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
           data: {
             source: 'API_EXCEPTION',
             severity: 'ERROR',
-            message:
-              typeof message === 'string' ? message : JSON.stringify(message),
+            // İstemciye dönen (genelleştirilmiş) mesaj değil, GERÇEK hata mesajı.
+            message: logMessage,
             stackTrace: exception instanceof Error ? exception.stack : null,
             context: { path: request.url, method: request.method },
           },
