@@ -1,30 +1,35 @@
-import * as path from 'path';
-import * as dotenv from 'dotenv';
+import { EnvValidator, loadEnv } from './env';
 
-// apps/agent/.env dosyasını yükle (çalışma dizininden bağımsız).
-dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
+loadEnv();
 
-const STOKPILOT_API_URL =
-  process.env.STOKPILOT_API_URL ?? 'http://localhost:3000/api/v1';
-const AGENT_ID = process.env.AGENT_ID ?? '';
-const AGENT_API_KEY = process.env.AGENT_API_KEY ?? '';
-const POLLING_INTERVAL_SEC = Number(process.env.POLLING_INTERVAL_SEC ?? '10');
+const v = new EnvValidator();
 
-// Kimlik bilgileri yoksa: önce `pnpm setup <KURULUM_KODU>` çalıştırılmalı.
-if (!AGENT_ID || !AGENT_API_KEY) {
-  console.error(
-    '❌ AGENT_ID ve AGENT_API_KEY .env dosyasında tanımlı olmalı.\n' +
-      '   Önce kurulum yapın:  ts-node src/setup.ts <KURULUM_KODU>',
-  );
-  process.exit(1);
-}
+// AGENT_ID ve AGENT_API_KEY'i sunucu üretir (branches.service.ts:195-197):
+//   agentId = randomUUID()                     → UUID v4
+//   apiKey  = randomBytes(32).toString('hex')  → 64 karakter hex
+// Biçim kontrolü, yarım kopyalanmış/kırpılmış bir değeri ilk 401'i beklemeden
+// burada yakalar.
+const AGENT_ID = v.requirePattern(
+  'AGENT_ID',
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+  'UUID',
+);
+
+const AGENT_API_KEY = v.requirePattern(
+  'AGENT_API_KEY',
+  /^[0-9a-fA-F]{64}$/,
+  '64 karakterlik hex',
+);
+
+const STOKPILOT_API_URL = v.requireUrl('STOKPILOT_API_URL', 'http://localhost:3000/api/v1');
+
+const POLLING_INTERVAL_SEC = v.optionalPositiveNumber('POLLING_INTERVAL_SEC', 10);
+
+v.assertValid('Kurulum için:  pnpm setup <KURULUM_KODU>');
 
 export const config = {
   STOKPILOT_API_URL,
   AGENT_ID,
   AGENT_API_KEY,
-  POLLING_INTERVAL_SEC:
-    Number.isFinite(POLLING_INTERVAL_SEC) && POLLING_INTERVAL_SEC > 0
-      ? POLLING_INTERVAL_SEC
-      : 10,
+  POLLING_INTERVAL_SEC,
 };

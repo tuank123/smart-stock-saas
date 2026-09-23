@@ -1,14 +1,17 @@
 import * as fs from 'fs';
-import * as path from 'path';
 import axios from 'axios';
-import * as dotenv from 'dotenv';
+import { ENV_PATH, EnvValidator, loadEnv } from './env';
 
-const ENV_PATH = path.resolve(__dirname, '..', '.env');
 const AGENT_VERSION = '0.1.0';
 
-// Kurulum, mevcut kimlik bilgilerine ihtiyaç duymaz → config.ts import EDİLMEZ.
-dotenv.config({ path: ENV_PATH });
-const API_URL = process.env.STOKPILOT_API_URL ?? 'http://localhost:3000/api/v1';
+// Kurulum, mevcut kimlik bilgilerine ihtiyaç duymaz → config.ts import EDİLMEZ
+// (o modül AGENT_ID/AGENT_API_KEY zorunlu kılar; burada onları HENÜZ almadık).
+// Yine de API adresi doğrulanmalı: bozuk bir URL ile aşağıdaki POST anlamsız
+// bir ağ hatasıyla düşerdi.
+loadEnv();
+const setupEnv = new EnvValidator();
+const API_URL = setupEnv.requireUrl('STOKPILOT_API_URL', 'http://localhost:3000/api/v1');
+setupEnv.assertValid();
 
 // .env içinde KEY=value satırını günceller; yoksa sonuna ekler.
 function upsertEnv(content: string, key: string, value: string): string {
