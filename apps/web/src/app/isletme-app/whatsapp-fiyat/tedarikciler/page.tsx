@@ -128,11 +128,16 @@ export default function WhatsappTedarikcilerPage() {
                       )}
                     </div>
                   </div>
-                  <Button asChild size="sm" variant="outline" className="shrink-0 gap-1.5">
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 gap-1.5 border-[#FFBD2E] text-[#91670C] hover:bg-[#FFBD2E]/10"
+                  >
                     <Link
                       href={`/isletme-app/whatsapp-fiyat/tedarikciler/duzenle?supplierId=${supplier.id}`}
                     >
-                      <Pencil className="h-3.5 w-3.5" />
+                      <Pencil className="h-3.5 w-3.5 text-[#FFBD2E]" />
                       Düzenle
                     </Link>
                   </Button>

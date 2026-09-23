@@ -81,9 +81,14 @@ export default function GuncelFiyatListeleriPage() {
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 border-[#FFBD2E] text-[#91670C] hover:bg-[#FFBD2E]/10"
+                        asChild
+                      >
                         <Link href={`/isletme-app/whatsapp-fiyat/duzenle?uploadId=${upload.id}`}>
-                          <Pencil className="h-3.5 w-3.5" />
+                          <Pencil className="h-3.5 w-3.5 text-[#FFBD2E]" />
                           Düzenle
                         </Link>
                       </Button>

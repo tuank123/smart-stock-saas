@@ -141,21 +141,21 @@ export default function OnayBekleyenTedarikcilerPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="gap-1.5 border-green-300 text-green-700 hover:bg-green-50"
+                      className="gap-1.5 border-[#28C840] text-[#238031] hover:bg-[#28C840]/10"
                       disabled={mutationBusy}
                       onClick={() => approveMutation.mutate(upload.id)}
                     >
-                      <CheckCircle className="h-3.5 w-3.5" />
+                      <CheckCircle className="h-3.5 w-3.5 text-[#28C840]" />
                       Onayla
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="gap-1.5 border-red-300 text-red-700 hover:bg-red-50"
+                      className="gap-1.5 border-[#FF5F57] text-[#DB1B12] hover:bg-[#FF5F57]/10"
                       disabled={mutationBusy}
                       onClick={() => rejectMutation.mutate(upload.id)}
                     >
-                      <XCircle className="h-3.5 w-3.5" />
+                      <XCircle className="h-3.5 w-3.5 text-[#FF5F57]" />
                       Reddet
                     </Button>
                   </div>
