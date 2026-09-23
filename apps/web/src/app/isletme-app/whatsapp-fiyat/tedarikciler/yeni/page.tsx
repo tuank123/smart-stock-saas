@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ClipboardList } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { StationPageHeader } from '@/components/layout/StationPageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,20 +55,7 @@ export default function WhatsappYeniTedarikciPage() {
 
   return (
     <div className="mx-auto w-full max-w-lg">
-      <StationPageHeader
-        title="Yeni Tedarikçi"
-        right={
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.push('/isletme-app/whatsapp-fiyat/tedarikciler/onay-bekleyen')}
-            className="gap-1.5 text-xs text-muted-foreground"
-          >
-            <ClipboardList className="h-4 w-4" />
-            Onay Bekleyen Kayıtlar
-          </Button>
-        }
-      />
+      <StationPageHeader title="Yeni Tedarikçi" />
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-1.5">

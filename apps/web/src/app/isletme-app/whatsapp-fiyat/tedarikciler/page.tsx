@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle, Pencil, Plus, Search, XCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { CheckCircle, ClipboardList, Pencil, Plus, Search, XCircle } from 'lucide-react';
 import { StationPageHeader } from '@/components/layout/StationPageHeader';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,8 @@ function SkeletonCard() {
 }
 
 export default function WhatsappTedarikcilerPage() {
+  const router = useRouter();
+
   // Arama client-side (backend'de tedarikçi için search parametresi yok —
   // kapsam dışı), bu yüzden gerçek bir "Sonraki/Önceki" pager yerine izin
   // verilen üst sınır (100) isteniyor ki arama tüm tedarikçiler üzerinde
@@ -49,7 +52,20 @@ export default function WhatsappTedarikcilerPage() {
 
   return (
     <div className="mx-auto w-full max-w-lg">
-      <StationPageHeader title="Tedarikçi Bilgileri" />
+      <StationPageHeader
+        title="Tedarikçi Bilgileri"
+        right={
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => router.push('/isletme-app/whatsapp-fiyat/tedarikciler/onay-bekleyen')}
+            className="h-auto gap-1.5 p-0 text-xs text-muted-foreground"
+          >
+            <ClipboardList className="h-4 w-4" />
+            Onay Bekleyen Kayıtlar
+          </Button>
+        }
+      />
 
       {/* Yeni tedarikçi */}
       <Button
