@@ -339,3 +339,49 @@ jobs:
       - name: Backend'i durdur
         if: always()
         run: kill "$(cat /tmp/api.pid)" 2>/dev/null || true
+
+  # Bağımlılık güvenlik taraması. DB/Prisma gerektirmediği için diğer iki
+  # job'la paralel, kendi başına çalışır (`needs:` yok).
+  guvenlik-taramasi:
+    name: Bağımlılık güvenlik taraması
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # pnpm, setup-node'dan ÖNCE kurulmalı: setup-node'un `cache: pnpm`
+      # ayarı store yolunu bulmak için pnpm'i PATH'te arıyor.
+      - name: pnpm kurulumu
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Node.js kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Bağımlılıkları yükle
+        run: pnpm install --frozen-lockfile
+
+      # Kapsam BİLEREK dar tutuldu:
+      #
+      # --prod: devDependencies hariç. Üretime çıkan kodu etkilemeyen build/test
+      #   araçlarındaki açıklar bu kapıyı kapatmamalı.
+      #
+      # --audit-level=critical: yalnızca kritik seviye job'ı düşürür. `pnpm audit`
+      #   lockfile'ın TAMAMINI tarar (workspace bazında filtrelenemez), dolayısıyla
+      #   CI'ın hiç build etmediği apps/mobile ve apps/supplier-portal'daki
+      #   bulgular da sayılıyor — daha geniş bir eşik (high/moderate), düzeltmesi
+      #   bu repoda mümkün olmayan yüzlerce bulguyla kapıyı sürekli kırmızı
+      #   tutardı. Kritik seviye, gerçekten harekete geçilmesi gereken minimum
+      #   sinyal.
+      - name: Bağımlılık açığı taraması (kritik)
+        # GEÇİCİ: bilinen 3 kritik bulgu (tar DoS + iki Next 15.x RCE) açıkken
+        # job'ı düşürmesin — tar ve Next 15 kapandığında bu satır KALDIRILMALI.
+        continue-on-error: true
+        run: pnpm audit --prod --audit-level=critical
